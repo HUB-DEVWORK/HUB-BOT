@@ -1,0 +1,73 @@
+"""Composition root — builds the object graph from Settings.
+
+App-lifetime singletons (engine, redis, panel client, gateway factory, services) live here;
+a fresh :class:`UnitOfWork` is produced per operation via :meth:`uow`. The web app, the taskiq
+worker and ``scripts/smoke.py`` all construct one of these.
+"""
+
+from __future__ import annotations
+
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
+from src.application.services.payment import PaymentService
+from src.application.services.pricing import PricingService
+from src.application.services.promo import PromoService
+from src.application.services.purchase import PurchaseService
+from src.application.services.referral import ReferralService
+from src.application.services.remnawave import RemnawaveService
+from src.application.services.subscription import SubscriptionService
+from src.core.config import Settings, get_settings
+from src.core.i18n import Translator, load_translations
+from src.infrastructure.database.engine import create_engine, create_session_factory
+from src.infrastructure.database.uow import UnitOfWork
+from src.infrastructure.events import InProcessEventBus
+from src.infrastructure.payments.crypto import SecretBox
+from src.infrastructure.payments.factory import GatewayFactory
+from src.infrastructure.redis.client import create_redis
+from src.infrastructure.remnawave.client import RemnawaveHttpClient
+from src.infrastructure.remnawave.connection import build_profile
+from src.infrastructure.remnawave.webhook import WebhookVerifier
+from src.infrastructure.services.notification import LogNotifier
+
+
+class AppContainer:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+        # --- infrastructure singletons ------------------------------------
+        self.engine: AsyncEngine = create_engine(settings)
+        self.session_factory: async_sessionmaker[AsyncSession] = create_session_factory(self.engine)
+        self.redis: Redis = create_redis(settings)
+
+        self.remnawave_client = RemnawaveHttpClient.from_profile(build_profile(settings.remnawave))
+        self.panel_webhook = WebhookVerifier(settings.remnawave.webhook_secret)
+        self.gateway_factory = GatewayFactory()
+        self.secret_box: SecretBox | None = (
+            SecretBox(settings.app.crypt_key) if settings.app.crypt_key else None
+        )
+        self.event_bus = InProcessEventBus()
+        self.translator: Translator = load_translations()
+        self.notifier = LogNotifier()
+
+        # --- services (stateless singletons) ------------------------------
+        self.remnawave = RemnawaveService(self.remnawave_client)
+        self.pricing = PricingService()
+        self.subscriptions = SubscriptionService(self.remnawave)
+        self.purchase = PurchaseService(self.pricing, self.subscriptions, self.event_bus)
+        self.payments = PaymentService(self.purchase, self.event_bus)
+        self.referrals = ReferralService(self.event_bus)
+        self.promo = PromoService()
+
+    @classmethod
+    def from_env(cls) -> AppContainer:
+        return cls(get_settings())
+
+    def uow(self) -> UnitOfWork:
+        """A fresh unit of work. Use as ``async with container.uow() as uow: ...``."""
+        return UnitOfWork(self.session_factory)
+
+    async def aclose(self) -> None:
+        await self.remnawave_client.aclose()
+        await self.redis.aclose()
+        await self.engine.dispose()

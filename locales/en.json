@@ -1,0 +1,11 @@
+{
+  "WELCOME": "Welcome! Here you can buy and manage your VPN subscription.",
+  "SUBSCRIPTION_ACTIVE": "Your subscription is active until {expire_at}.",
+  "SUBSCRIPTION_EXPIRED": "Your subscription has expired.",
+  "PAYMENT_SUCCESS": "Payment received — your subscription is ready.",
+  "PAYMENT_PENDING": "Waiting for your payment...",
+  "TRIAL_GRANTED": "Your {days}-day trial is activated.",
+  "REFERRAL_REWARD": "You earned {amount} for an invited friend's payment.",
+  "PROMO_APPLIED": "Promocode applied: {reward}.",
+  "ERROR_GENERIC": "Something went wrong. Please try again later."
+}

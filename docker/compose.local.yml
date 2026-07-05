@@ -1,0 +1,60 @@
+# Local development stack. Copy ../.env.example -> ../.env first.
+name: vpn-shop-base
+
+x-app: &app
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  env_file: ../.env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DATABASE__USER:-vpn}
+      POSTGRES_PASSWORD: ${DATABASE__PASSWORD:-vpn}
+      POSTGRES_DB: ${DATABASE__NAME:-vpn}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE__USER:-vpn}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Web seam: payment + panel webhooks, health. Owns migrations.
+  web:
+    <<: *app
+    environment:
+      RUN_MIGRATIONS: "true"
+    command: ["uvicorn", "src.web.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    ports: ["8080:8080"]
+
+  # Background jobs: payment processing, panel-sync + retry queue, backups.
+  worker:
+    <<: *app
+    command: ["taskiq", "worker", "src.infrastructure.taskiq.broker:broker", "src.infrastructure.taskiq.tasks"]
+
+  # Scheduled jobs (autopay reminders, backups, reconcile).
+  scheduler:
+    <<: *app
+    command: ["taskiq", "scheduler", "src.infrastructure.taskiq.broker:scheduler"]
+
+volumes:
+  pgdata:

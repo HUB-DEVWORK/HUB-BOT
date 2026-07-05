@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtualenv / uv
+.venv/
+venv/
+uv.lock.local
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Tooling caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime artifacts
+*.log
+/backups/
+/data/
+
+# Claude Code — keep shared settings + skills in git; ignore personal overrides
+.claude/settings.local.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

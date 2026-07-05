@@ -1,0 +1,11 @@
+{
+  "WELCOME": "Привет! Здесь можно купить и управлять VPN-подпиской.",
+  "SUBSCRIPTION_ACTIVE": "Подписка активна до {expire_at}.",
+  "SUBSCRIPTION_EXPIRED": "Срок подписки истёк.",
+  "PAYMENT_SUCCESS": "Оплата получена — подписка готова.",
+  "PAYMENT_PENDING": "Ожидаем оплату...",
+  "TRIAL_GRANTED": "Пробный период на {days} дн. активирован.",
+  "REFERRAL_REWARD": "Начислено {amount} за оплату приглашённого друга.",
+  "PROMO_APPLIED": "Промокод применён: {reward}.",
+  "ERROR_GENERIC": "Что-то пошло не так. Попробуйте позже."
+}
