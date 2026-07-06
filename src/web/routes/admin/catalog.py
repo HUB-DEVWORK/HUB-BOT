@@ -44,6 +44,7 @@ def _plan_row(plan: Plan, sales: int) -> dict[str, Any]:
         "is_active": plan.is_active,
         "is_trial": plan.is_trial,
         "order_index": plan.order_index,
+        "internal_squads": list(plan.internal_squads or []),
         "durations": durations,
         "sales": sales,
     }
@@ -88,6 +89,7 @@ class PlanIn(BaseModel):
     traffic_limit_gb: int | None = Field(None, ge=0)  # None/0 -> unlimited
     device_limit: int | None = Field(None, ge=1, le=100)
     durations: list[DurationIn] = Field(default_factory=list)
+    internal_squads: list[str] = Field(default_factory=list)  # panel squad uuids
     is_active: bool = True
 
 
@@ -107,6 +109,7 @@ async def create_plan(
             description=body.description,
             traffic_limit_bytes=(body.traffic_limit_gb or 0) * GIB or None,
             device_limit=body.device_limit,
+            internal_squads=list(body.internal_squads),
             is_active=body.is_active,
         )
         await uow.plans.add(plan)
@@ -134,6 +137,7 @@ class PlanPatch(BaseModel):
     device_limit: int | None = Field(None, ge=1, le=100)
     is_active: bool | None = None
     durations: list[DurationIn] | None = None
+    internal_squads: list[str] | None = None
 
 
 @router.patch("/plans/{plan_id}")
@@ -159,6 +163,8 @@ async def patch_plan(
             plan.device_limit = data["device_limit"]
         if "is_active" in data and data["is_active"] is not None:
             plan.is_active = data["is_active"]
+        if body.internal_squads is not None:
+            plan.internal_squads = list(body.internal_squads)
         if body.durations is not None:
             # Replace the duration/price grid (RUB prices; other currencies later).
             for old in list(plan.durations):

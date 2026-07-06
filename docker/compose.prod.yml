@@ -1,0 +1,102 @@
+# Production stack for one-command install (scripts/install.sh).
+# Caddy terminates HTTPS automatically when DOMAIN is set (Let's Encrypt).
+name: vpnhub
+
+x-app: &app
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  env_file: ../.env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  volumes:
+    - uploads:/app/uploads
+    - backups:/app/backups
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DATABASE__USER:-vpn}
+      POSTGRES_PASSWORD: ${DATABASE__PASSWORD:?set in .env}
+      POSTGRES_DB: ${DATABASE__NAME:-vpn}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    shm_size: 128mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE__USER:-vpn}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "96mb", "--maxmemory-policy", "allkeys-lru"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    <<: *app
+    environment:
+      RUN_MIGRATIONS: "true"
+    command: ["uvicorn", "src.web.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    expose: ["8080"]
+
+  bot:
+    <<: *app
+    command: ["python", "-m", "src.bot.main"]
+
+  worker:
+    <<: *app
+    command:
+      [
+        "taskiq",
+        "worker",
+        "src.infrastructure.taskiq.broker:broker",
+        "src.infrastructure.taskiq.tasks",
+        "--workers",
+        "1",
+      ]
+
+  scheduler:
+    <<: *app
+    command:
+      [
+        "taskiq",
+        "scheduler",
+        "src.infrastructure.taskiq.broker:scheduler",
+        "src.infrastructure.taskiq.tasks",
+      ]
+
+  # Automatic HTTPS in front of web (uses DOMAIN + ACME_EMAIL from .env).
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-:80}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  pgdata:
+  uploads:
+  backups:
+  caddy_data:
+  caddy_config:

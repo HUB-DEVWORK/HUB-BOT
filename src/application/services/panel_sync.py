@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from src.application.common.panel import RemnawaveClient
 from src.core.enums import ServerNodeStatus
 from src.infrastructure.database.models.server_node import ServerNode
+from src.infrastructure.database.models.server_squad import ServerSquad
 
 if TYPE_CHECKING:
     from src.infrastructure.database.uow import UnitOfWork
@@ -53,4 +54,22 @@ class PanelSyncService:
             if uuid_ not in seen:
                 row.status = ServerNodeStatus.OFFLINE
                 row.last_sync_at = now
+
+        await self.sync_squads(uow)
         return len(panel_nodes)
+
+    async def sync_squads(self, uow: UnitOfWork) -> int:
+        """Mirror internal squads (upsert by uuid; keep local pricing/flags)."""
+        panel_squads = await self._client.get_internal_squads()
+        existing = {sq.squad_uuid: sq for sq in await uow.server_squads.list()}
+        for ps in panel_squads:
+            row = existing.get(ps.uuid)
+            if row is None:
+                row = ServerSquad(squad_uuid=ps.uuid, display_name=ps.name, original_name=ps.name)
+                await uow.server_squads.add(row)
+            else:
+                row.original_name = ps.name
+                if not row.display_name:
+                    row.display_name = ps.name
+            row.current_users = ps.members_count
+        return len(panel_squads)

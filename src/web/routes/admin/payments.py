@@ -291,6 +291,31 @@ PROVIDER_META: dict[PaymentGatewayType, dict[str, Any]] = {
 }
 
 
+# Payment forms each provider can offer + brand color for the UI monogram.
+PROVIDER_EXTRAS: dict[PaymentGatewayType, dict[str, Any]] = {
+    PaymentGatewayType.TELEGRAM_STARS: {"forms": ["stars"], "brand": "#F7971D"},
+    PaymentGatewayType.MANUAL: {"forms": ["balance"], "brand": "#6E6E6E"},
+    PaymentGatewayType.YOOKASSA: {"forms": ["card", "sbp"], "brand": "#8B3FFD"},
+    PaymentGatewayType.CRYPTOBOT: {"forms": ["crypto"], "brand": "#2AABEE"},
+    PaymentGatewayType.CRYPTOMUS: {"forms": ["crypto"], "brand": "#3A86FF"},
+    PaymentGatewayType.TRIBUTE: {"forms": ["card"], "brand": "#F5C518"},
+    PaymentGatewayType.PLATEGA: {"forms": ["card", "sbp"], "brand": "#00A86B"},
+    PaymentGatewayType.HELEKET: {"forms": ["crypto"], "brand": "#7B61FF"},
+    PaymentGatewayType.WATA: {"forms": ["card", "sbp"], "brand": "#0FA3B1"},
+    PaymentGatewayType.FREEKASSA: {"forms": ["card", "sbp", "wallet"], "brand": "#FF6B00"},
+    PaymentGatewayType.PAYPALYCH: {"forms": ["card", "sbp"], "brand": "#4C6FFF"},
+    PaymentGatewayType.CLOUDPAYMENTS: {"forms": ["card"], "brand": "#2F9BFF"},
+    PaymentGatewayType.MULENPAY: {"forms": ["card", "sbp"], "brand": "#9C27B0"},
+    PaymentGatewayType.KASSA_AI: {"forms": ["card", "sbp"], "brand": "#00BFA5"},
+    PaymentGatewayType.RIOPAY: {"forms": ["card", "sbp"], "brand": "#E91E63"},
+    PaymentGatewayType.SEVERPAY: {"forms": ["card", "sbp"], "brand": "#3F51B5"},
+    PaymentGatewayType.PAYPEAR: {"forms": ["card", "sbp"], "brand": "#8BC34A"},
+    PaymentGatewayType.AURAPAY: {"forms": ["card", "sbp"], "brand": "#FF9800"},
+    PaymentGatewayType.OVERPAY: {"forms": ["card", "crypto"], "brand": "#607D8B"},
+    PaymentGatewayType.ROLLYPAY: {"forms": ["sbp", "crypto"], "brand": "#00BCD4"},
+}
+
+
 def _provider_row(g: PaymentGateway | None, gtype: PaymentGatewayType) -> dict[str, Any]:
     # Secrets are never echoed: only which config keys are present.
     meta = PROVIDER_META.get(
@@ -309,7 +334,11 @@ def _provider_row(g: PaymentGateway | None, gtype: PaymentGatewayType) -> dict[s
         "is_active": g.is_active if g else False,
         "currency": g.currency.value if g else "RUB",
         "fee_bp": g.fee_bp if g else 0,
-        "configured_keys": sorted(g.settings.keys()) if g else [],
+        "configured_keys": sorted(k for k in (g.settings if g else {}) if k != "enabled_forms"),
+        "forms": PROVIDER_EXTRAS.get(gtype, {}).get("forms", []),
+        "enabled_forms": (g.settings.get("enabled_forms") if g else None)
+        or PROVIDER_EXTRAS.get(gtype, {}).get("forms", []),
+        "brand": PROVIDER_EXTRAS.get(gtype, {}).get("brand", "#666"),
     }
 
 
@@ -329,6 +358,7 @@ class ProviderIn(BaseModel):
     display_name: str | None = Field(None, max_length=64)
     is_active: bool | None = None
     fee_bp: int | None = Field(None, ge=0, le=10_000)
+    enabled_forms: list[str] | None = None
     # Provider credentials (api key, merchant id, webhook secret...). Merged into
     # existing settings; secret-looking keys are Fernet-encrypted at rest.
     settings: dict[str, str] | None = None
@@ -354,6 +384,11 @@ async def upsert_provider(
             gw.is_active = body.is_active
         if body.fee_bp is not None:
             gw.fee_bp = body.fee_bp
+        if body.enabled_forms is not None:
+            allowed = set(PROVIDER_EXTRAS.get(body.type, {}).get("forms", []))
+            gw.settings = dict(gw.settings) | {
+                "enabled_forms": [f for f in body.enabled_forms if f in allowed]
+            }
         if body.settings:
             merged = dict(gw.settings)
             for k, v in body.settings.items():
