@@ -19,8 +19,11 @@ from src.core.constants import (
     UNLIMITED_TRAFFIC_BYTES,
 )
 from src.core.exceptions import RemnawaveVersionError
+from src.core.logging import get_logger
 
 _USERNAME_MAX = 34
+_UNKNOWN_VERSION = (0, 0, 0)
+log = get_logger(__name__)
 
 
 class RemnawaveService:
@@ -28,8 +31,16 @@ class RemnawaveService:
         self._client = client
 
     async def ensure_supported(self) -> PanelVersion:
-        """Probe the panel version at startup; reject anything below the minimum."""
+        """Probe the panel version at startup.
+
+        Only hard-fails when the version is *known* and below the minimum. Some panels do
+        not expose their version via the API — in that case we proceed with a warning rather
+        than block a healthy panel (verified: panel.shketozavr.com reports no version field).
+        """
         version = await self._client.get_version()
+        if version.tuple == _UNKNOWN_VERSION:
+            log.warning("panel_version_unknown", note="proceeding without a version gate")
+            return version
         if version.tuple < MIN_REMNAWAVE_VERSION:
             raise RemnawaveVersionError(
                 f"panel {version.raw} < required {'.'.join(map(str, MIN_REMNAWAVE_VERSION))}"

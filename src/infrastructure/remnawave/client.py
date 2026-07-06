@@ -57,25 +57,43 @@ def _parse_dt(value: Any) -> dt.datetime | None:
         return None
 
 
+def _used_bytes(data: dict[str, Any]) -> int:
+    """Read used traffic. On Remnawave the user carries ``userTraffic`` (number or object);
+    fall back to the older ``trafficUsedBytes`` / ``usedTrafficBytes`` spellings."""
+    value: Any = data.get("userTraffic")
+    if isinstance(value, dict):
+        value = value.get("total") or value.get("used") or value.get("usedBytes") or 0
+    if value is None:
+        value = data.get("trafficUsedBytes") or data.get("usedTrafficBytes") or 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _to_panel_user(data: dict[str, Any]) -> PanelUser:
+    # Field names verified against a live panel (see docs/context/01): shortUuid,
+    # externalSquadUuid, userTraffic — with legacy fallbacks kept for older versions.
     return PanelUser(
         uuid=uuid.UUID(str(data["uuid"])),
-        short_id=str(data.get("shortId") or data.get("short_id") or ""),
+        short_id=str(data.get("shortUuid") or data.get("shortId") or ""),
         username=str(data.get("username") or ""),
         is_enabled=str(data.get("status", "ACTIVE")).upper() == "ACTIVE",
         expire_at=_parse_dt(data.get("expireAt") or data.get("expire_at")),
         traffic_limit_bytes=int(data.get("trafficLimitBytes") or 0),
-        traffic_used_bytes=int(data.get("usedTrafficBytes") or 0),
+        traffic_used_bytes=_used_bytes(data),
         device_limit=data.get("hwidDeviceLimit"),
         subscription_url=data.get("subscriptionUrl") or data.get("subscription_url"),
         telegram_id=data.get("telegramId"),
         internal_squads=tuple(str(s) for s in data.get("activeInternalSquads") or []),
-        external_squad=data.get("activeExternalSquad"),
+        external_squad=data.get("externalSquadUuid") or data.get("activeExternalSquad"),
         tag=data.get("tag"),
     )
 
 
 def _spec_payload(spec: ProvisionSpec) -> dict[str, Any]:
+    # Create/update INPUT field names. Read-side names are panel-verified; the write side
+    # still needs confirmation on a test panel (do not test writes on production).
     payload: dict[str, Any] = {
         "username": spec.username,
         "expireAt": spec.expire_at.astimezone(dt.UTC).isoformat(),
@@ -87,7 +105,7 @@ def _spec_payload(spec: ProvisionSpec) -> dict[str, Any]:
     if spec.device_limit is not None:
         payload["hwidDeviceLimit"] = spec.device_limit
     if spec.external_squad:
-        payload["activeExternalSquad"] = spec.external_squad
+        payload["externalSquadUuid"] = spec.external_squad
     if spec.description:
         payload["description"] = spec.description
     return payload

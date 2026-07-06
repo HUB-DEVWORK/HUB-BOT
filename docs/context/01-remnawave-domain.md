@@ -90,4 +90,23 @@ HMAC-валидируются секретом `REMNAWAVE__WEBHOOK_SECRET`. Ти
 - `username`/`description` панель-user'а — шаблонятся с постоянным суффиксом `short_id`
   подписки; `username` клампится по длине.
 
+## Реальные имена полей API (проверено на живой панели)
+
+Сверено read-only против рабочей панели (`scripts/check_panel.py`) — используй эти имена,
+у клиента `_to_panel_user` уже под них выровнен:
+
+- **User** (`GET /api/users`): `uuid`, `shortUuid` (НЕ `shortId`), `username`, `status`,
+  `expireAt`, `trafficLimitBytes`, `userTraffic` (использованный трафик; НЕ `usedTrafficBytes`),
+  `hwidDeviceLimit`, `subscriptionUrl`, `telegramId`, `activeInternalSquads` (список),
+  `externalSquadUuid` (НЕ `activeExternalSquad`), `tag`, `trafficLimitStrategy`, `email`,
+  `vlessUuid`/`trojanPassword`/`ssPassword` (секреты протоколов).
+- **Internal squad** (`GET /api/internal-squads` → `response.internalSquads[]`): `uuid`, `name`,
+  `info`, `inbounds`, `viewPosition`.
+- **Node** (`GET /api/nodes`): `uuid`, `name`, `isConnected`, `countryCode`, `address`, `port`,
+  `trafficUsedBytes`, `trafficLimitBytes`, `usersOnline`, `isDisabled`, `xrayUptime`.
+- **Версия**: `GET /api/system/health` и `/api/system/stats` версию **НЕ** отдают → probe
+  версии не должен ронять старт (`ensure_supported` при неизвестной версии лишь предупреждает).
+- **Write-путь (create/update user) НЕ проверен** — на проде не тестировали; имена input-полей
+  выровнять на тестовой панели перед провижинингом.
+
 См. дальше: `02-subscription-lifecycle.md` — как всё это склеивается в покупку/продление/синк.

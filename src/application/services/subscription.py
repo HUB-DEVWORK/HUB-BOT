@@ -103,7 +103,7 @@ class SubscriptionService:
             expire_at=subscription.expire_at,
             traffic_limit_bytes=subscription.traffic_limit_bytes,
             device_limit=subscription.device_limit,
-            internal_squads=tuple(subscription.internal_squads),
+            internal_squads=tuple(subscription.internal_squads or ()),
             external_squad=subscription.external_squad,
         )
         await self._remnawave.apply(subscription.remnawave_uuid, spec)
