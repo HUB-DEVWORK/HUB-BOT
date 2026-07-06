@@ -1,0 +1,52 @@
+{
+  "$comment": "Manifest of selectable mini-app templates. A future admin panel reads this to let the VPN-service owner pick a look. `id` maps to templates/<id>/.",
+  "version": 1,
+  "default": "aurora",
+  "templates": [
+    {
+      "id": "aurora",
+      "name": "Aurora",
+      "tagline": {
+        "ru": "Премиум-градиент и стекло",
+        "en": "Premium gradient & glass"
+      },
+      "description": {
+        "ru": "Яркий градиент, матовое стекло, «жидкое» кольцо дней. Светлая и тёмная тема.",
+        "en": "Vibrant gradient, frosted glass, liquid day-ring. Light & dark aware."
+      },
+      "accent": "#7c5cff",
+      "supports": ["light", "dark"],
+      "entry": "templates/aurora/index.html"
+    },
+    {
+      "id": "slate",
+      "name": "Slate",
+      "tagline": {
+        "ru": "Минимал, нативный Telegram",
+        "en": "Minimal, native Telegram"
+      },
+      "description": {
+        "ru": "Спокойный список-стиль, подхватывает тему Telegram (themeParams). Быстрый и ненавязчивый.",
+        "en": "Calm grouped-list style that adopts the Telegram theme. Fast and understated."
+      },
+      "accent": "#2f80ed",
+      "supports": ["light", "dark", "telegram-theme"],
+      "entry": "templates/slate/index.html"
+    },
+    {
+      "id": "nebula",
+      "name": "Nebula",
+      "tagline": {
+        "ru": "Тёмный неон, кибер",
+        "en": "Dark neon, cyber"
+      },
+      "description": {
+        "ru": "Неоновый HUD со свечением, моноширинные цифры, геймификация. Только тёмная.",
+        "en": "Glowing neon HUD, monospace numerics, gamified. Dark only."
+      },
+      "accent": "#21e6ff",
+      "supports": ["dark"],
+      "entry": "templates/nebula/index.html"
+    }
+  ]
+}
