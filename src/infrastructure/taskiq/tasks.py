@@ -318,12 +318,14 @@ async def send_broadcast(broadcast_id: int) -> None:
     per-user failures (blocked bot, deactivated account) increment ``failed``.
     """
     import asyncio
+    from pathlib import Path
 
     from aiogram import Bot
     from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
-    from src.core.enums import BroadcastStatus
+    from src.bot.keyboards import style_for_hex
+    from src.core.enums import BroadcastMedia, BroadcastStatus
     from src.web.routes.admin.broadcasts import audience_stmt
 
     container = get_container()
@@ -338,25 +340,59 @@ async def send_broadcast(broadcast_id: int) -> None:
         ]
         text, button_enabled = b.text, b.button_enabled
         button_text, button_url = b.button_text, b.button_url
+        button_action, button_color = b.button_action, b.button_color
+        media, media_path, emoji_id = b.media, b.media_path, b.emoji_id
         await uow.commit()
 
+    # Premium custom emoji renders via <tg-emoji>; falls back to the plain glyph.
+    if emoji_id:
+        text = f'<tg-emoji emoji-id="{emoji_id}">⭐</tg-emoji> {text}'
+
     markup = None
-    if button_enabled and button_text and button_url:
+    if button_enabled and button_text and (button_url or button_action):
+        kwargs: dict[str, object] = {"text": button_text}
+        if button_url:
+            kwargs["url"] = button_url
+        else:
+            kwargs["callback_data"] = f"act:{button_action}:0"
+        style = style_for_hex(button_color)
+        if style:
+            kwargs["style"] = style
         markup = InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text=button_text, url=button_url)]]
+            inline_keyboard=[[InlineKeyboardButton(**kwargs)]]  # type: ignore[arg-type]
         )
+
+    media_file = None
+    if media is not BroadcastMedia.TEXT and media_path and Path(media_path).is_file():
+        media_file = FSInputFile(media_path)
+
+    async def deliver(chat_id: int) -> None:
+        if media_file is not None and media is BroadcastMedia.PHOTO:
+            await bot.send_photo(
+                chat_id, media_file, caption=text, reply_markup=markup, parse_mode="HTML"
+            )
+        elif media_file is not None and media is BroadcastMedia.VIDEO:
+            await bot.send_video(
+                chat_id, media_file, caption=text, reply_markup=markup, parse_mode="HTML"
+            )
+        elif media_file is not None and media is BroadcastMedia.GIF:
+            await bot.send_animation(
+                chat_id, media_file, caption=text, reply_markup=markup, parse_mode="HTML"
+            )
+        else:
+            await bot.send_message(chat_id, text, reply_markup=markup, parse_mode="HTML")
 
     sent = failed = 0
     bot = Bot(token=container.settings.bot.token)
     try:
         for i, chat_id in enumerate(chat_ids, start=1):
             try:
-                await bot.send_message(chat_id, text, reply_markup=markup, parse_mode="HTML")
+                await deliver(chat_id)
                 sent += 1
             except TelegramRetryAfter as exc:  # flood control — wait and retry once
                 await asyncio.sleep(exc.retry_after)
                 try:
-                    await bot.send_message(chat_id, text, reply_markup=markup, parse_mode="HTML")
+                    await deliver(chat_id)
                     sent += 1
                 except Exception:
                     failed += 1

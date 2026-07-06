@@ -22,6 +22,8 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     # HTTP client for the panel + gateways
     "httpx>=0.27",
+    # Multipart parsing for admin media uploads
+    "python-multipart>=0.0.9",
     # Config & validation
     "pydantic>=2.8",
     "pydantic-settings>=2.4",

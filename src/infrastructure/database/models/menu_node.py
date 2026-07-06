@@ -30,6 +30,7 @@ class MenuNode(IntPk, TimestampMixin, Base):
     payload: Mapped[str | None] = mapped_column(String(4096))
     custom_emoji_id: Mapped[str | None] = mapped_column(String(32))  # premium emoji
     color: Mapped[str | None] = mapped_column(String(9))  # #RRGGBB — Bot API button style
+    image_path: Mapped[str | None] = mapped_column(String(512))  # screen photo (uploads/)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     children: Mapped[list[MenuNode]] = relationship(

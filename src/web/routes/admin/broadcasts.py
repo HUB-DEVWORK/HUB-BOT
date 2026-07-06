@@ -55,8 +55,12 @@ def _row(b: Broadcast) -> dict[str, Any]:
         "audience": b.audience.value,
         "media": b.media.value,
         "text": b.text,
+        "media_path": b.media_path,
         "button_enabled": b.button_enabled,
         "button_text": b.button_text,
+        "button_action": b.button_action,
+        "button_color": b.button_color,
+        "emoji_id": b.emoji_id,
         "status": b.status.value,
         "total": b.total,
         "sent": b.sent,
@@ -103,9 +107,13 @@ class BroadcastIn(BaseModel):
     audience: BroadcastAudience = BroadcastAudience.ALL
     media: BroadcastMedia = BroadcastMedia.TEXT
     text: str = Field(..., min_length=1, max_length=4096)
+    media_path: str | None = Field(None, max_length=512)
     button_enabled: bool = False
     button_text: str | None = Field(None, max_length=64)
     button_url: str | None = Field(None, max_length=512)
+    button_action: str | None = Field(None, max_length=64)
+    button_color: str | None = Field(None, max_length=9)
+    emoji_id: str | None = Field(None, max_length=32)
 
 
 @router.post("")
@@ -121,13 +129,23 @@ async def create_broadcast(
         )
         if total == 0:
             raise HTTPException(400, "audience is empty")
+        if body.media is not BroadcastMedia.TEXT and not (body.media_path or "").startswith(
+            "uploads/"
+        ):
+            raise HTTPException(400, "media broadcast requires an uploaded file")
+        if body.button_enabled and not (body.button_url or body.button_action):
+            raise HTTPException(400, "button needs a url or an action")
         b = Broadcast(
             audience=body.audience,
             media=body.media,
             text=body.text,
+            media_path=body.media_path,
             button_enabled=body.button_enabled,
             button_text=body.button_text,
             button_url=body.button_url,
+            button_action=body.button_action,
+            button_color=body.button_color,
+            emoji_id=body.emoji_id,
             status=BroadcastStatus.PENDING,
             total=total,
             created_by_id=identity.user_id,

@@ -221,6 +221,7 @@ class BroadcastMedia(StrEnum):
     TEXT = "text"
     PHOTO = "photo"
     VIDEO = "video"
+    GIF = "gif"  # sent as animation
 
 
 class BroadcastStatus(StrEnum):

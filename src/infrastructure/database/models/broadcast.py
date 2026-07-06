@@ -31,6 +31,12 @@ class Broadcast(IntPk, TimestampMixin, Base):
     button_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     button_text: Mapped[str | None] = mapped_column(String(64))
     button_url: Mapped[str | None] = mapped_column(String(512))
+    # Alternative to url: a built-in bot action (act:<code>); plus Telegram button
+    # style derived from a HEX color, like menu-constructor buttons.
+    button_action: Mapped[str | None] = mapped_column(String(64))
+    button_color: Mapped[str | None] = mapped_column(String(9))
+    # Premium custom emoji id, prepended to the message text as <tg-emoji>.
+    emoji_id: Mapped[str | None] = mapped_column(String(32))
 
     status: Mapped[BroadcastStatus] = mapped_column(
         Enum(BroadcastStatus, native_enum=False, length=16),

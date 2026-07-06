@@ -24,6 +24,8 @@ from src.web.routes.admin.auth import bootstrap_admin
 _ADMIN_DIST = Path(__file__).resolve().parents[2] / "admin" / "dist"
 # End-user mini-app (static, no build step).
 _MINIAPP_DIR = Path(__file__).resolve().parents[2] / "miniapp" / "app"
+# Admin-uploaded media (broadcasts, menu screens, covers) — created on demand.
+_UPLOADS_DIR = Path("uploads")
 
 
 @asynccontextmanager
@@ -59,6 +61,8 @@ def create_app() -> FastAPI:
         app.mount("/admin", StaticFiles(directory=_ADMIN_DIST, html=True), name="admin-spa")
     if _MINIAPP_DIR.is_dir():
         app.mount("/app", StaticFiles(directory=_MINIAPP_DIR, html=True), name="miniapp")
+    _UPLOADS_DIR.mkdir(exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=_UPLOADS_DIR), name="uploads")
     return app
 
 
