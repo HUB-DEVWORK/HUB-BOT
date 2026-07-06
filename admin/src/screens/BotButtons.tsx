@@ -1,9 +1,9 @@
 /* Screen 05 — Конструктор кнопок бота: tree + editor + live chat preview. */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { api } from "../api/client";
+import { api, getToken } from "../api/client";
 import { Field, Seg } from "../components/ui";
 import { useApp } from "../state/app";
 
@@ -15,6 +15,7 @@ type Node = {
   payload: string | null;
   custom_emoji_id: string | null;
   color: string | null;
+  image_path: string | null;
   is_active: boolean;
   order_index?: number;
 };
@@ -32,6 +33,29 @@ export default function BotButtons() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [selId, setSelId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function uploadImage(f: File) {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", f);
+      const res = await fetch("/api/admin/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: form,
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = (await res.json()) as { path: string };
+      patchSel({ image_path: data.path });
+      toast("✓");
+    } catch (e) {
+      toast(`${t.error}: ${(e as Error).message.slice(0, 80)}`);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   const data = useQuery({
     queryKey: ["bot-menu"],
@@ -68,6 +92,7 @@ export default function BotButtons() {
       payload: null,
       custom_emoji_id: null,
       color: null,
+      image_path: null,
       is_active: true,
       order_index: kids(parent).length,
     };
@@ -123,6 +148,7 @@ export default function BotButtons() {
         payload: n.payload,
         custom_emoji_id: n.custom_emoji_id,
         color: n.color,
+        image_path: n.image_path,
         is_active: n.is_active,
       }));
       const res = await api.put<{ nodes: Node[] }>("/api/admin/bot-menu", { nodes: payload });
@@ -144,24 +170,27 @@ export default function BotButtons() {
   const previewButtons = kids(previewScreenId);
 
   function TreeRow({ node, depth }: { node: Node; depth: number }) {
+    const children = kids(node.id);
     return (
-      <>
+      <div style={{ position: "relative" }}>
         <div
           className="row click"
           style={{
-            padding: "7px 10px",
-            paddingLeft: 10 + depth * 18,
+            padding: "8px 10px",
             cursor: "pointer",
-            background: node.id === selId ? "var(--pill)" : undefined,
-            borderRadius: 3,
+            background: node.id === selId ? "var(--pill)" : "var(--panel2)",
+            border:
+              node.id === selId ? "1px solid var(--muted)" : "1px solid var(--border)",
+            borderRadius: 6,
+            marginBottom: 6,
           }}
           onClick={() => setSelId(node.id)}
         >
           <span
             style={{
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
+              width: 10,
+              height: 10,
+              borderRadius: node.kind === "screen" ? 2 : "50%",
               background: node.color || "var(--border2)",
               flex: "0 0 auto",
             }}
@@ -169,15 +198,38 @@ export default function BotButtons() {
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {node.label}
           </span>
+          {node.image_path && <span title="картинка экрана">🖼</span>}
           {node.custom_emoji_id && <span className="dim">◈</span>}
           <span className="cap-pill" style={{ marginLeft: "auto" }}>
             {kindLabel(node.kind)}
           </span>
         </div>
-        {kids(node.id).map((c) => (
-          <TreeRow key={c.id} node={c} depth={depth + 1} />
-        ))}
-      </>
+        {children.length > 0 && (
+          <div
+            style={{
+              marginLeft: 14,
+              paddingLeft: 16,
+              borderLeft: "2px solid var(--border2)",
+            }}
+          >
+            {children.map((c) => (
+              <div key={c.id} style={{ position: "relative" }}>
+                <span
+                  style={{
+                    position: "absolute",
+                    left: -16,
+                    top: 17,
+                    width: 12,
+                    height: 2,
+                    background: "var(--border2)",
+                  }}
+                />
+                <TreeRow node={c} depth={depth + 1} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -317,6 +369,45 @@ export default function BotButtons() {
                   onChange={(e) => patchSel({ custom_emoji_id: e.target.value || null })}
                 />
               </Field>
+              {sel.kind === "screen" && (
+                <Field label={t.screenImage}>
+                  <div className="row" style={{ flexWrap: "wrap" }}>
+                    <button
+                      className="btn secondary sm"
+                      disabled={uploading}
+                      onClick={() => fileRef.current?.click()}
+                    >
+                      {uploading ? "…" : "🖼 " + t.uploadImage}
+                    </button>
+                    {sel.image_path && (
+                      <>
+                        <img
+                          src={"/" + sel.image_path}
+                          alt=""
+                          style={{ height: 40, borderRadius: 4, border: "1px solid var(--border2)" }}
+                        />
+                        <button
+                          className="btn danger sm"
+                          onClick={() => patchSel({ image_path: null })}
+                        >
+                          ✕
+                        </button>
+                      </>
+                    )}
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.webp"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void uploadImage(f);
+                        e.target.value = "";
+                      }}
+                    />
+                  </div>
+                </Field>
+              )}
             </div>
           ) : (
             <span className="dim">← {t.menuTree}</span>
@@ -340,13 +431,21 @@ export default function BotButtons() {
               style={{
                 background: "var(--pill)",
                 borderRadius: 8,
-                padding: "10px 12px",
+                overflow: "hidden",
                 fontSize: 13,
                 marginBottom: 10,
-                whiteSpace: "pre-wrap",
               }}
             >
-              {previewScreen?.payload || "Привет! Это VPN-бот — выбери действие в меню."}
+              {previewScreen?.image_path && (
+                <img
+                  src={"/" + previewScreen.image_path}
+                  alt=""
+                  style={{ width: "100%", maxHeight: 140, objectFit: "cover", display: "block" }}
+                />
+              )}
+              <div style={{ padding: "10px 12px", whiteSpace: "pre-wrap" }}>
+                {previewScreen?.payload || "Привет! Это VPN-бот — выбери действие в меню."}
+              </div>
             </div>
             <div className="grid" style={{ gap: 6 }}>
               {previewButtons.map((b) => (

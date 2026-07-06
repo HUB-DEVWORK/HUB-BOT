@@ -60,6 +60,20 @@ async def nav_screen(cb: CallbackQuery, container: AppContainer, db_user: User) 
     text = node.payload or node.label
     markup = menu_keyboard(nodes, node.id, miniapp_url=miniapp_url or None, with_back=True)
     if cb.message is not None:
+        if node.image_path:
+            # Screens with an image: send a fresh photo message (can't edit text->photo).
+            from pathlib import Path
+
+            from aiogram.types import FSInputFile
+
+            if Path(node.image_path).is_file():
+                await cb.message.answer_photo(
+                    FSInputFile(node.image_path), caption=text, reply_markup=markup
+                )
+                with contextlib.suppress(Exception):
+                    await cb.message.delete()  # type: ignore[union-attr]
+                await cb.answer()
+                return
         with contextlib.suppress(Exception):  # unchanged content
             await cb.message.edit_text(text, reply_markup=markup)  # type: ignore[union-attr]
     await cb.answer()

@@ -26,6 +26,7 @@ class NodeIn(BaseModel):
     payload: str | None = Field(None, max_length=4096)
     custom_emoji_id: str | None = Field(None, max_length=32)
     color: str | None = Field(None, max_length=9)
+    image_path: str | None = Field(None, max_length=512)
     is_active: bool = True
 
     @field_validator("color")
@@ -52,6 +53,7 @@ def _serialize(nodes: list[MenuNode]) -> list[dict[str, Any]]:
             "payload": n.payload,
             "custom_emoji_id": n.custom_emoji_id,
             "color": n.color,
+            "image_path": n.image_path,
             "is_active": n.is_active,
             "order_index": n.order_index,
         }
@@ -107,6 +109,7 @@ async def save_menu(
                         payload=n.payload,
                         custom_emoji_id=n.custom_emoji_id or None,
                         color=n.color,
+                        image_path=n.image_path or None,
                         is_active=n.is_active,
                     )
                     await uow.menu_nodes.add(row)
