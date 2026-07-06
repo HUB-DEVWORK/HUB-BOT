@@ -89,9 +89,18 @@ class SubscriptionService:
         return subscription
 
     async def renew(
-        self, uow: UnitOfWork, subscription: Subscription, *, days: int
+        self,
+        uow: UnitOfWork,
+        subscription: Subscription,
+        *,
+        days: int,
+        telegram_id: int | None = None,
     ) -> Subscription:
-        """Extend an existing subscription and push the new expiry to the panel."""
+        """Extend an existing subscription and push the new expiry to the panel.
+
+        ``telegram_id`` is passed in explicitly (not read from ``subscription.user``) to avoid
+        an async lazy-load on the relationship.
+        """
         if subscription.remnawave_uuid is None:
             raise PurchaseError("cannot renew a subscription with no panel user")
         base = subscription.expire_at or dt.datetime.now(dt.UTC)
@@ -99,7 +108,7 @@ class SubscriptionService:
         subscription.status = SubscriptionStatus.ACTIVE
         spec = self._remnawave.build_spec(
             short_id=subscription.short_id,
-            telegram_id=subscription.user.telegram_id if subscription.user else None,
+            telegram_id=telegram_id,
             expire_at=subscription.expire_at,
             traffic_limit_bytes=subscription.traffic_limit_bytes,
             device_limit=subscription.device_limit,

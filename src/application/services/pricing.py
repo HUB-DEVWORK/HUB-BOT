@@ -16,7 +16,6 @@ from src.core.exceptions import PurchaseError
 from src.core.money import Money
 from src.infrastructure.database.models.plan import Plan, PlanDuration, PlanPrice
 from src.infrastructure.database.models.promo_group import PromoGroup, UserPromoGroup
-from src.infrastructure.database.models.server_squad import ServerSquad
 
 if TYPE_CHECKING:
     from src.infrastructure.database.uow import UnitOfWork
@@ -66,13 +65,11 @@ class PricingService:
         return int(price)
 
     async def _squads_addon_minor(self, uow: UnitOfWork, req: PurchaseRequest) -> int:
-        if not req.internal_squads:
-            return 0
-        stmt = select(ServerSquad.price_minor).where(
-            ServerSquad.squad_uuid.in_(tuple(req.internal_squads))
-        )
-        prices = (await uow.session.scalars(stmt)).all()
-        return sum(int(p) for p in prices)
+        # ServerSquad.price_minor is a single, currency-less column, so summing it into a
+        # currency-specific base would mix currencies (e.g. RUB kopeks into a USD-cent base).
+        # Squad add-on pricing is intentionally disabled until per-currency squad prices exist
+        # (a plan_prices-style table). Returning 0 keeps charges correct; do NOT sum raw prices.
+        return 0
 
     async def _promo_group_discount(self, uow: UnitOfWork, req: PurchaseRequest) -> int:
         """Highest-priority group the user belongs to; server % + this duration's period %."""

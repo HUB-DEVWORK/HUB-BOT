@@ -52,23 +52,32 @@ class BasePaymentGateway(ABC):
             raise WebhookVerificationError("signature mismatch")
 
     @staticmethod
-    def client_ip(request: WebhookRequest) -> str | None:
-        """Resolve the real client IP, honouring proxy headers (CF, X-Real-IP, XFF)."""
-        headers = {k.lower(): v for k, v in request.headers.items()}
-        for name in ("cf-connecting-ip", "x-real-ip"):
-            if headers.get(name):
-                return headers[name].strip()
-        xff = headers.get("x-forwarded-for")
-        if xff:
-            return xff.split(",")[0].strip()
+    def client_ip(request: WebhookRequest, *, trust_proxy: bool = False) -> str | None:
+        """Resolve the client IP.
+
+        Proxy headers (CF-Connecting-IP / X-Real-IP / X-Forwarded-For) are SPOOFABLE, so they
+        are honoured only when ``trust_proxy=True`` (the deployment is behind a known proxy that
+        sets them). Otherwise the socket peer is used. Secure by default.
+        """
+        if trust_proxy:
+            headers = {k.lower(): v for k, v in request.headers.items()}
+            for name in ("cf-connecting-ip", "x-real-ip"):
+                if headers.get(name):
+                    return headers[name].strip()
+            xff = headers.get("x-forwarded-for")
+            if xff:
+                return xff.split(",")[0].strip()
         return request.client_ip
 
     @classmethod
-    def check_ip_allowlist(cls, request: WebhookRequest, cidrs: list[str]) -> None:
-        """Some providers (e.g. YooKassa) authenticate by source IP, not a shared secret."""
+    def check_ip_allowlist(
+        cls, request: WebhookRequest, cidrs: list[str], *, trust_proxy: bool = False
+    ) -> None:
+        """IP-authenticated providers (e.g. YooKassa). Only honour proxy headers when the
+        gateway config opts into ``trust_proxy`` (deployment is behind a trusted proxy)."""
         if not cidrs:
             return
-        ip_str = cls.client_ip(request)
+        ip_str = cls.client_ip(request, trust_proxy=trust_proxy)
         if ip_str is None:
             raise WebhookVerificationError("no client IP to check against allowlist")
         ip = ipaddress.ip_address(ip_str)

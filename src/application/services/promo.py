@@ -33,7 +33,8 @@ class PromoError(DomainError):
 
 class PromoService:
     async def apply(self, uow: UnitOfWork, user: User, code: str) -> RewardType:
-        promo = await uow.promocodes.get_by_code(code)
+        # Lock the promocode row so the max_activations count-then-insert is atomic.
+        promo = await uow.promocodes.get_by_code_for_update(code)
         if promo is None or not promo.is_active:
             raise PromoError("promocode not found or inactive")
         await self._check_validity(uow, promo, user)
@@ -63,11 +64,13 @@ class PromoService:
             raise PromoError("promocode is for new users only")
         if promo.availability is Availability.EXISTING and not user.has_had_paid_subscription:
             raise PromoError("promocode is for existing customers only")
+        if promo.availability is Availability.INVITED and user.referred_by_id is None:
+            raise PromoError("promocode is for invited (referred) users only")
 
     async def _apply_wallet_reward(self, uow: UnitOfWork, promo: Promocode, user: User) -> None:
         match promo.reward_type:
             case RewardType.BALANCE:
-                user.balance_minor += promo.reward_value
+                await uow.users.increment_balance(user, promo.reward_value)  # atomic
             case RewardType.PERSONAL_DISCOUNT:
                 user.personal_discount_pct = promo.reward_value
             case RewardType.PURCHASE_DISCOUNT:

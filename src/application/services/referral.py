@@ -72,7 +72,7 @@ class ReferralService:
             is_issued=True,
         )
         await uow.referral_earnings.add(earning)
-        referrer.balance_minor += reward
+        await uow.users.increment_balance(referrer, reward)  # atomic (no lost update)
         await uow.transactions.add(
             Transaction(
                 user_id=referrer.id,

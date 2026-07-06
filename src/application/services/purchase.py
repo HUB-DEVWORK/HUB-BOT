@@ -80,8 +80,9 @@ class PurchaseService:
             internal_squads=tuple(pricing.get("internal_squads", [])),
             external_squad=pricing.get("external_squad"),
             purchase_type=txn.purchase_type or PurchaseType.NEW,
+            subscription_id=pricing.get("subscription_id"),
         )
-        subscription = await self._subscriptions.grant(uow, user=user, plan=plan, req=req)
+        subscription = await self._provision(uow, user=user, plan=plan, req=req)
         self._subscriptions.apply_purchase_discount_reset(user, req.purchase_type)
         await uow.flush()  # populate subscription.id
 
@@ -95,6 +96,24 @@ class PurchaseService:
         )
         return subscription
 
+    async def _provision(
+        self, uow: UnitOfWork, *, user: Any, plan: Any, req: PurchaseRequest
+    ) -> Subscription:
+        """Route fulfilment by purchase type so a paid RENEW/CHANGE never mints a duplicate."""
+        if req.purchase_type is PurchaseType.NEW:
+            return await self._subscriptions.grant(uow, user=user, plan=plan, req=req)
+        if req.purchase_type is PurchaseType.RENEW:
+            if req.subscription_id is None:
+                raise PurchaseError("RENEW requires subscription_id")
+            sub = await uow.subscriptions.get(req.subscription_id)
+            if sub is None or sub.user_id != user.id:
+                raise PurchaseError(f"subscription {req.subscription_id} not found for renew")
+            return await self._subscriptions.renew(
+                uow, sub, days=req.duration_days, telegram_id=user.telegram_id
+            )
+        # CHANGE: not implemented yet — fail loud rather than double-provision.
+        raise PurchaseError(f"purchase_type {req.purchase_type.value} is not supported yet")
+
     @staticmethod
     def _pricing_snapshot(req: PurchaseRequest, quote: PriceQuote) -> dict[str, Any]:
         return {
@@ -102,6 +121,7 @@ class PurchaseService:
             "duration_days": req.duration_days,
             "internal_squads": list(req.internal_squads),
             "external_squad": req.external_squad,
+            "subscription_id": req.subscription_id,
             "base_minor": quote.base.amount_minor,
             "discount_pct": quote.discount_pct,
             "final_minor": quote.final.amount_minor,

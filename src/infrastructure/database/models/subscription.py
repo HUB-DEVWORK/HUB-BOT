@@ -27,6 +27,14 @@ if TYPE_CHECKING:
     from src.infrastructure.database.models.user import User
 
 
+# Enum(native_enum=False) persists the member NAME ('ACTIVE'), not .value ('active'),
+# so the partial-index predicate must match NAMES. Derived from the enum to prevent drift.
+_LIVE_STATUS_SQL = ", ".join(
+    f"'{s.name}'"
+    for s in (SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL, SubscriptionStatus.LIMITED)
+)
+
+
 class Subscription(IntPk, TimestampMixin, Base):
     __tablename__ = "subscriptions"
     __table_args__ = (
@@ -36,8 +44,8 @@ class Subscription(IntPk, TimestampMixin, Base):
             "user_id",
             "plan_id",
             unique=True,
-            postgresql_where=text("status IN ('active','trial','limited')"),
-            sqlite_where=text("status IN ('active','trial','limited')"),
+            postgresql_where=text(f"status IN ({_LIVE_STATUS_SQL})"),
+            sqlite_where=text(f"status IN ({_LIVE_STATUS_SQL})"),
         ),
     )
 

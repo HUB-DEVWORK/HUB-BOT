@@ -16,12 +16,12 @@ class MoneyError(Exception):
     """Raised on cross-currency arithmetic or invalid amounts."""
 
 
-@dataclass(frozen=True, slots=True, order=True)
+@dataclass(frozen=True, slots=True)
 class Money:
     """An amount in a single currency, stored as integer minor units.
 
-    ``order=True`` compares by (amount_minor, currency); comparisons across different
-    currencies are meaningless — guard with :meth:`_same_currency` in arithmetic.
+    Ordering comparisons are intentionally NOT provided: comparing amounts across currencies
+    is meaningless. Arithmetic guards currency with :meth:`_same_currency`.
     """
 
     amount_minor: int

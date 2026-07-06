@@ -38,7 +38,12 @@ class WebhookVerifier:
             if key.lower() == self._header:
                 provided = value
                 break
-        if not provided or not hmac.compare_digest(self._expected(body), provided):
+        try:
+            ok = bool(provided) and hmac.compare_digest(self._expected(body), provided)
+        except TypeError:
+            # non-ASCII signature header -> treat as mismatch (403), not an uncaught 500
+            ok = False
+        if not ok:
             raise WebhookVerificationError("panel webhook signature mismatch")
 
     def parse(self, body: bytes) -> PanelEvent:

@@ -7,6 +7,7 @@ guarded by a shared ``secret`` in the gateway settings.
 
 from __future__ import annotations
 
+import hmac
 import uuid
 
 from src.application.common.payments import (
@@ -41,7 +42,7 @@ class ManualGateway(BasePaymentGateway):
 
     async def handle_webhook(self, request: WebhookRequest) -> WebhookResult:
         secret = str(self.settings.get("secret") or "")
-        if secret and request.headers.get("x-admin-secret") != secret:
+        if secret and not hmac.compare_digest(request.headers.get("x-admin-secret") or "", secret):
             raise WebhookVerificationError("manual gateway: bad admin secret")
         data = self.parse_json(request.body)
         raw_id = str(data.get("payment_id") or "")

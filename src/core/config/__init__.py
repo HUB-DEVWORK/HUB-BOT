@@ -60,6 +60,8 @@ class Settings(BaseSettings):
             ensure_filled(self.remnawave.webhook_secret, "REMNAWAVE__WEBHOOK_SECRET")
             if "*" in self.web.cors_origins:
                 raise ValueError("WEB__CORS_ORIGINS must be explicit in production (not '*')")
+            # Fail closed: never run with debug on in production (echo=True leaks SQL + params).
+            self.app.debug = False
         return self
 
 

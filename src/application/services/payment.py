@@ -67,5 +67,5 @@ class PaymentService:
         elif txn.type is TransactionType.DEPOSIT:
             user = await uow.users.get(txn.user_id)
             if user is not None:
-                user.balance_minor += txn.amount_minor
+                await uow.users.increment_balance(user, txn.amount_minor)  # atomic (no lost update)
                 user.has_made_first_topup = True
