@@ -64,7 +64,7 @@ export default function Dashboard() {
   const backup = useMutation({
     mutationFn: () => api.post("/api/admin/maintenance/backup"),
     onSuccess: () => toast(t.quickBackup + " ✓"),
-    onError: (e) => toast(`${t.error}: ${e.message}`),
+    onError: (e) => toast(e.message),
   });
 
   async function syncPanel() {
@@ -74,7 +74,7 @@ export default function Dashboard() {
       toast(`${t.syncRemnawave}: ${res.synced} ${t.nodes}`);
       void qc.invalidateQueries({ queryKey: ["system"] });
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     } finally {
       setSyncing(false);
     }

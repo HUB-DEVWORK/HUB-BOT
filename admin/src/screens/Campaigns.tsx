@@ -51,7 +51,7 @@ export default function Campaigns() {
       void qc.invalidateQueries({ queryKey: ["campaigns"] });
       toast("✓");
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 

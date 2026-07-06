@@ -57,7 +57,7 @@ export default function Smart() {
       void qc.invalidateQueries({ queryKey: ["smart-reminder"] });
       toast(t.applied);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 
@@ -66,7 +66,7 @@ export default function Smart() {
       await api.patch(`/api/admin/holidays/${h.id}`, p);
       void qc.invalidateQueries({ queryKey: ["holidays"] });
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 

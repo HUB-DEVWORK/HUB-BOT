@@ -169,7 +169,7 @@ export default function Miniapp() {
       void qc.invalidateQueries({ queryKey: ["miniapp"] });
       toast(publish ? t.published : t.saved);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 

@@ -44,7 +44,7 @@ export default function Maintenance() {
       await api.post(`/api/admin/maintenance/${name}`);
       toast(`${label} ✓`);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 
@@ -53,7 +53,7 @@ export default function Maintenance() {
       await api.post("/api/admin/maintenance/backup");
       toast(`${t.quickBackup} ✓`);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 

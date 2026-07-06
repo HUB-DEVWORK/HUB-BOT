@@ -136,7 +136,7 @@ export default function Broadcasts() {
       if (data.kind !== "text") setMedia(data.kind);
       toast("✓ " + f.name);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message.slice(0, 80)}`);
+      toast((e as Error).message);
     } finally {
       setUploading(false);
     }
@@ -165,7 +165,7 @@ export default function Broadcasts() {
       void qc.invalidateQueries({ queryKey: ["broadcasts"] });
       toast("✓");
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 

@@ -40,7 +40,7 @@ export default function Servers() {
       void qc.invalidateQueries({ queryKey: ["servers"] });
       toast(`✓ ${r.synced} ${t.nodes}`);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     } finally {
       setSyncing(false);
     }

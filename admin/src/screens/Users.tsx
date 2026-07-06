@@ -116,7 +116,7 @@ export default function Users() {
       invalidate();
       toast("✓");
     },
-    onError: (e) => toast(`${t.error}: ${e.message}`),
+    onError: (e) => toast(e.message),
   });
 
   useEffect(() => {

@@ -73,7 +73,7 @@ export default function Promos() {
       void qc.invalidateQueries({ queryKey: ["promocodes"] });
       toast("✓");
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 
@@ -128,7 +128,9 @@ export default function Promos() {
             <span className="mono" style={{ fontWeight: 700 }}>
               {p.code}
             </span>
-            <span className="cap-pill">{rewardLabel[p.reward_type] ?? p.reward_type}</span>
+            <span>
+              <span className="cap-pill">{rewardLabel[p.reward_type] ?? p.reward_type}</span>
+            </span>
             <span className="mono">
               {p.reward_type === "balance" ? money(p.reward_value) : p.reward_value}
             </span>

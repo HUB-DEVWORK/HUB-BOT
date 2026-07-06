@@ -15,6 +15,7 @@ type Plan = {
   traffic_limit_bytes: number | null;
   device_limit: number | null;
   is_active: boolean;
+  internal_squads: string[];
   durations: Duration[];
   sales: number;
 };
@@ -34,7 +35,9 @@ type PlanDraft = {
   traffic_limit_gb: number;
   device_limit: number;
   durations: { days: number; price_minor: number }[];
+  internal_squads: string[];
 };
+type Squad = { id: number; name: string; uuid: string };
 
 export default function Tariffs() {
   const { t, toast } = useApp();
@@ -52,6 +55,11 @@ export default function Tariffs() {
     queryKey: ["constructor"],
     queryFn: () => api.get<Constructor>("/api/admin/constructor"),
   });
+  const servers = useQuery({
+    queryKey: ["servers"],
+    queryFn: () => api.get<{ squads: Squad[] }>("/api/admin/servers"),
+  });
+  const squads = servers.data?.squads ?? [];
 
   useEffect(() => {
     if (constructor.data && !ctorDirty) setCtor(constructor.data);
@@ -75,6 +83,7 @@ export default function Tariffs() {
           traffic_limit_gb: draft.traffic_limit_gb,
           device_limit: draft.device_limit,
           durations: draft.durations,
+          internal_squads: draft.internal_squads,
         });
       } else {
         await api.post("/api/admin/plans", {
@@ -83,13 +92,14 @@ export default function Tariffs() {
           traffic_limit_gb: draft.traffic_limit_gb,
           device_limit: draft.device_limit,
           durations: draft.durations,
+          internal_squads: draft.internal_squads,
         });
       }
       setDraft(null);
       void qc.invalidateQueries({ queryKey: ["plans"] });
       toast(t.saved);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 
@@ -118,7 +128,7 @@ export default function Tariffs() {
       void qc.invalidateQueries({ queryKey: ["constructor"] });
       toast(t.applied);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 
@@ -154,6 +164,7 @@ export default function Tariffs() {
                 traffic_limit_gb: 100,
                 device_limit: 3,
                 durations: [{ days: 30, price_minor: 19900 }],
+                internal_squads: [],
               })
             }
           >
@@ -207,6 +218,7 @@ export default function Tariffs() {
                       days: d.days,
                       price_minor: d.prices.RUB ?? 0,
                     })),
+                    internal_squads: p.internal_squads ?? [],
                   })
                 }
               >
@@ -349,6 +361,36 @@ export default function Tariffs() {
                   onChange={(e) => setDraft({ ...draft, device_limit: Number(e.target.value) || 1 })}
                 />
               </Field>
+            </div>
+            <div>
+              <div className="caps" style={{ marginBottom: 6 }}>{t.planSquads}</div>
+              {squads.length === 0 ? (
+                <div className="dim" style={{ fontSize: 12 }}>{t.planSquadsEmpty}</div>
+              ) : (
+                <div className="grid" style={{ gap: 6 }}>
+                  {squads.map((sq) => {
+                    const on = draft.internal_squads.includes(sq.uuid);
+                    return (
+                      <label key={sq.uuid} className="row" style={{ cursor: "pointer", fontSize: 13 }}>
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() =>
+                            setDraft({
+                              ...draft,
+                              internal_squads: on
+                                ? draft.internal_squads.filter((u) => u !== sq.uuid)
+                                : [...draft.internal_squads, sq.uuid],
+                            })
+                          }
+                        />
+                        <span>{sq.name}</span>
+                        <span className="mono dim" style={{ fontSize: 10 }}>{sq.uuid.slice(0, 8)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             <span className="caps">{t.periods}</span>
             {draft.durations.map((d, i) => (

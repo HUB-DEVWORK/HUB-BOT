@@ -37,7 +37,41 @@ type Provider = {
   is_active: boolean;
   fee_bp: number;
   configured_keys: string[];
+  forms: string[];
+  enabled_forms: string[];
+  brand: string;
 };
+
+const FORM_LABELS: Record<string, string> = {
+  card: "Карта",
+  sbp: "СБП",
+  crypto: "Крипта",
+  stars: "Stars",
+  wallet: "Кошельки",
+  balance: "Баланс",
+};
+
+function Monogram({ title, brand }: { title: string; brand: string }) {
+  return (
+    <span
+      style={{
+        width: 30,
+        height: 30,
+        borderRadius: 7,
+        background: brand,
+        color: "#fff",
+        display: "grid",
+        placeItems: "center",
+        fontFamily: "'Arial Black',Arial,sans-serif",
+        fontWeight: 900,
+        fontSize: 13,
+        flex: "0 0 auto",
+      }}
+    >
+      {title.replace(/[^A-Za-zА-Яа-я0-9]/g, "").slice(0, 1).toUpperCase()}
+    </span>
+  );
+}
 
 const ST_GLYPH: Record<string, string> = {
   completed: "✓",
@@ -77,7 +111,7 @@ export default function Payments() {
       void qc.invalidateQueries({ queryKey: ["providers"] });
       toast(t.saved);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 
@@ -88,7 +122,7 @@ export default function Payments() {
       );
       toast(`${type}: ${r.ok ? "OK" : "✕"} · ${r.detail}`);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 
@@ -221,11 +255,22 @@ export default function Payments() {
                 <span className={`st ${p.is_active ? "on" : "off"}`}>
                   {p.is_active ? "●" : "○"}
                 </span>
-                <span style={{ fontSize: 16 }}>{p.emoji}</span>
+                <Monogram title={p.title} brand={p.brand} />
                 <span style={{ minWidth: 0 }}>
                   <b style={{ fontWeight: 600 }}>{p.display_name}</b>
-                  <div className="dim" style={{ fontSize: 11.5 }}>
-                    {p.title} · {p.methods}
+                  <div className="row" style={{ gap: 4, marginTop: 3, flexWrap: "wrap" }}>
+                    {p.forms.map((f) => (
+                      <span
+                        key={f}
+                        className="cap-pill"
+                        style={{
+                          opacity: p.enabled_forms.includes(f) ? 1 : 0.35,
+                          borderColor: p.enabled_forms.includes(f) ? p.brand : undefined,
+                        }}
+                      >
+                        {FORM_LABELS[f] ?? f}
+                      </span>
+                    ))}
                   </div>
                 </span>
                 <span className="mono dim" style={{ fontSize: 11 }}>
@@ -268,6 +313,38 @@ export default function Payments() {
                         }}
                       />
                     </label>
+                    <div className="row" style={{ flexWrap: "wrap" }}>
+                      <span className="caps" style={{ width: 130, flex: "0 0 auto" }}>
+                        {t.payforms}
+                      </span>
+                      {p.forms.map((f) => {
+                        const on = p.enabled_forms.includes(f);
+                        return (
+                          <button
+                            key={f}
+                            className="chip-btn"
+                            style={{
+                              border: `1.5px solid ${on ? p.brand : "var(--border2)"}`,
+                              background: on ? p.brand + "22" : "transparent",
+                              color: "var(--text)",
+                              borderRadius: 99,
+                              padding: "5px 12px",
+                              fontSize: 12,
+                              cursor: "pointer",
+                            }}
+                            onClick={() =>
+                              void saveProvider(p.type, {
+                                enabled_forms: on
+                                  ? p.enabled_forms.filter((x) => x !== f)
+                                  : [...p.enabled_forms, f],
+                              })
+                            }
+                          >
+                            {FORM_LABELS[f] ?? f}
+                          </button>
+                        );
+                      })}
+                    </div>
                     <label className="row">
                       <span className="caps" style={{ width: 130, flex: "0 0 auto" }}>
                         {t.feePct}

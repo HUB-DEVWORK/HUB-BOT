@@ -61,7 +61,7 @@ export default function Tickets() {
       void qc.invalidateQueries({ queryKey: ["tickets"] });
       toast("✓");
     },
-    onError: (e) => toast(`${t.error}: ${e.message}`),
+    onError: (e) => toast(e.message),
   });
 
   async function setStatus(status: string) {
@@ -84,7 +84,7 @@ export default function Tickets() {
       void qc.invalidateQueries({ queryKey: ["support-channels"] });
       toast(t.saved);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 

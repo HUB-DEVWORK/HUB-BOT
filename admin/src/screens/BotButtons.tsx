@@ -51,7 +51,7 @@ export default function BotButtons() {
       patchSel({ image_path: data.path });
       toast("✓");
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message.slice(0, 80)}`);
+      toast((e as Error).message);
     } finally {
       setUploading(false);
     }
@@ -157,7 +157,7 @@ export default function BotButtons() {
       void qc.invalidateQueries({ queryKey: ["bot-menu"] });
       toast(t.saved);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 

@@ -34,7 +34,11 @@ const CAT_META: Record<string, { icon: string; ru: string; en: string }> = {
 export default function Settings() {
   const { t, lang, toast } = useApp();
   const qc = useQueryClient();
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(() => {
+    const handoff = sessionStorage.getItem("settings_q") ?? "";
+    sessionStorage.removeItem("settings_q");
+    return handoff;
+  });
   const [cat, setCat] = useState<string | null>(null);
   const [dirty, setDirty] = useState<Record<string, unknown>>({});
 
@@ -77,7 +81,7 @@ export default function Settings() {
       void qc.invalidateQueries({ queryKey: ["settings"] });
       toast(t.applied);
     } catch (e) {
-      toast(`${t.error}: ${(e as Error).message}`);
+      toast((e as Error).message);
     }
   }
 
