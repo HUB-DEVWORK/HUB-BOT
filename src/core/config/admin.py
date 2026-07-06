@@ -11,3 +11,6 @@ class AdminSettings(BaseModel):
     password: str = ""
     # JWT session lifetime for the cabinet.
     session_ttl_hours: int = 12
+    # Public read-only demo: a "Войти в демо" button on the login screen issues a
+    # PREVIEW-role session; every mutating request is rejected with 403.
+    demo_enabled: bool = False

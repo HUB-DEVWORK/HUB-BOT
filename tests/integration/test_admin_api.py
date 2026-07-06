@@ -392,3 +392,39 @@ async def test_promocode_lifecycle(
 
     res = await http.delete(f"/api/admin/promocodes/{promo_id}", headers=auth)
     assert res.status_code == 200
+
+
+# --- demo mode -------------------------------------------------------------------------------
+
+
+async def test_demo_login_read_only(
+    client: tuple[httpx.AsyncClient, ApiTestContainer], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    http, container = client
+    # off by default -> 404
+    assert (await http.post("/api/admin/auth/demo")).status_code == 404
+    assert (await http.get("/api/admin/auth/demo")).json() == {"enabled": False}
+
+    monkeypatch.setattr(container.settings.admin, "demo_enabled", True)
+    res = await http.post("/api/admin/auth/demo")
+    assert res.status_code == 200
+    assert res.json()["role"] == "PREVIEW"
+    demo_auth = {"Authorization": f"Bearer {res.json()['token']}"}
+
+    # reads work
+    assert (await http.get("/api/admin/dashboard", headers=demo_auth)).status_code == 200
+    assert (await http.get("/api/admin/settings", headers=demo_auth)).status_code == 200
+    # mutations are blocked
+    res = await http.patch(
+        "/api/admin/settings", headers=demo_auth, json={"changes": {"TRIAL_ENABLED": False}}
+    )
+    assert res.status_code == 403
+    assert (await http.post("/api/admin/servers/sync", headers=demo_auth)).status_code == 403
+
+    # demo cannot log in through the password form
+    res = await http.post("/api/admin/auth/login", json={"username": "demo", "password": ""})
+    assert res.status_code in (401, 422)
+
+    # switching demo off kills existing demo sessions
+    monkeypatch.setattr(container.settings.admin, "demo_enabled", False)
+    assert (await http.get("/api/admin/dashboard", headers=demo_auth)).status_code == 401

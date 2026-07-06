@@ -35,6 +35,18 @@ async def require_admin(
 
     async with container.uow() as uow:
         user = await uow.users.get(int(payload["sub"]))
-    if user is None or user.status is not UserStatus.ACTIVE or not user.role.is_staff:
+    if user is None or user.status is not UserStatus.ACTIVE:
+        raise _unauthorized("admin access revoked")
+
+    # Read-only demo sessions: PREVIEW role may look at everything but change nothing.
+    if user.role is Role.PREVIEW:
+        if not container.settings.admin.demo_enabled:
+            raise _unauthorized("demo mode disabled")
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="demo is read-only",
+            )
+    elif not user.role.is_staff:
         raise _unauthorized("admin access revoked")
     return AdminIdentity(user_id=user.id, username=user.username or f"id{user.id}", role=user.role)

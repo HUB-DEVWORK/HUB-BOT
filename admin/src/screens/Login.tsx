@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { api, setToken } from "../api/client";
@@ -11,6 +11,28 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [demoEnabled, setDemoEnabled] = useState(false);
+
+  useEffect(() => {
+    api
+      .get<{ enabled: boolean }>("/api/admin/auth/demo")
+      .then((r) => setDemoEnabled(r.enabled))
+      .catch(() => setDemoEnabled(false));
+  }, []);
+
+  async function demo() {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api.post<{ token: string }>("/api/admin/auth/demo");
+      setToken(res.token);
+      nav("/");
+    } catch {
+      setError(t.error);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -59,6 +81,11 @@ export default function Login() {
         <button className="btn primary" disabled={busy || !username || !password}>
           {t.login}
         </button>
+        {demoEnabled && (
+          <button type="button" className="btn secondary" disabled={busy} onClick={demo}>
+            👀 {t.demoLogin}
+          </button>
+        )}
       </form>
     </div>
   );

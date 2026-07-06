@@ -56,6 +56,7 @@ const ru = {
   password: "Пароль",
   logout: "Выйти",
   badCreds: "Неверный логин или пароль",
+  demoLogin: "Демо-режим (только просмотр)",
   // dashboard
   overview: "Обзор",
   updatedAt: "ОБНОВЛЕНО",
@@ -298,6 +299,7 @@ const en: typeof ru = {
   password: "Password",
   logout: "Log out",
   badCreds: "Invalid username or password",
+  demoLogin: "Demo mode (read-only)",
   overview: "Overview",
   updatedAt: "UPDATED",
   backupNow: "Backup now",

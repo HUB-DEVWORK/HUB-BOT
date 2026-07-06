@@ -13,7 +13,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](docker/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-[📖 Документация](docs/) · [🤖 Тестовый бот](https://t.me/bot_vpn4_bot) · [🖥 Демо-стенд](https://testbot.tvss-911.com/admin/)
+[📖 Документация](docs/) · [🤖 Тестовый бот](https://t.me/bot_vpn4_bot) · [🖥 Демо-стенд](https://testbot.tvss-911.com/admin/) · [💬 Чат сообщества](https://t.me/vpnhub_community)
 
 </div>
 
@@ -153,7 +153,8 @@ make bot                    # запустить бота (long polling)
 ```
 
 Админ-кабинет: `http://localhost:8080/admin/` (логин/пароль — `ADMIN__USERNAME` /
-`ADMIN__PASSWORD` из `.env`). Мини-аппа: `http://localhost:8080/app/?mock=1`.
+`ADMIN__PASSWORD` из `.env`; `ADMIN__DEMO_ENABLED=true` включает публичный
+read-only демо-вход одной кнопкой). Мини-аппа: `http://localhost:8080/app/?mock=1`.
 
 Нет живой панели Remnawave? В комплекте **мок-панель** с теми же эндпоинтами:
 
@@ -195,6 +196,12 @@ infrastructure/ (Postgres, Redis, Remnawave, платежи) ──────�
 | [docs/deploy-test-server.md](docs/deploy-test-server.md) | Деплой на VPS + живой стенд |
 | [miniapp/CONTRACT.md](miniapp/CONTRACT.md) | Контракт cabinet API мини-аппы |
 | [docs/adr/](docs/adr/) | Архитектурные решения |
+
+---
+
+## 💬 Сообщество
+
+Вопросы, идеи, обмен опытом — [t.me/vpnhub_community](https://t.me/vpnhub_community).
 
 ---
 
