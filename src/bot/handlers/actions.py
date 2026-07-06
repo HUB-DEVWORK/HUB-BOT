@@ -341,6 +341,35 @@ async def act_support(cb: CallbackQuery, container: AppContainer, db_user: User)
     await begin_ticket(cb, container, db_user)
 
 
+@router.callback_query(F.data.startswith("act:proxy"))
+async def act_proxy(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
+    """MTProto proxy button: one tap connects Telegram through the owner's proxy."""
+    async with container.uow() as uow:
+        cfg = container.bot_config
+        enabled = bool(await cfg.value(uow, "MTPROTO_PROXY_ENABLED"))
+        raw = str(await cfg.value(uow, "MTPROTO_PROXY_URL") or "").strip()
+    if not enabled or not raw:
+        await cb.answer("Прокси не настроен", show_alert=True)
+        return
+    if raw.startswith("tg://proxy"):
+        raw = "https://t.me/proxy" + raw.removeprefix("tg://proxy")
+    elif raw.startswith("t.me/"):
+        raw = "https://" + raw
+    text = (
+        "🔌 <b>MTProto-прокси</b>\n\nНажми кнопку — Telegram предложит подключить прокси. "
+        "Работает даже там, где Telegram ограничен."
+    )
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔌 Подключить прокси", url=raw)],
+            [InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")],
+        ]
+    )
+    if cb.message is not None:
+        await cb.message.edit_text(text, reply_markup=markup, parse_mode="HTML")  # type: ignore[union-attr]
+    await cb.answer()
+
+
 @router.callback_query(F.data.startswith("act:"))
 async def act_unknown(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
     """Unknown/custom action codes fall back to the buy flow entry or menu."""

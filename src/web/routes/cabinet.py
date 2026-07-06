@@ -33,6 +33,16 @@ router = APIRouter(prefix="/api/cabinet", tags=["cabinet"])
 GIB = 1024**3
 
 
+def _proxy_link(raw: str) -> str:
+    """Normalize an MTProto proxy link to the https://t.me/proxy?... form."""
+    raw = raw.strip()
+    if raw.startswith("tg://proxy"):
+        return "https://t.me/proxy" + raw.removeprefix("tg://proxy")
+    if raw.startswith("t.me/"):
+        return "https://" + raw
+    return raw
+
+
 async def cabinet_user(request: Request, container: AppContainer = Depends(get_container)) -> User:
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("tma "):
@@ -96,6 +106,8 @@ async def me(
         miniapp = await uow.miniapp.get_or_create()
         trial_enabled = bool(await cfg.value(uow, "TRIAL_ENABLED"))
         bot_username = str(await cfg.value(uow, "BOT_USERNAME") or "")
+        proxy_enabled = bool(await cfg.value(uow, "MTPROTO_PROXY_ENABLED"))
+        proxy_url = str(await cfg.value(uow, "MTPROTO_PROXY_URL") or "")
         await uow.commit()
     return {
         "user": {
@@ -116,6 +128,7 @@ async def me(
             "greeting": miniapp.greeting,
             "accent_color": miniapp.accent_color,
             "bot_username": bot_username,
+            "mtproto_proxy": _proxy_link(proxy_url) if proxy_enabled and proxy_url else None,
         },
     }
 

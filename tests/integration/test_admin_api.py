@@ -87,6 +87,7 @@ async def client(
     monkeypatch.setenv("APP__JWT_SECRET", "test-jwt-secret-for-api")
     monkeypatch.setenv("APP__CRYPT_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("BOT__TOKEN", BOT_TOKEN)
+    monkeypatch.setenv("ADMIN__DEMO_ENABLED", "false")  # hermetic: ignore local .env
     get_settings.cache_clear()
     settings = get_settings()
 

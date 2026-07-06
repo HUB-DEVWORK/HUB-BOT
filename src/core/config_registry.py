@@ -578,6 +578,26 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "#HEX; пусто — стандартный",
         "#HEX; empty = default",
     ),
+    _p(
+        "MTPROTO_PROXY_ENABLED",
+        C.INTERFACE,
+        BOOL,
+        False,
+        "Кнопка MTProto-прокси",
+        "MTProto proxy button",
+        "Показывать кнопку прокси в боте и мини-аппе",
+        "Show a proxy button in bot and mini-app",
+    ),
+    _p(
+        "MTPROTO_PROXY_URL",
+        C.INTERFACE,
+        STR,
+        "",
+        "Ссылка MTProto-прокси",
+        "MTProto proxy link",
+        "t.me/proxy?server=…&port=…&secret=… (или tg://proxy?…)",
+        "t.me/proxy?server=…&port=…&secret=… (or tg://proxy?…)",
+    ),
 )
 
 _BY_KEY: dict[str, ParamSpec] = {p.key: p for p in REGISTRY}

@@ -33,6 +33,9 @@ async def send_main_menu(
         miniapp_url = str(await cfg.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "")
         welcome_image = str(await cfg.value(uow, "WELCOME_IMAGE") or "")
         trial_enabled = bool(await cfg.value(uow, "TRIAL_ENABLED"))
+        proxy_on = bool(await cfg.value(uow, "MTPROTO_PROXY_ENABLED")) and bool(
+            await cfg.value(uow, "MTPROTO_PROXY_URL")
+        )
 
     if nodes:
         markup = menu_keyboard(nodes, None, miniapp_url=miniapp_url or None)
@@ -40,6 +43,8 @@ async def send_main_menu(
         buttons = list(_DEFAULT_BUTTONS)
         if trial_enabled and db_user.is_trial_available:
             buttons.insert(1, ("🎁 Попробовать бесплатно", "act:trial:0"))
+        if proxy_on:
+            buttons.append(("🔌 MTProto-прокси", "act:proxy:0"))
         markup = simple_keyboard(buttons)
         # Mini-app integration: a prominent WebApp button when the mini-app URL is configured.
         if miniapp_url.startswith("https://"):

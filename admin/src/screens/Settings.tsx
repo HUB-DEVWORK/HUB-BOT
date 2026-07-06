@@ -1,4 +1,6 @@
-/* Screen 13 — Настройки бота: search + grouped params + dirty-save bar. */
+/* Screen 13 — Настройки: category blocks first, drill-in per block, global search.
+
+   Block view keeps non-tech admins oriented; search flattens across categories. */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -18,10 +20,22 @@ type Param = {
 };
 type Resp = { categories: { id: string; name: string }[]; params: Param[]; total: number };
 
+const CAT_META: Record<string, { icon: string; ru: string; en: string }> = {
+  main: { icon: "⚙️", ru: "Приветствие, язык, техработы, админы", en: "Greeting, language, maintenance, admins" },
+  subs: { icon: "📦", ru: "Триал, автопродление, лимиты устройств", en: "Trial, auto-renewal, device limits" },
+  pay: { icon: "💳", ru: "Пополнения, налог, чеки, курс Stars", en: "Deposits, tax, receipts, Stars rate" },
+  notif: { icon: "🔔", ru: "Алерты, отчёты, напоминания", en: "Alerts, reports, reminders" },
+  ref: { icon: "🎁", ru: "Бонусы и проценты за приглашения", en: "Referral bonuses and percents" },
+  sec: { icon: "🛡️", ru: "Чёрный список, обязательный канал, HWID", en: "Blacklist, required channel, HWID" },
+  backup: { icon: "💾", ru: "Расписание и хранение бэкапов", en: "Backup schedule and retention" },
+  ui: { icon: "🤖", ru: "Кнопки бота, прокси, поддержка", en: "Bot buttons, proxy, support" },
+};
+
 export default function Settings() {
   const { t, lang, toast } = useApp();
   const qc = useQueryClient();
   const [q, setQ] = useState("");
+  const [cat, setCat] = useState<string | null>(null);
   const [dirty, setDirty] = useState<Record<string, unknown>>({});
 
   const data = useQuery({
@@ -29,24 +43,25 @@ export default function Settings() {
     queryFn: () => api.get<Resp>(`/api/admin/settings?lang=${lang}`),
   });
 
+  const all = data.data?.params ?? [];
+  const searching = q.trim().length > 0;
+
   const filtered = useMemo(() => {
-    const params = data.data?.params ?? [];
-    if (!q.trim()) return params;
+    if (!searching) return all;
     const needle = q.toLowerCase();
-    return params.filter(
+    return all.filter(
       (p) =>
         p.key.toLowerCase().includes(needle) ||
         p.name.toLowerCase().includes(needle) ||
         p.description.toLowerCase().includes(needle),
     );
-  }, [data.data, q]);
+  }, [all, q, searching]);
 
-  const grouped = useMemo(() => {
-    const cats = data.data?.categories ?? [];
-    return cats
-      .map((c) => ({ cat: c, params: filtered.filter((p) => p.category === c.id) }))
-      .filter((g) => g.params.length > 0);
-  }, [data.data, filtered]);
+  const visible = useMemo(() => {
+    if (searching) return filtered;
+    if (cat) return all.filter((p) => p.category === cat);
+    return [];
+  }, [searching, filtered, cat, all]);
 
   function valueOf(p: Param): unknown {
     return p.key in dirty ? dirty[p.key] : p.value;
@@ -67,11 +82,78 @@ export default function Settings() {
   }
 
   const dirtyCount = Object.keys(dirty).length;
+  const cats = data.data?.categories ?? [];
+  const currentCat = cats.find((c) => c.id === cat);
+
+  function renderRow(p: Param) {
+    const v = valueOf(p);
+    const changed = p.key in dirty;
+    return (
+      <div key={p.key} className="tr" style={{ gridTemplateColumns: "1fr auto" }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="row" style={{ gap: 7 }}>
+            <b style={{ fontSize: 13.5, fontWeight: 500 }}>{p.name}</b>
+            {(changed || p.is_overridden) && (
+              <span
+                title={changed ? t.changed : "override"}
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: changed ? "var(--text)" : "var(--dim)",
+                  flex: "0 0 auto",
+                }}
+              />
+            )}
+          </div>
+          {p.description && (
+            <div className="muted" style={{ fontSize: 12, marginTop: 1 }}>
+              {p.description}
+            </div>
+          )}
+          <div className="mono dim" style={{ fontSize: 10.5, marginTop: 3 }}>
+            {p.key}
+          </div>
+        </div>
+        <div className="row">
+          {p.type === "bool" ? (
+            <Toggle on={Boolean(v)} onChange={(nv) => setValue(p.key, nv)} />
+          ) : (
+            <input
+              className={`input ${p.type === "int" ? "num" : "mono"}`}
+              style={{ width: p.type === "int" ? 110 : 220 }}
+              type={p.type === "secret" ? "password" : "text"}
+              value={String(v ?? "")}
+              onChange={(e) =>
+                setValue(p.key, p.type === "int" ? Number(e.target.value) || 0 : e.target.value)
+              }
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
       <div className="page-head">
-        <h1 className="h1">{t.settings}</h1>
+        <div>
+          <h1 className="h1">
+            {cat && !searching ? (
+              <span className="row" style={{ gap: 10 }}>
+                <button className="btn secondary sm" onClick={() => setCat(null)}>
+                  ‹
+                </button>
+                {CAT_META[cat]?.icon} {currentCat?.name}
+              </span>
+            ) : (
+              t.settings
+            )}
+          </h1>
+          {cat && !searching && (
+            <div className="caps sub">{lang === "ru" ? CAT_META[cat]?.ru : CAT_META[cat]?.en}</div>
+          )}
+        </div>
         <div className="actions">
           {dirtyCount > 0 && (
             <>
@@ -106,7 +188,6 @@ export default function Settings() {
           />
           {q && (
             <button
-              className="dim"
               style={{
                 position: "absolute",
                 right: 8,
@@ -124,79 +205,75 @@ export default function Settings() {
           )}
         </div>
         <span className="caps" style={{ whiteSpace: "nowrap" }}>
-          {q
-            ? `${t.found} ${filtered.length}`
-            : `${data.data?.total ?? "…"} ${t.paramsHot}`}
+          {searching ? `${t.found} ${filtered.length}` : `${data.data?.total ?? "…"} ${t.paramsHot}`}
         </span>
       </div>
 
-      <div className="tbl">
-        {grouped.map((g) => (
-          <div key={g.cat.id}>
-            <div
-              className="tr"
-              style={{
-                background: "var(--panel2)",
-                gridTemplateColumns: "1fr auto",
-              }}
-            >
-              <span className="caps">{g.cat.name}</span>
-              <span className="caps">{g.params.length}</span>
-            </div>
-            {g.params.map((p) => {
-              const v = valueOf(p);
-              const changed = p.key in dirty;
-              return (
-                <div key={p.key} className="tr" style={{ gridTemplateColumns: "1fr auto" }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div className="row" style={{ gap: 7 }}>
-                      <b style={{ fontSize: 13.5, fontWeight: 500 }}>{p.name}</b>
-                      {(changed || p.is_overridden) && (
-                        <span
-                          title={changed ? t.changed : "override"}
-                          style={{
-                            width: 6,
-                            height: 6,
-                            borderRadius: "50%",
-                            background: changed ? "var(--text)" : "var(--dim)",
-                            flex: "0 0 auto",
-                          }}
-                        />
-                      )}
-                    </div>
-                    {p.description && (
-                      <div className="muted" style={{ fontSize: 12, marginTop: 1 }}>
-                        {p.description}
-                      </div>
-                    )}
-                    <div className="mono dim" style={{ fontSize: 10.5, marginTop: 3 }}>
-                      {p.key}
-                    </div>
-                  </div>
-                  <div className="row">
-                    {p.type === "bool" ? (
-                      <Toggle on={Boolean(v)} onChange={(nv) => setValue(p.key, nv)} />
-                    ) : (
-                      <input
-                        className={`input ${p.type === "int" ? "num" : "mono"}`}
-                        style={{ width: p.type === "int" ? 110 : 220 }}
-                        type={p.type === "secret" ? "password" : "text"}
-                        value={String(v ?? "")}
-                        onChange={(e) =>
-                          setValue(
-                            p.key,
-                            p.type === "int" ? Number(e.target.value) || 0 : e.target.value,
-                          )
-                        }
-                      />
-                    )}
-                  </div>
+      {/* category blocks */}
+      {!searching && !cat && (
+        <div
+          className="kpis"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
+        >
+          {cats.map((c) => {
+            const params = all.filter((p) => p.category === c.id);
+            const overridden = params.filter((p) => p.is_overridden || p.key in dirty).length;
+            return (
+              <button
+                key={c.id}
+                onClick={() => setCat(c.id)}
+                style={{
+                  background: "var(--panel)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 4,
+                  padding: 18,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  color: "var(--text)",
+                }}
+              >
+                <div className="row" style={{ justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 22 }}>{CAT_META[c.id]?.icon ?? "⚙️"}</span>
+                  <span className="cap-pill">{params.length}</span>
                 </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
+                <div style={{ fontSize: 15, fontWeight: 600, margin: "10px 0 4px" }}>{c.name}</div>
+                <div className="muted" style={{ fontSize: 12.5, minHeight: 34 }}>
+                  {lang === "ru" ? CAT_META[c.id]?.ru : CAT_META[c.id]?.en}
+                </div>
+                <div className="caps" style={{ marginTop: 8 }}>
+                  {overridden > 0 ? `● ${t.changed}: ${overridden}` : "—"}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* params of the selected block, or flat search results */}
+      {(searching || cat) && (
+        <div className="tbl">
+          {searching
+            ? cats
+                .map((c) => ({ c, list: visible.filter((p) => p.category === c.id) }))
+                .filter((g) => g.list.length > 0)
+                .map((g) => (
+                  <div key={g.c.id}>
+                    <div
+                      className="tr"
+                      style={{ background: "var(--panel2)", gridTemplateColumns: "1fr auto" }}
+                    >
+                      <span className="caps">
+                        {CAT_META[g.c.id]?.icon} {g.c.name}
+                      </span>
+                      <span className="caps">{g.list.length}</span>
+                    </div>
+                    {g.list.map(renderRow)}
+                  </div>
+                ))
+            : visible.map(renderRow)}
+          {(searching || cat) && visible.length === 0 && <div className="tr dim">—</div>}
+        </div>
+      )}
 
       <div className="caps" style={{ marginTop: 14, textAlign: "center" }}>
         {t.hotReloadNote}

@@ -385,6 +385,26 @@
         ]),
       );
     }
+    if (me.app.mtproto_proxy) {
+      frag.push(
+        el("div", { class: "card fade row spread" }, [
+          el("div", {}, [
+            el("b", { text: "🔌 " + (T === RU ? "MTProto-прокси" : "MTProto proxy") }),
+            el("div", { class: "sub", style: "font-size:12px;margin-top:2px",
+                        text: T === RU ? "Telegram без блокировок" : "Telegram without blocks" }),
+          ]),
+          el("button", {
+            class: "btn primary sm",
+            onclick: () => {
+              haptic();
+              const u = me.app.mtproto_proxy;
+              wa && wa.openTelegramLink ? wa.openTelegramLink(u) : window.open(u);
+            },
+            text: T === RU ? "Подключить" : "Connect",
+          }),
+        ]),
+      );
+    }
     frag.push(
       el("div", { class: "card fade row spread" }, [
         el("b", { text: "🆘 " + T.support }),
