@@ -66,6 +66,7 @@ ignore = ["B008"]  # FastAPI Depends() in defaults
 "src/infrastructure/database/migrations/versions/*" = ["E501", "I001"]
 # RU display strings legitimately contain cyrillic homoglyphs.
 "src/core/config_registry.py" = ["RUF001"]
+"src/bot/**" = ["RUF001"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]

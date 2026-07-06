@@ -43,3 +43,6 @@ revision: ## Autogenerate a migration:  make revision m="add x"
 
 smoke: ## E2E smoke-test against the configured Remnawave panel
 	uv run python scripts/smoke.py
+
+bot: ## Run the Telegram bot (long polling)
+	uv run python -m src.bot.main
