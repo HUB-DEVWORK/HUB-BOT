@@ -28,6 +28,10 @@ KNOWN_TEMPLATES = (
 )
 
 
+UI_BUTTON_KEYS = ("renew", "share", "open_app", "get_link", "connect_proxy", "trial")
+UI_SECTIONS = ("status", "plans", "referral", "proxy")
+
+
 def _serialize(cfg: Any) -> dict[str, Any]:
     return {
         "template": cfg.template,
@@ -36,8 +40,11 @@ def _serialize(cfg: Any) -> dict[str, Any]:
         "accent_color": cfg.accent_color,
         "photo_scale_pct": cfg.photo_scale_pct,
         "cover_path": cfg.cover_path,
+        "ui": cfg.ui or {},
         "published_at": iso(cfg.published_at),
         "templates": list(KNOWN_TEMPLATES),
+        "ui_button_keys": list(UI_BUTTON_KEYS),
+        "ui_sections": list(UI_SECTIONS),
     }
 
 
@@ -55,6 +62,33 @@ class MiniappPatch(BaseModel):
     greeting: str | None = Field(None, max_length=256)
     accent_color: str | None = Field(None, max_length=9)
     photo_scale_pct: int | None = Field(None, ge=70, le=130)
+    ui: dict[str, Any] | None = None
+
+    @field_validator("ui")
+    @classmethod
+    def _ui_shape(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        if v is None:
+            return None
+        out: dict[str, Any] = {}
+        scale = v.get("scale")
+        if scale is not None:
+            out["scale"] = max(85, min(115, int(scale)))
+        sections = v.get("sections")
+        if isinstance(sections, list):
+            out["sections"] = [s for s in sections if s in UI_SECTIONS]
+        buttons = v.get("buttons")
+        if isinstance(buttons, dict):
+            clean: dict[str, Any] = {}
+            for key, spec in buttons.items():
+                if key not in UI_BUTTON_KEYS or not isinstance(spec, dict):
+                    continue
+                text = str(spec.get("text") or "")[:32]
+                color = spec.get("color")
+                if color and not (str(color).startswith("#") and len(str(color)) in (4, 7)):
+                    color = None
+                clean[key] = {"text": text, "color": color}
+            out["buttons"] = clean
+        return out
 
     @field_validator("template")
     @classmethod

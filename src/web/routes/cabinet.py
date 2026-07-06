@@ -134,6 +134,7 @@ async def me(
             "accent_color": miniapp.accent_color,
             "bot_username": bot_username,
             "mtproto_proxy": _proxy_link(proxy_url) if proxy_enabled and proxy_url else None,
+            "ui": miniapp.ui or {},
         },
     }
 

@@ -11,14 +11,34 @@ import { api } from "../api/client";
 import { Field } from "../components/ui";
 import { useApp } from "../state/app";
 
+type UiButtons = Record<string, { text: string; color: string | null }>;
+type UiConf = { scale?: number; sections?: string[]; buttons?: UiButtons };
 type Config = {
   template: string;
   title: string | null;
   greeting: string | null;
   accent_color: string | null;
   photo_scale_pct: number;
+  ui: UiConf;
   published_at: string | null;
   templates: string[];
+  ui_button_keys: string[];
+  ui_sections: string[];
+};
+
+const BTN_LABELS: Record<string, string> = {
+  renew: "Продлить / Купить",
+  share: "Поделиться (рефералка)",
+  open_app: "Открыть в приложении",
+  get_link: "Получить ссылку",
+  connect_proxy: "Подключить прокси",
+  trial: "Попробовать бесплатно",
+};
+const SECTION_LABELS: Record<string, string> = {
+  status: "Статус подписки",
+  plans: "Тарифы и оплата",
+  referral: "Пригласи друга",
+  proxy: "MTProto-прокси",
 };
 
 const SWATCHES = ["#2E63E7", "#31A24C", "#7C5CFF", "#EF7048", "#C03B2D", "#0C8F4E", "#111111"];
@@ -39,6 +59,7 @@ function LivePreview({
   variant,
   mode,
   accent,
+  ui,
   width,
   height,
   interactive = false,
@@ -46,6 +67,7 @@ function LivePreview({
   variant: string;
   mode: "dark" | "light";
   accent?: string | null;
+  ui?: UiConf;
   width: number;
   height: number;
   interactive?: boolean;
@@ -53,7 +75,8 @@ function LivePreview({
   const scale = width / 375;
   const src =
     `/app/?mock=1&variant=${encodeURIComponent(variant)}&mode=${mode}` +
-    (accent ? `&accent=${encodeURIComponent(accent)}` : "");
+    (accent ? `&accent=${encodeURIComponent(accent)}` : "") +
+    (ui ? `&ui=${encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(ui)))))}` : "");
   return (
     <div
       style={{
@@ -102,6 +125,34 @@ export default function Miniapp() {
     setDirty(true);
   }
 
+  function patchUi(p: Partial<UiConf>) {
+    setCfg((c) => (c ? { ...c, ui: { ...c.ui, ...p } } : c));
+    setDirty(true);
+  }
+
+  function patchBtn(key: string, field: "text" | "color", value: string | null) {
+    setCfg((c) => {
+      if (!c) return c;
+      const buttons: UiButtons = { ...(c.ui.buttons ?? {}) };
+      const prev = buttons[key] ?? { text: "", color: null };
+      buttons[key] = { ...prev, [field]: value };
+      return { ...c, ui: { ...c.ui, buttons } };
+    });
+    setDirty(true);
+  }
+
+  function moveSection(idx: number, dir: -1 | 1) {
+    setCfg((c) => {
+      if (!c) return c;
+      const order = [...(c.ui.sections?.length ? c.ui.sections : c.ui_sections)];
+      const j = idx + dir;
+      if (j < 0 || j >= order.length) return c;
+      [order[idx], order[j]] = [order[j], order[idx]];
+      return { ...c, ui: { ...c.ui, sections: order } };
+    });
+    setDirty(true);
+  }
+
   async function save(publish = false) {
     if (!cfg) return;
     try {
@@ -111,6 +162,7 @@ export default function Miniapp() {
         greeting: cfg.greeting,
         accent_color: cfg.accent_color,
         photo_scale_pct: cfg.photo_scale_pct,
+        ui: cfg.ui,
       });
       if (publish) await api.post("/api/admin/miniapp/publish");
       setDirty(false);
@@ -237,6 +289,61 @@ export default function Miniapp() {
                   onChange={(e) => patch({ photo_scale_pct: Number(e.target.value) })}
                 />
               </Field>
+              <Field label={`${t.uiScale} · ${cfg.ui.scale ?? 100}%`}>
+                <input
+                  type="range"
+                  min={85}
+                  max={115}
+                  value={cfg.ui.scale ?? 100}
+                  onChange={(e) => patchUi({ scale: Number(e.target.value) })}
+                />
+              </Field>
+              <div>
+                <div className="caps" style={{ marginBottom: 8 }}>{t.sectionsOrder}</div>
+                <div className="grid" style={{ gap: 6 }}>
+                  {(cfg.ui.sections?.length ? cfg.ui.sections : cfg.ui_sections).map((sec, i, arr) => (
+                    <div key={sec} className="row" style={{ fontSize: 13 }}>
+                      <span className="mono dim" style={{ width: 18 }}>{i + 1}</span>
+                      <span style={{ flex: 1 }}>{SECTION_LABELS[sec] ?? sec}</span>
+                      <button className="btn secondary sm" disabled={i === 0} onClick={() => moveSection(i, -1)}>↑</button>
+                      <button className="btn secondary sm" disabled={i === arr.length - 1} onClick={() => moveSection(i, 1)}>↓</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="caps" style={{ marginBottom: 8 }}>{t.buttonsCustom}</div>
+                <div className="grid" style={{ gap: 8 }}>
+                  {cfg.ui_button_keys.map((key) => {
+                    const b = cfg.ui.buttons?.[key];
+                    return (
+                      <div key={key} className="row" style={{ flexWrap: "wrap" }}>
+                        <span className="dim" style={{ width: 168, fontSize: 12 }}>
+                          {BTN_LABELS[key] ?? key}
+                        </span>
+                        <input
+                          className="input"
+                          style={{ flex: "1 1 140px" }}
+                          placeholder="текст по умолчанию"
+                          value={b?.text ?? ""}
+                          maxLength={32}
+                          onChange={(e) => patchBtn(key, "text", e.target.value)}
+                        />
+                        <input
+                          type="color"
+                          value={b?.color ?? "#2E63E7"}
+                          title="цвет кнопки"
+                          style={{ width: 34, height: 30, padding: 0, border: "1px solid var(--border2)", borderRadius: 3, background: "transparent", cursor: "pointer" }}
+                          onChange={(e) => patchBtn(key, "color", e.target.value)}
+                        />
+                        {b?.color && (
+                          <button className="btn danger sm" title="сбросить цвет" onClick={() => patchBtn(key, "color", null)}>✕</button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
               {dirty && (
                 <button className="btn primary" onClick={() => void save(false)}>
                   {t.save}
@@ -263,10 +370,11 @@ export default function Miniapp() {
               }}
             >
               <LivePreview
-                key={`${cfg.template}-${mode}-${accent ?? "auto"}`}
+                key={`${cfg.template}-${mode}-${accent ?? "auto"}-${JSON.stringify(cfg.ui)}`}
                 variant={cfg.template}
                 mode={mode}
                 accent={accent}
+                ui={cfg.ui}
                 width={300}
                 height={620}
                 interactive

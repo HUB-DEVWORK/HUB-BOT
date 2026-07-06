@@ -144,15 +144,34 @@
 
   // ---------- state ----------
   const state = { tab: "home", me: null, plans: null, referral: null, payments: null, connection: null, planSel: 1, paySel: "stars" };
+  let UI = {}; // admin overrides: {scale, sections, buttons:{key:{text,color}}}
+
+  function btnText(key, fallback) {
+    const b = UI.buttons && UI.buttons[key];
+    return (b && b.text) || fallback;
+  }
+  function btnStyle(key) {
+    const b = UI.buttons && UI.buttons[key];
+    return b && b.color ? `background:${b.color}` : "";
+  }
 
   // ---------- screens ----------
+  function orderSections(map) {
+    const order = Array.isArray(UI.sections) && UI.sections.length ? UI.sections : ["status", "plans", "referral", "proxy"];
+    const out = [];
+    for (const key of order) if (map[key]) out.push(...map[key]);
+    for (const key of Object.keys(map)) if (!order.includes(key)) out.push(...map[key]);
+    return out;
+  }
+
   function homeScreen() {
     const me = state.me;
     const sub = me && me.subscription;
     const usable = sub && ["active", "trial", "limited"].includes(sub.status);
     const left = usable ? daysLeft(sub.expire_at) : null;
     const total = 90;
-    const frag = [];
+    const sections = { status: [], plans: [], referral: [], proxy: [] };
+    const frag = sections.status;
 
     // status card
     frag.push(
@@ -178,7 +197,7 @@
             ])
           : el("div", { class: "sub", style: "margin-top:10px", text: T.noSub }),
         me && me.user.is_trial_available
-          ? el("button", { class: "btn ghost", style: "margin-top:14px", onclick: activateTrial, text: "🎁 " + T.trialBtn })
+          ? el("button", { class: "btn ghost", style: "margin-top:14px;" + btnStyle("trial"), onclick: activateTrial, text: "🎁 " + btnText("trial", T.trialBtn) })
           : null,
       ]),
     );
@@ -186,6 +205,7 @@
     // plans + pay
     const plan = state.plans && state.plans.items[0];
     if (plan) {
+      const frag = sections.plans;
       const durs = plan.durations;
       const sel = durs[state.planSel] || durs[0];
       const base = durs[0] ? durs[0].price_minor / durs[0].days : 0;
@@ -222,13 +242,14 @@
             el("button", { class: `chip${state.paySel === "balance" ? " on" : ""}`, onclick: () => { state.paySel = "balance"; render(); }, text: `${T.payBalance} · ${me ? money(me.user.balance_minor) : ""}` }),
             el("button", { class: `chip${state.paySel === "stars" ? " on" : ""}`, onclick: () => { state.paySel = "stars"; render(); }, text: `⭐ ${T.payStars} · ${sel ? sel.price_stars : ""}` }),
           ]),
-          el("button", { class: "btn primary", style: "margin-top:14px", onclick: () => purchase(plan, sel), text: `${usable ? T.renew : T.buy} · ${sel ? money(sel.price_minor) : ""}` }),
+          el("button", { class: "btn primary", style: "margin-top:14px;" + btnStyle("renew"), onclick: () => purchase(plan, sel), text: `${btnText("renew", usable ? T.renew : T.buy)} · ${sel ? money(sel.price_minor) : ""}` }),
         ]),
       );
     }
 
     // referral
     if (state.referral) {
+      const frag = sections.referral;
       const r = state.referral;
       frag.push(
         el("div", { class: "card fade row spread" }, [
@@ -238,17 +259,35 @@
           ]),
           el("button", {
             class: "btn primary sm",
+            style: btnStyle("share"),
             onclick: () => {
               haptic();
               const url = `https://t.me/share/url?url=${encodeURIComponent(r.link)}`;
               wa && wa.openTelegramLink ? wa.openTelegramLink(url) : window.open(url);
             },
-            text: T.share,
+            text: btnText("share", T.share),
           }),
         ]),
       );
     }
-    return frag;
+    if (me && me.app.mtproto_proxy) {
+      sections.proxy.push(
+        el("div", { class: "card fade row spread" }, [
+          el("b", { text: "🔌 " + (T === RU ? "MTProto-прокси" : "MTProto proxy") }),
+          el("button", {
+            class: "btn primary sm",
+            style: btnStyle("connect_proxy"),
+            onclick: () => {
+              haptic();
+              const u = me.app.mtproto_proxy;
+              wa && wa.openTelegramLink ? wa.openTelegramLink(u) : window.open(u);
+            },
+            text: btnText("connect_proxy", T === RU ? "Подключить" : "Connect"),
+          }),
+        ]),
+      );
+    }
+    return orderSections(sections);
   }
 
   function connectScreen() {
@@ -278,11 +317,12 @@
                   el("div", { class: "link-box mono", text: conn.subscription_url }),
                   el("button", {
                     class: "btn primary",
+                    style: btnStyle("open_app"),
                     onclick: () => {
                       haptic();
                       location.href = conn.deep_links[plat.client] || conn.deep_links.happ;
                     },
-                    text: "⚡ " + T.openApp,
+                    text: "⚡ " + btnText("open_app", T.openApp),
                   }),
                   el("button", {
                     class: "btn ghost",
@@ -293,7 +333,7 @@
                     text: T.copy,
                   }),
                 ])
-              : el("button", { class: "btn primary", style: "margin-top:10px", onclick: loadConnection, text: T.getLink }),
+              : el("button", { class: "btn primary", style: "margin-top:10px;" + btnStyle("get_link"), onclick: loadConnection, text: btnText("get_link", T.getLink) }),
           ]),
         ]),
       ]),
@@ -504,6 +544,12 @@
       if (accent && /^#[0-9a-fA-F]{3,8}$/.test(accent)) {
         document.body.style.setProperty("--acc", accent);
       }
+      try {
+        UI = params.get("ui")
+          ? JSON.parse(decodeURIComponent(escape(atob(params.get("ui")))))
+          : (me.app.ui || {});
+      } catch { UI = me.app.ui || {}; }
+      if (UI.scale) document.documentElement.style.fontSize = `${(UI.scale / 100) * 100}%`;
       T = (params.get("lang") || me.user.language) === "en" ? EN : RU;
       document.documentElement.lang = T === EN ? "en" : "ru";
       render();
