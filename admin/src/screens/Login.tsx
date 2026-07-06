@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { api, setToken } from "../api/client";
+import { BrandLogo } from "../components/Layout";
 import { useApp } from "../state/app";
 
 export default function Login() {
@@ -55,8 +56,8 @@ export default function Login() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <b style={{ letterSpacing: "0.06em" }}>ADMIN CABINET</b>
-        <span className="caps">VPN SHOP CONSTRUCTOR</span>
+        <BrandLogo size={22} />
+        <span className="caps">VPN-HUB CABINET</span>
         <input
           className="input"
           placeholder={t.username}

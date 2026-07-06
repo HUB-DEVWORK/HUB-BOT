@@ -2,6 +2,7 @@
    panel badge, theme/lang segments, avatar). */
 
 import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { api, setToken } from "../api/client";
@@ -12,7 +13,36 @@ type Me = { user_id: number; username: string; role: string };
 type Counters = { all: number };
 type TicketsResp = { open_count: number };
 
-const VERSION = "CORE v0.1.0 · CABINET v0.1.0";
+const VERSION = "CORE v0.1.0 · CABINET v0.2.0";
+
+export function BrandLogo({ size = 15 }: { size?: number }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        fontFamily: "'Arial Black','Arial Bold',Arial,sans-serif",
+        fontWeight: 900,
+        fontSize: size,
+        letterSpacing: "-0.5px",
+        lineHeight: 1,
+      }}
+    >
+      <span style={{ color: "var(--text)" }}>VPN</span>
+      <span
+        style={{
+          background: "#F7971D",
+          color: "#000",
+          borderRadius: size * 0.28,
+          padding: `${size * 0.14}px ${size * 0.38}px`,
+        }}
+      >
+        HUB
+      </span>
+    </span>
+  );
+}
 
 export default function Layout() {
   const { t, theme, setTheme, lang, setLang } = useApp();
@@ -58,14 +88,71 @@ export default function Layout() {
     (i) => i.path === (loc.pathname === "/" ? "/" : "/" + loc.pathname.split("/")[1]),
   );
 
+  const [navQ, setNavQ] = useState("");
+  const filteredItems = useMemo(() => {
+    if (!navQ.trim()) return items;
+    const n = navQ.toLowerCase();
+    return items.filter((i) => i.label.toLowerCase().includes(n));
+  }, [items, navQ]);
+
+  // Settings quick-search: jump straight to the matching parameter block.
+  const paramHits = useQuery({
+    queryKey: ["nav-param-search", navQ],
+    queryFn: () =>
+      api.get<{ params: { key: string; name: string; category: string }[] }>(
+        `/api/admin/settings?q=${encodeURIComponent(navQ)}`,
+      ),
+    enabled: navQ.trim().length >= 2,
+  });
+
   return (
     <div className="shell">
       <aside className="sidebar">
         <div className="side-logo">
-          <b>ADMIN CABINET</b>
+          <div className="row" style={{ gap: 8 }}>
+            <BrandLogo size={16} />
+            <span className="caps" style={{ letterSpacing: "0.12em" }}>CABINET</span>
+          </div>
+          <div style={{ position: "relative", marginTop: 12 }}>
+            <span className="dim" style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", fontSize: 13 }}>⌕</span>
+            <input
+              className="input"
+              style={{ width: "100%", paddingLeft: 28, fontSize: 12.5 }}
+              placeholder={t.sideSearch}
+              value={navQ}
+              onChange={(e) => setNavQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setNavQ("");
+                if (e.key === "Enter" && filteredItems[0]) {
+                  nav(filteredItems[0].path);
+                  setNavQ("");
+                }
+              }}
+            />
+          </div>
         </div>
         <nav style={{ paddingBottom: 12 }}>
-          {items.map((i) => (
+          {navQ.trim().length >= 2 && (paramHits.data?.params ?? []).length > 0 && (
+            <>
+              <div className="side-group caps">{t.sideSearchParams}</div>
+              {(paramHits.data?.params ?? []).slice(0, 5).map((prm) => (
+                <button
+                  key={prm.key}
+                  className="side-item"
+                  style={{ width: "100%", textAlign: "left", background: "none", border: 0 }}
+                  onClick={() => {
+                    sessionStorage.setItem("settings_q", prm.name);
+                    setNavQ("");
+                    nav("/settings");
+                  }}
+                >
+                  <span className="ico">⚙️</span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{prm.name}</span>
+                </button>
+              ))}
+            </>
+          )}
+          {filteredItems.map((i) => (
             <span key={i.path}>
               {i.group && <div className="side-group caps">{i.group}</div>}
               <NavLink

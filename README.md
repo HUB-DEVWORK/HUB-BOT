@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🛡 VPN Shop Constructor
+<img src="docs/assets/vpnhub-banner.png" alt="VPN-HUB" width="640">
+
+# VPN-HUB BOT
 
 **Конструктор Telegram-ботов для продажи VPN на базе [Remnawave](https://remna.st)**
 
@@ -21,7 +23,7 @@
 
 ## 🧩 Что это?
 
-**VPN Shop Constructor** — платформа из трёх частей поверх общего ядра:
+**VPN-HUB BOT** — платформа из трёх частей поверх общего ядра:
 
 - 🤖 **Telegram-бот** — продажи, триал, баланс, рефералка, тикеты. Меню бота
   (кнопки, цвета, вложенные экраны) собирается в конструкторе кабинета.
@@ -142,15 +144,30 @@ happ/v2raytun/hiddify/streisand), **Кабинет** (промокоды, ист
 
 ---
 
-## 🚀 Быстрый старт
+## 🚀 Установка одной командой
+
+Никаких `.env` руками — скрипт спросит только токен бота (и домен, если есть),
+сам сгенерирует секреты, поднимет весь стек в Docker и отдаст ссылку на кабинет:
 
 ```bash
 git clone https://github.com/bini69-oi/HUB-BOT.git && cd HUB-BOT
+./scripts/install.sh
+```
+
+Через пару минут: `https://ваш-домен/admin/` (HTTPS сам, через Caddy + Let's Encrypt).
+Всё остальное — тарифы, платёжки, меню бота, мини-аппа — настраивается в UI.
+
+<details>
+<summary>Ручной запуск для разработки</summary>
+
+```bash
 cp .env.example .env        # заполни секреты (см. комментарии в файле)
 make install                # uv sync --extra dev
 make up                     # postgres + redis + web + worker + scheduler (docker)
 make bot                    # запустить бота (long polling)
 ```
+
+</details>
 
 Админ-кабинет: `http://localhost:8080/admin/` (логин/пароль — `ADMIN__USERNAME` /
 `ADMIN__PASSWORD` из `.env`; `ADMIN__DEMO_ENABLED=true` включает публичный
