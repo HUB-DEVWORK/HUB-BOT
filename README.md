@@ -145,7 +145,7 @@ happ/v2raytun/hiddify/streisand), **Кабинет** (промокоды, ист
 ## 🚀 Быстрый старт
 
 ```bash
-git clone https://github.com/bini69-oi/BOT.git && cd BOT
+git clone https://github.com/bini69-oi/HUB-BOT.git && cd HUB-BOT
 cp .env.example .env        # заполни секреты (см. комментарии в файле)
 make install                # uv sync --extra dev
 make up                     # postgres + redis + web + worker + scheduler (docker)
