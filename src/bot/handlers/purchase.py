@@ -15,9 +15,10 @@ from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
 
 from src.application.dto.pricing import PurchaseRequest
 from src.bot.keyboards import simple_keyboard
-from src.core.enums import Currency, PurchaseType, TransactionStatus
+from src.core.enums import Currency, PurchaseType, TransactionStatus, TransactionType
 from src.core.exceptions import DomainError, RemnawaveError
 from src.core.logging import get_logger
+from src.infrastructure.database.models.transaction import Transaction
 from src.infrastructure.database.models.user import User
 from src.infrastructure.di import AppContainer
 
@@ -236,6 +237,60 @@ async def _pay_with_balance(
     await cb.answer("Готово!")
 
 
+# --- balance top-up (Telegram Stars deposit) -----------------------------------
+
+_TOPUP_PRESETS_RUB = (100, 250, 500, 1000)
+
+
+@router.callback_query(F.data == "topup:menu")
+async def topup_menu(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
+    async with container.uow() as uow:
+        min_dep = int(await container.bot_config.value(uow, "MIN_DEPOSIT_AMOUNT"))
+        stars_rate = int(await container.bot_config.value(uow, "STARS_RATE_RUB"))
+    amounts_minor = [r * 100 for r in _TOPUP_PRESETS_RUB if r * 100 >= min_dep] or [min_dep]
+    rows = []
+    for minor in amounts_minor:
+        stars = max(1, math.ceil(minor / max(1, stars_rate)))
+        rows.append((f"{fmt_money(minor)} · {stars} ★", f"topup:{minor}"))
+    rows.append(("‹ Назад", "act:balance:0"))
+    if cb.message is not None:
+        await cb.message.edit_text(  # type: ignore[union-attr]
+            "Пополнение баланса через Telegram Stars.\nВыбери сумму:",
+            reply_markup=simple_keyboard(rows),
+        )
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("topup:"))
+async def topup_amount(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
+    amount_minor = int((cb.data or "topup:0").split(":")[1])
+    if amount_minor <= 0:
+        await cb.answer("Некорректная сумма", show_alert=True)
+        return
+    async with container.uow() as uow:
+        stars_rate = int(await container.bot_config.value(uow, "STARS_RATE_RUB"))
+        txn = Transaction(
+            user_id=db_user.id,
+            type=TransactionType.DEPOSIT,
+            status=TransactionStatus.PENDING,
+            amount_minor=amount_minor,
+            currency=Currency.RUB,
+        )
+        await uow.transactions.add(txn)
+        await uow.commit()
+        payment_id = str(txn.payment_id)
+    stars = max(1, math.ceil(amount_minor / max(1, stars_rate)))
+    if cb.message is not None:
+        await cb.message.answer_invoice(  # type: ignore[union-attr,unused-ignore]
+            title="Пополнение баланса",
+            description=f"Пополнение на {fmt_money(amount_minor)}",
+            payload=payment_id,
+            currency="XTR",
+            prices=[LabeledPrice(label="Баланс", amount=stars)],
+        )
+    await cb.answer()
+
+
 # --- Telegram Stars settlement -------------------------------------------------
 
 
@@ -263,16 +318,22 @@ async def successful_payment(message: Message, container: AppContainer, db_user:
             await uow.commit()
         except (DomainError, RemnawaveError) as exc:
             log.error("stars fulfilment failed", error=str(exc))
-            await message.answer(
-                "Оплата получена, но выдача подписки задерживается — мы уже разбираемся."
-            )
+            await message.answer("Оплата получена, но выдача задерживается — мы уже разбираемся.")
             return
+        txn = await uow.transactions.get_by_payment_id(payment_id)
         user = await uow.users.get(db_user.id)
         sub = (
             await uow.subscriptions.get(user.current_subscription_id)
             if user and user.current_subscription_id
             else None
         )
+
+    if txn is not None and txn.type is TransactionType.DEPOSIT:
+        balance = fmt_money(user.balance_minor) if user else "—"
+        await message.answer(
+            f"✅ <b>Баланс пополнен.</b>\nТекущий баланс: {balance}", parse_mode="HTML"
+        )
+        return
     text = "✅ <b>Оплата получена — подписка активирована!</b>"
     if sub is not None and sub.subscription_url:
         text += f"\n\nСсылка подписки:\n<code>{sub.subscription_url}</code>"

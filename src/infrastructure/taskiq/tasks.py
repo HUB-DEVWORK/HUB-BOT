@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from uuid import UUID
 
-from src.core.enums import TransactionStatus
+from src.core.enums import TransactionStatus, TransactionType
 from src.core.logging import get_logger
 from src.infrastructure.taskiq.broker import broker, get_container
 
@@ -17,18 +17,49 @@ async def process_payment(payment_id: str, status: str) -> bool:
     """Complete a transaction from a verified webhook (idempotent CAS + fulfilment).
 
     Enqueued by the payment webhook route; never run inline. Safe to retry — a duplicate
-    finds the transaction already terminal and no-ops.
+    finds the transaction already terminal and no-ops. Notifies the buyer AFTER commit (only
+    the out-of-band webhook path reaches here; in-bot flows reply in the handler themselves).
     """
     container = get_container()
+    pid = UUID(payment_id)
     async with container.uow() as uow:
         moved = await container.payments.process(
-            uow,
-            payment_id=UUID(payment_id),
-            status=TransactionStatus(status),
+            uow, payment_id=pid, status=TransactionStatus(status)
         )
         await uow.commit()
     log.info("process_payment", payment_id=payment_id, status=status, advanced=moved)
+
+    if moved and status == TransactionStatus.COMPLETED.value:
+        await _notify_paid(container, pid)
     return moved
+
+
+async def _notify_paid(container: object, payment_id: UUID) -> None:
+    """DM the buyer that an out-of-band payment completed. Best-effort, post-commit."""
+    from typing import cast
+
+    from src.infrastructure.di import AppContainer
+
+    c = cast(AppContainer, container)
+    async with c.uow() as uow:
+        txn = await uow.transactions.get_by_payment_id(payment_id)
+        if txn is None:
+            return
+        user = await uow.users.get(txn.user_id)
+        if user is None or user.telegram_id is None:
+            return
+        if txn.type is TransactionType.DEPOSIT:
+            text = "✅ Баланс пополнен."
+        elif txn.type is TransactionType.SUBSCRIPTION_PAYMENT:
+            text = "✅ Оплата получена — подписка активна!"
+            if user.current_subscription_id is not None:
+                sub = await uow.subscriptions.get(user.current_subscription_id)
+                if sub is not None and sub.subscription_url:
+                    text += f"\n{sub.subscription_url}"
+        else:
+            text = "✅ Оплата получена."
+        telegram_id = user.telegram_id
+    await c.notifier.notify_user(telegram_id, text)
 
 
 @broker.task

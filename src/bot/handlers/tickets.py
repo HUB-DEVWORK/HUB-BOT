@@ -59,6 +59,8 @@ async def user_message(
     message: Message, container: AppContainer, db_user: User, state: FSMContext
 ) -> None:
     """Plain text outside flows: append to an open ticket, or open a new one."""
+    if await state.get_state() is not None:
+        return  # user is mid-FSM (e.g. entering a promocode) — don't hijack their input
     text = (message.text or "").strip()
     if not text:
         return

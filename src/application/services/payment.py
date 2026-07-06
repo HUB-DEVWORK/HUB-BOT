@@ -12,6 +12,7 @@ from uuid import UUID
 from src.application.common.events import EventBus
 from src.application.events import PaymentCompleted
 from src.application.services.purchase import PurchaseService
+from src.application.services.referral import ReferralService
 from src.core.enums import TransactionStatus, TransactionType
 from src.core.exceptions import NotFound
 from src.infrastructure.database.models.transaction import Transaction
@@ -19,11 +20,18 @@ from src.infrastructure.database.models.transaction import Transaction
 if TYPE_CHECKING:
     from src.infrastructure.database.uow import UnitOfWork
 
+# Transaction types that represent external money ENTERING the system — these trigger a
+# referral commission (a balance-funded purchase does not; that money was rewarded on top-up).
+_REWARDABLE = (TransactionType.DEPOSIT, TransactionType.SUBSCRIPTION_PAYMENT)
+
 
 class PaymentService:
-    def __init__(self, purchase: PurchaseService, event_bus: EventBus) -> None:
+    def __init__(
+        self, purchase: PurchaseService, event_bus: EventBus, referrals: ReferralService
+    ) -> None:
         self._purchase = purchase
         self._events = event_bus
+        self._referrals = referrals
 
     async def process(
         self, uow: UnitOfWork, *, payment_id: UUID, status: TransactionStatus
@@ -44,6 +52,13 @@ class PaymentService:
             if not moved:
                 return False
             await self._fulfill(uow, txn)
+            # Referral commission on money entering (atomic, idempotent per transaction).
+            if txn.type in _REWARDABLE and txn.amount_minor > 0:
+                payer = await uow.users.get(txn.user_id)
+                if payer is not None:
+                    await self._referrals.reward_on_topup(
+                        uow, payer=payer, amount_minor=txn.amount_minor, transaction_id=txn.id
+                    )
             await self._events.publish(
                 PaymentCompleted(
                     user_id=txn.user_id,

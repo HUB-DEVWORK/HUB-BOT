@@ -13,6 +13,7 @@ _DEFAULT_BUTTONS: list[tuple[str, str]] = [
     ("🛒 Купить VPN", "act:buy:0"),
     ("👤 Моя подписка", "act:subscription:0"),
     ("💰 Баланс", "act:balance:0"),
+    ("🎟 Промокод", "act:promocode"),
     ("🎁 Пригласить друга", "act:referral:0"),
     ("🆘 Поддержка", "act:support:0"),
 ]

@@ -106,10 +106,16 @@ async def act_balance(cb: CallbackQuery, container: AppContainer, db_user: User)
         min_dep = int(await container.bot_config.value(uow, "MIN_DEPOSIT_AMOUNT"))
     text = (
         f"<b>Баланс: {fmt_money(db_user.balance_minor)}</b>\n\n"
-        f"Пополнение — от {fmt_money(min_dep)}. Оплата картой/СБП скоро; "
-        f"пока пополнение можно запросить у поддержки."
+        f"Пополнение через Telegram Stars — от {fmt_money(min_dep)}. "
+        f"С баланса можно оплачивать подписки."
     )
-    markup = simple_keyboard([("🆘 Поддержка", "act:support:0"), ("‹ Меню", "nav:root")])
+    markup = simple_keyboard(
+        [
+            ("⭐ Пополнить", "topup:menu"),
+            ("🆘 Поддержка", "act:support:0"),
+            ("‹ Меню", "nav:root"),
+        ]
+    )
     if cb.message is not None:
         await cb.message.edit_text(text, reply_markup=markup, parse_mode="HTML")  # type: ignore[union-attr]
     await cb.answer()

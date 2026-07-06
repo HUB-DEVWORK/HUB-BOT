@@ -12,6 +12,7 @@ from src.application.events import SubscriptionPurchased
 from src.application.services.payment import PaymentService
 from src.application.services.pricing import PricingService
 from src.application.services.purchase import PurchaseService
+from src.application.services.referral import ReferralService
 from src.application.services.remnawave import RemnawaveService
 from src.application.services.subscription import SubscriptionService
 from src.core.enums import Currency, TransactionStatus
@@ -25,7 +26,7 @@ def _build() -> tuple[PurchaseService, PaymentService, FakeRemnawaveClient, Reco
     bus = RecordingEventBus()
     subs = SubscriptionService(RemnawaveService(fake))
     purchase = PurchaseService(PricingService(), subs, bus)
-    payments = PaymentService(purchase, bus)
+    payments = PaymentService(purchase, bus, ReferralService(bus))
     return purchase, payments, fake, bus
 
 

@@ -30,7 +30,7 @@ from src.infrastructure.redis.client import create_redis
 from src.infrastructure.remnawave.client import RemnawaveHttpClient
 from src.infrastructure.remnawave.connection import build_profile
 from src.infrastructure.remnawave.webhook import WebhookVerifier
-from src.infrastructure.services.notification import LogNotifier
+from src.infrastructure.services.notification import LogNotifier, TelegramNotifier
 
 
 class AppContainer:
@@ -50,15 +50,20 @@ class AppContainer:
         )
         self.event_bus = InProcessEventBus()
         self.translator: Translator = load_translations()
-        self.notifier = LogNotifier()
+        # Real Telegram delivery when a bot token is set, otherwise a logging no-op.
+        self.notifier: LogNotifier | TelegramNotifier = (
+            TelegramNotifier(settings.bot.token, settings.app.owner_ids)
+            if settings.bot.token
+            else LogNotifier()
+        )
 
         # --- services (stateless singletons) ------------------------------
         self.remnawave = RemnawaveService(self.remnawave_client)
         self.pricing = PricingService()
         self.subscriptions = SubscriptionService(self.remnawave)
         self.purchase = PurchaseService(self.pricing, self.subscriptions, self.event_bus)
-        self.payments = PaymentService(self.purchase, self.event_bus)
         self.referrals = ReferralService(self.event_bus)
+        self.payments = PaymentService(self.purchase, self.event_bus, self.referrals)
         self.promo = PromoService()
         self.bot_config = BotConfigService(self.secret_box)
         self.panel_sync = PanelSyncService(self.remnawave_client)
@@ -72,6 +77,7 @@ class AppContainer:
         return UnitOfWork(self.session_factory)
 
     async def aclose(self) -> None:
+        await self.notifier.aclose()
         await self.remnawave_client.aclose()
         await self.redis.aclose()
         await self.engine.dispose()

@@ -15,6 +15,7 @@ from src.application.services.payment import PaymentService
 from src.application.services.pricing import PricingService
 from src.application.services.promo import PromoError, PromoService
 from src.application.services.purchase import PurchaseService
+from src.application.services.referral import ReferralService
 from src.application.services.remnawave import RemnawaveService
 from src.application.services.subscription import SubscriptionService
 from src.core.enums import (
@@ -77,7 +78,7 @@ async def test_expired_subscription_does_not_block_a_new_active_one(uow: UnitOfW
 def _payment_service() -> PaymentService:
     bus = RecordingEventBus()
     subs = SubscriptionService(RemnawaveService(FakeRemnawaveClient()))
-    return PaymentService(PurchaseService(PricingService(), subs, bus), bus)
+    return PaymentService(PurchaseService(PricingService(), subs, bus), bus, ReferralService(bus))
 
 
 async def test_deposit_credits_balance_and_is_idempotent(uow: UnitOfWork) -> None:
@@ -144,7 +145,7 @@ def _purchase_and_payment() -> tuple[PurchaseService, PaymentService, FakeRemnaw
     bus = RecordingEventBus()
     subs = SubscriptionService(RemnawaveService(fake))
     purchase = PurchaseService(PricingService(), subs, bus)
-    return purchase, PaymentService(purchase, bus), fake
+    return purchase, PaymentService(purchase, bus, ReferralService(bus)), fake
 
 
 async def test_paid_renew_extends_and_does_not_duplicate(uow: UnitOfWork) -> None:

@@ -22,6 +22,7 @@ from src.application.services.payment import PaymentService
 from src.application.services.pricing import PricingService
 from src.application.services.promo import PromoService
 from src.application.services.purchase import PurchaseService
+from src.application.services.referral import ReferralService
 from src.application.services.remnawave import RemnawaveService
 from src.application.services.subscription import SubscriptionService
 from src.core.config import get_settings
@@ -67,7 +68,8 @@ class ApiTestContainer:
         self.pricing = PricingService()
         self.subscriptions = SubscriptionService(self.remnawave)
         self.purchase = PurchaseService(self.pricing, self.subscriptions, self.event_bus)
-        self.payments = PaymentService(self.purchase, self.event_bus)
+        self.referrals = ReferralService(self.event_bus)
+        self.payments = PaymentService(self.purchase, self.event_bus, self.referrals)
         self.promo = PromoService()
         self.bot_config = BotConfigService(self.secret_box)
         self.panel_sync = PanelSyncService(self.remnawave_client)
