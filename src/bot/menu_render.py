@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from aiogram.types import CallbackQuery, Message
 
 from src.bot.keyboards import menu_keyboard, simple_keyboard, webapp_button
@@ -29,6 +31,7 @@ async def send_main_menu(
         cfg = container.bot_config
         start_text = str(await cfg.value(uow, "START_MESSAGE"))
         miniapp_url = str(await cfg.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "")
+        welcome_image = str(await cfg.value(uow, "WELCOME_IMAGE") or "")
         trial_enabled = bool(await cfg.value(uow, "TRIAL_ENABLED"))
 
     if nodes:
@@ -50,4 +53,8 @@ async def send_main_menu(
                 await target.message.answer(start_text, reply_markup=markup)
         await target.answer()
     else:
+        # Fresh /start: show the configurable logo/welcome image above the menu.
+        if welcome_image:
+            with contextlib.suppress(Exception):  # bad file_id/URL must not break /start
+                await target.answer_photo(welcome_image)
         await target.answer(start_text, reply_markup=markup)

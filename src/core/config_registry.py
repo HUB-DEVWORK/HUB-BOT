@@ -136,6 +136,16 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "/start greeting",
     ),
     _p(
+        "WELCOME_IMAGE",
+        C.MAIN,
+        STR,
+        "",
+        "Лого / приветственное фото",
+        "Welcome image (logo)",
+        "file_id или URL картинки вверху /start. Задать из бота: /setlogo (ответом на фото).",
+        "Photo file_id or URL at the top of /start. Set via the bot: /setlogo (reply to a photo).",
+    ),
+    _p(
         "MAIN_MENU_MODE",
         C.MAIN,
         STR,
