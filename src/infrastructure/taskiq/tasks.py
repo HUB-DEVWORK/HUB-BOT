@@ -3,22 +3,33 @@
 from __future__ import annotations
 
 import datetime as dt
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from src.core.enums import TransactionStatus, TransactionType
 from src.core.logging import get_logger
 from src.infrastructure.taskiq.broker import broker, get_container
 
+if TYPE_CHECKING:
+    from src.infrastructure.di import AppContainer
+
 log = get_logger(__name__)
 
 
 @broker.task(retry_on_error=True, max_retries=5)
-async def process_payment(payment_id: str, status: str) -> bool:
+async def process_payment(
+    payment_id: str,
+    status: str,
+    saved_method_enc: str | None = None,
+    saved_method_title: str | None = None,
+) -> bool:
     """Complete a transaction from a verified webhook (idempotent CAS + fulfilment).
 
     Enqueued by the payment webhook route; never run inline. Safe to retry — a duplicate
     finds the transaction already terminal and no-ops. Notifies the buyer AFTER commit (only
     the out-of-band webhook path reaches here; in-bot flows reply in the handler themselves).
+    ``saved_method_enc`` is a provider-saved card token (Fernet-encrypted by the route) —
+    persisted on the paying user for card autopay.
     """
     container = get_container()
     pid = UUID(payment_id)
@@ -29,9 +40,35 @@ async def process_payment(payment_id: str, status: str) -> bool:
         await uow.commit()
     log.info("process_payment", payment_id=payment_id, status=status, advanced=moved)
 
+    if saved_method_enc:  # a duplicate webhook still carries a valid token; store is idempotent
+        await _store_saved_method(
+            container, pid, method_enc=saved_method_enc, title=saved_method_title
+        )
     if moved and status == TransactionStatus.COMPLETED.value:
         await _notify_paid(container, pid)
     return moved
+
+
+async def _store_saved_method(
+    container: object, payment_id: UUID, *, method_enc: str, title: str | None
+) -> None:
+    """Persist a provider-saved card on the transaction's user (token stays encrypted)."""
+    from typing import cast
+
+    from src.infrastructure.di import AppContainer
+
+    c = cast(AppContainer, container)
+    async with c.uow() as uow:
+        txn = await uow.transactions.get_by_payment_id(payment_id)
+        if txn is None:
+            return
+        user = await uow.users.get(txn.user_id)
+        if user is None:
+            return
+        user.saved_payment_method_id = method_enc
+        user.saved_payment_method_title = title
+        await uow.commit()
+        log.info("saved payment method stored", user_id=user.id, title=title)
 
 
 async def _notify_paid(container: object, payment_id: UUID) -> None:
@@ -101,6 +138,15 @@ async def reconcile_pending_payments() -> int:
             continue
         if result is None or result.status is TransactionStatus.PENDING:
             continue
+        if result.saved_method is not None:  # webhook was lost — don't lose the card with it
+            enc = (
+                container.secret_box.encrypt(result.saved_method.method_id)
+                if container.secret_box
+                else result.saved_method.method_id
+            )
+            await _store_saved_method(
+                container, txn.payment_id, method_enc=enc, title=result.saved_method.title
+            )
         try:
             async with container.uow() as uow:
                 moved = await container.payments.process(
@@ -616,7 +662,9 @@ async def process_autopay() -> int:
 
 
 async def _autopay_one(container: object, subscription_id: int) -> bool:
-    """Charge + renew one subscription from balance. Returns True on a successful renewal."""
+    """Charge + renew one subscription: from balance, else the saved card (opt-in).
+
+    Returns True on a successful renewal."""
     from typing import cast
 
     from src.application.dto.pricing import PurchaseRequest
@@ -624,6 +672,7 @@ async def _autopay_one(container: object, subscription_id: int) -> bool:
     from src.core.enums import Currency, PurchaseType
     from src.core.enums import TransactionStatus as TS
     from src.core.enums import TransactionType as TT
+    from src.infrastructure.database.base import utcnow
     from src.infrastructure.database.models.transaction import Transaction
     from src.infrastructure.di import AppContainer
 
@@ -650,24 +699,156 @@ async def _autopay_one(container: object, subscription_id: int) -> bool:
         quote = await c.pricing.quote(uow, req)
         price = quote.final.amount_minor
         if user.balance_minor < price:
-            return False  # insufficient balance — user keeps autopay on for next window
-
-        await uow.users.increment_balance(user, -price)
-        await uow.transactions.add(
-            Transaction(
-                user_id=user.id,
-                type=TT.SUBSCRIPTION_PAYMENT,
-                status=TS.COMPLETED,
-                amount_minor=price,
-                currency=Currency.RUB,
-                purchase_type=PurchaseType.RENEW,
-                plan_snapshot=_plan_snapshot(plan),
-                pricing={"duration_days": duration.days, "subscription_id": sub.id},
+            # The card path (below) may only run once a day per subscription — the task
+            # fires every 2h and a declining card must not be hammered all window long.
+            attempt_due = (
+                sub.autopay_card_attempted_at is None
+                or utcnow() - sub.autopay_card_attempted_at >= dt.timedelta(hours=20)
             )
+            if not (
+                sub.autopay_card_enabled
+                and user.saved_payment_method_id is not None
+                and attempt_due
+            ):
+                return False  # insufficient balance — user keeps autopay on for next window
+            # Card path below: it owns its transaction lifecycle — leave this uow first.
+        else:
+            await uow.users.increment_balance(user, -price)
+            await uow.transactions.add(
+                Transaction(
+                    user_id=user.id,
+                    type=TT.SUBSCRIPTION_PAYMENT,
+                    status=TS.COMPLETED,
+                    amount_minor=price,
+                    currency=Currency.RUB,
+                    purchase_type=PurchaseType.RENEW,
+                    plan_snapshot=_plan_snapshot(plan),
+                    pricing={"duration_days": duration.days, "subscription_id": sub.id},
+                )
+            )
+            await c.subscriptions.renew(uow, sub, days=duration.days, telegram_id=user.telegram_id)
+            await uow.commit()
+            telegram_id = user.telegram_id
+            if telegram_id is not None:
+                await c.notifier.notify_user(
+                    telegram_id, "🔁 Автопродление выполнено — подписка продлена."
+                )
+            return True
+    return await _autopay_charge_card(c, subscription_id)
+
+
+_AUTOPAY_CARD_FAIL = (
+    "⚠️ Автопродление: не удалось списать оплату с карты.\n"  # noqa: RUF001
+    "Продли подписку вручную или пополни баланс, иначе доступ отключится."
+)
+
+
+async def _autopay_charge_card(c: AppContainer, subscription_id: int) -> bool:
+    """Renew via the saved card: PENDING txn → charge without confirmation → the standard
+    idempotent pipeline (PaymentService.process). Returns True on a completed renewal.
+
+    A ``pending`` charge is left to the webhook/reconciler; a failed HTTP call leaves the
+    txn PENDING with no external_id (same contract as the interactive gateway flow)."""
+    import contextlib
+
+    from src.application.common.payments import PaymentContext
+    from src.application.dto.pricing import PurchaseRequest
+    from src.core.enums import Currency, PaymentGatewayType, PurchaseType
+    from src.core.exceptions import ConfigError
+    from src.core.money import Money
+    from src.infrastructure.database.base import utcnow
+    from src.infrastructure.payments.crypto import decrypt_gateway_settings
+    from src.infrastructure.payments.gateways.yookassa import YookassaGateway
+
+    async with c.uow() as uow:
+        sub = await uow.subscriptions.get(subscription_id)
+        if sub is None or sub.plan_id is None:
+            return False
+        user = await uow.users.get(sub.user_id)
+        if user is None or not user.saved_payment_method_id:
+            return False
+        row = await uow.payment_gateways.get_active(PaymentGatewayType.YOOKASSA)
+        if row is None or PaymentGatewayType.YOOKASSA not in c.gateway_factory.supported():
+            return False
+        settings = decrypt_gateway_settings(c.secret_box, dict(row.settings))
+        gateway = c.gateway_factory.create(PaymentGatewayType.YOOKASSA, settings)
+        if not isinstance(gateway, YookassaGateway) or not gateway.recurrent_enabled:
+            return False
+
+        plan = await uow.plans.get_with_durations(sub.plan_id)
+        if plan is None or not plan.durations:
+            return False
+        duration = next(
+            (d for d in plan.durations if d.days == sub.autopay_period_days), plan.durations[0]
         )
-        await c.subscriptions.renew(uow, sub, days=duration.days, telegram_id=user.telegram_id)
+        sub.autopay_card_attempted_at = utcnow()  # set BEFORE charging: never retry a limbo
+        req = PurchaseRequest(
+            user_id=user.id,
+            plan_id=plan.id,
+            duration_days=duration.days,
+            currency=Currency.RUB,
+            purchase_type=PurchaseType.RENEW,
+            subscription_id=sub.id,
+        )
+        txn, quote = await c.purchase.start(uow, req)
+        if quote.is_free:  # start() already completed + fulfilled it
+            await uow.commit()
+            return True
+        txn.gateway_type = PaymentGatewayType.YOOKASSA
+        txn.gateway_display_name = row.display_name or PaymentGatewayType.YOOKASSA.value
+        txn.payment_method = "saved_card"
         await uow.commit()
-        telegram_id = user.telegram_id
+
+        payment_id = txn.payment_id
+        amount = Money(quote.final.amount_minor, txn.currency)
+        title = str((txn.plan_snapshot or {}).get("name") or "VPN")
+        duration_days = duration.days
+        user_id, telegram_id = user.id, user.telegram_id
+        method_token = user.saved_payment_method_id
+
+    # Stored encrypted (see _store_saved_method); tolerate plaintext like gateway creds.
+    if c.secret_box is not None:
+        with contextlib.suppress(ConfigError):
+            method_token = c.secret_box.decrypt(method_token)
+
+    ctx = PaymentContext(
+        payment_id=payment_id,
+        amount=amount,
+        description=f"{title} · {duration_days} дн. (автопродление)",
+        user_id=user_id,
+        telegram_id=telegram_id,
+    )
+    try:
+        result = await gateway.charge_saved(ctx, method_token)
+    except Exception:
+        log.warning("autopay card charge failed", subscription_id=subscription_id, exc_info=True)
+        if telegram_id is not None:
+            await c.notifier.notify_user(telegram_id, _AUTOPAY_CARD_FAIL)
+        return False
+
+    async with c.uow() as uow:
+        txn2 = await uow.transactions.get_by_payment_id(payment_id)
+        if txn2 is not None and result.external_id and not txn2.external_id:
+            txn2.external_id = result.external_id  # reconciler can now poll this payment
+            await uow.commit()
+
+    if result.status is TransactionStatus.PENDING:
+        # Not terminal yet — the webhook/reconciler finishes it through the same pipeline.
+        log.info("autopay card charge pending", subscription_id=subscription_id)
+        return False
+
+    async with c.uow() as uow:
+        moved = await c.payments.process(uow, payment_id=payment_id, status=result.status)
+        await uow.commit()
+
+    if result.status is TransactionStatus.COMPLETED and moved:
+        if telegram_id is not None:
+            await c.notifier.notify_user(
+                telegram_id,
+                f"🔁 Автопродление: {amount.amount_minor / 100:.0f} ₽ списано с карты — "  # noqa: RUF001
+                "подписка продлена.",
+            )
+        return True
     if telegram_id is not None:
-        await c.notifier.notify_user(telegram_id, "🔁 Автопродление выполнено — подписка продлена.")
-    return True
+        await c.notifier.notify_user(telegram_id, _AUTOPAY_CARD_FAIL)
+    return False

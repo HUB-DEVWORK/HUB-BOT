@@ -136,6 +136,16 @@ async def act_subscription(cb: CallbackQuery, container: AppContainer, db_user: 
                     )
                 ]
             )
+            if sub.autopay_enabled:
+                card_mark = "✅" if sub.autopay_card_enabled else "❌"
+                kb.append(
+                    [
+                        InlineKeyboardButton(
+                            text=f"💳 Автосписание картой: {card_mark}",
+                            callback_data="autopay:card",
+                        )
+                    ]
+                )
         if miniapp_url.startswith("https://"):
             kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
         kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
@@ -159,6 +169,40 @@ async def autopay_toggle(cb: CallbackQuery, container: AppContainer, db_user: Us
         await uow.commit()
         enabled = sub.autopay_enabled
     await cb.answer("Автопродление включено ✅" if enabled else "Автопродление выключено ❌")
+    await act_subscription(cb, container, db_user)
+
+
+@router.callback_query(F.data == "autopay:card")
+async def autopay_card_toggle(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
+    """Opt-in to charge the saved card when the balance can't cover the renewal."""
+    async with container.uow() as uow:
+        sub = (
+            await uow.subscriptions.get(db_user.current_subscription_id)
+            if db_user.current_subscription_id
+            else None
+        )
+        if sub is None:
+            await cb.answer("Нет активной подписки", show_alert=True)
+            return
+        card_title = None
+        if not sub.autopay_card_enabled:  # turning ON requires a saved card
+            user = await uow.users.get(db_user.id)
+            if user is None or not user.saved_payment_method_id:
+                await cb.answer(
+                    "Карта ещё не сохранена. Оплати подписку картой через ЮKassa — "
+                    "она привяжется автоматически, и автосписание станет доступно.",
+                    show_alert=True,
+                )
+                return
+            card_title = user.saved_payment_method_title
+        sub.autopay_card_enabled = not sub.autopay_card_enabled
+        await uow.commit()
+        enabled = sub.autopay_card_enabled
+    if enabled:
+        card = f" ({card_title})" if card_title else ""
+        await cb.answer(f"Автосписание картой{card} включено ✅")
+    else:
+        await cb.answer("Автосписание картой выключено ❌")
     await act_subscription(cb, container, db_user)
 
 

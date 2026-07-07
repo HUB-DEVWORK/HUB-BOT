@@ -66,6 +66,22 @@ async def payment_webhook(
             return {"accepted": True, "ignored": True}
         raise HTTPException(status_code=404, detail="payment not found")
 
+    # The provider saved a card for recurring charges — pass it along encrypted (the raw
+    # charge token must not sit plaintext in the broker; stored on the user by the worker).
+    saved_method_enc = saved_method_title = None
+    if result.saved_method is not None:
+        saved_method_enc = (
+            container.secret_box.encrypt(result.saved_method.method_id)
+            if container.secret_box
+            else result.saved_method.method_id
+        )
+        saved_method_title = result.saved_method.title
+
     # Enqueue and return fast — the worker fulfils idempotently.
-    await process_payment.kiq(str(payment_id), result.status.value)
+    await process_payment.kiq(
+        str(payment_id),
+        result.status.value,
+        saved_method_enc=saved_method_enc,
+        saved_method_title=saved_method_title,
+    )
     return {"accepted": True}

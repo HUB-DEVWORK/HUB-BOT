@@ -6,7 +6,9 @@ so we verify by REFETCHING the payment from the YooKassa API and trusting only t
 response (stronger than IP allowlists behind proxies).
 
 Settings row keys: ``shop_id``, ``secret_key`` (Fernet-encrypted at rest),
-optional ``return_url``.
+optional ``return_url``, optional ``recurrent_enabled`` — when on, payments are created
+with ``save_payment_method`` so the card can be charged later without the user
+(``charge_saved``, used by the autopay task).
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from src.application.common.payments import (
     PaymentContext,
     PaymentResult,
     PaymentResultKind,
+    SavedPaymentMethod,
     WebhookRequest,
     WebhookResult,
 )
@@ -52,7 +55,16 @@ class YookassaGateway(BasePaymentGateway):
             currencies=frozenset({Currency.RUB}),
             needs_http_webhook=True,
             supports_refund=True,
+            supports_recurrent=True,
+            supports_saved_method=True,
         )
+
+    @property
+    def recurrent_enabled(self) -> bool:
+        """Admin opted the shop into saved-card charges (requires recurring enabled
+        on the YooKassa side too — otherwise create_payment would 400)."""
+        enabled = str(self.settings.get("recurrent_enabled") or "").lower()
+        return enabled in ("1", "true", "yes", "on")
 
     def _auth(self) -> tuple[str, str]:
         shop_id = str(self.settings.get("shop_id") or "")
@@ -74,6 +86,8 @@ class YookassaGateway(BasePaymentGateway):
             "description": ctx.description[:128] or "VPN subscription",
             "metadata": {"payment_id": str(ctx.payment_id)},
         }
+        if self.recurrent_enabled:
+            payload["save_payment_method"] = True
         async with httpx.AsyncClient(timeout=20) as http:
             res = await http.post(
                 f"{API}/payments",
@@ -92,6 +106,32 @@ class YookassaGateway(BasePaymentGateway):
             kind=PaymentResultKind.REDIRECT, external_id=str(data["id"]), redirect_url=url
         )
 
+    async def charge_saved(self, ctx: PaymentContext, payment_method_id: str) -> WebhookResult:
+        """Merchant-initiated charge on a saved card: no ``confirmation`` step.
+
+        The response IS the payment state (usually terminal right away) — mapped exactly
+        like a webhook refetch so the caller can feed it into the standard pipeline.
+        """
+        value = (Decimal(ctx.amount.amount_minor) / 100).quantize(Decimal("0.01"))
+        payload: dict[str, Any] = {
+            "amount": {"value": str(value), "currency": ctx.amount.currency.value},
+            "capture": True,
+            "payment_method_id": payment_method_id,
+            "description": ctx.description[:128] or "VPN subscription",
+            "metadata": {"payment_id": str(ctx.payment_id)},
+        }
+        async with httpx.AsyncClient(timeout=20) as http:
+            res = await http.post(
+                f"{API}/payments",
+                json=payload,
+                auth=self._auth(),
+                headers={"Idempotence-Key": str(ctx.payment_id)},
+            )
+        if res.status_code not in (200, 201):
+            log.error("yookassa charge_saved failed", status=res.status_code, body=res.text[:300])
+            raise PaymentError(f"YooKassa error {res.status_code}")
+        return self._map_payment(res.json())
+
     @staticmethod
     def _map_payment(data: dict[str, Any]) -> WebhookResult:
         status = _STATUS_MAP.get(str(data.get("status")), TransactionStatus.PENDING)
@@ -106,11 +146,20 @@ class YookassaGateway(BasePaymentGateway):
         raw_amount = (data.get("amount") or {}).get("value")
         if raw_amount:
             amount = Money(int(Decimal(str(raw_amount)) * 100), Currency.RUB)
+        saved_method = None
+        pm = data.get("payment_method") or {}
+        if pm.get("saved") and pm.get("id"):
+            card = pm.get("card") or {}
+            title = str(pm.get("title") or "") or (
+                f"{card.get('card_type', 'Card')} *{card['last4']}" if card.get("last4") else None
+            )
+            saved_method = SavedPaymentMethod(method_id=str(pm["id"]), title=title)
         return WebhookResult(
             status=status,
             payment_id=payment_id,
             external_id=str(data.get("id") or "") or None,
             amount=amount,
+            saved_method=saved_method,
         )
 
     async def handle_webhook(self, request: WebhookRequest) -> WebhookResult:

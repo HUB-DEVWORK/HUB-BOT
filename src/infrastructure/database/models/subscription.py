@@ -85,6 +85,9 @@ class Subscription(IntPk, TimestampMixin, Base):
     autopay_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     autopay_days_before: Mapped[int] = mapped_column(default=1)
     autopay_period_days: Mapped[int | None] = mapped_column()
+    # Opt-in to charge the user's saved card when the balance is short.
+    autopay_card_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    autopay_card_attempted_at: Mapped[dt.datetime | None] = mapped_column(AwareDateTime)
 
     # --- audit -------------------------------------------------------------
     device_reset_at: Mapped[dt.datetime | None] = mapped_column(AwareDateTime)

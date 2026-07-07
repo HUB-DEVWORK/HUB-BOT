@@ -53,6 +53,14 @@ class WebhookRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class SavedPaymentMethod:
+    """A charge token the provider saved for merchant-initiated payments (recurring)."""
+
+    method_id: str
+    title: str | None = None  # human label, e.g. "Bank card *4444"
+
+
+@dataclass(frozen=True, slots=True)
 class WebhookResult:
     """The verified outcome: which payment, and its new status."""
 
@@ -60,6 +68,7 @@ class WebhookResult:
     payment_id: UUID | None = None
     external_id: str | None = None
     amount: Money | None = None  # for optional amount cross-check
+    saved_method: SavedPaymentMethod | None = None  # card the provider saved for autopay
 
 
 @dataclass(frozen=True, slots=True)

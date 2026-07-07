@@ -64,6 +64,10 @@ class User(IntPk, TimestampMixin, Base):
     # circular constraint; integrity is maintained by SubscriptionService).
     current_subscription_id: Mapped[int | None] = mapped_column()
 
+    # --- saved card (provider charge token for autopay, Fernet-encrypted at rest) ---
+    saved_payment_method_id: Mapped[str | None] = mapped_column(String(512))
+    saved_payment_method_title: Mapped[str | None] = mapped_column(String(64))
+
     # --- web cabinet (used later by the mini-app) --------------------------
     email: Mapped[str | None] = mapped_column(String(255), index=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)

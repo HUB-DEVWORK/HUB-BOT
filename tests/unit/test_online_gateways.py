@@ -99,6 +99,111 @@ async def test_yookassa_webhook_refetch_failure_rejects() -> None:
         await gateway.handle_webhook(WebhookRequest(body=body, headers={}))
 
 
+@respx.mock
+async def test_yookassa_create_saves_method_only_when_recurrent_enabled() -> None:
+    route = respx.post("https://api.yookassa.ru/v3/payments").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "yk-1",
+                "status": "pending",
+                "confirmation": {"confirmation_url": "https://yoomoney.ru/pay/yk-1"},
+            },
+        )
+    )
+    await YookassaGateway({"shop_id": "1", "secret_key": "sk"}).create_payment(_ctx())
+    assert "save_payment_method" not in json.loads(route.calls.last.request.content)
+
+    await YookassaGateway(
+        {"shop_id": "1", "secret_key": "sk", "recurrent_enabled": True}
+    ).create_payment(_ctx())
+    assert json.loads(route.calls.last.request.content)["save_payment_method"] is True
+
+
+@respx.mock
+async def test_yookassa_webhook_extracts_saved_method() -> None:
+    gateway = YookassaGateway({"shop_id": "1", "secret_key": "sk"})
+    pid = uuid.uuid4()
+    respx.get("https://api.yookassa.ru/v3/payments/yk-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "yk-1",
+                "status": "succeeded",
+                "amount": {"value": "199.00", "currency": "RUB"},
+                "metadata": {"payment_id": str(pid)},
+                "payment_method": {
+                    "type": "bank_card",
+                    "id": "pm-22d6d597",
+                    "saved": True,
+                    "title": "Bank card *4444",
+                    "card": {"card_type": "MIR", "last4": "4444"},
+                },
+            },
+        )
+    )
+    body = json.dumps({"object": {"id": "yk-1", "status": "succeeded"}}).encode()
+    result = await gateway.handle_webhook(WebhookRequest(body=body, headers={}))
+    assert result.saved_method is not None
+    assert result.saved_method.method_id == "pm-22d6d597"
+    assert result.saved_method.title == "Bank card *4444"
+
+
+@respx.mock
+async def test_yookassa_webhook_unsaved_method_ignored() -> None:
+    gateway = YookassaGateway({"shop_id": "1", "secret_key": "sk"})
+    respx.get("https://api.yookassa.ru/v3/payments/yk-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "yk-1",
+                "status": "succeeded",
+                "payment_method": {"type": "bank_card", "id": "pm-1", "saved": False},
+            },
+        )
+    )
+    body = json.dumps({"object": {"id": "yk-1", "status": "succeeded"}}).encode()
+    result = await gateway.handle_webhook(WebhookRequest(body=body, headers={}))
+    assert result.saved_method is None
+
+
+@respx.mock
+async def test_yookassa_charge_saved_no_confirmation_and_terminal_status() -> None:
+    gateway = YookassaGateway({"shop_id": "1", "secret_key": "sk", "recurrent_enabled": "1"})
+    ctx = _ctx()
+    route = respx.post("https://api.yookassa.ru/v3/payments").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "yk-auto-1",
+                "status": "succeeded",
+                "amount": {"value": "199.00", "currency": "RUB"},
+                "metadata": {"payment_id": str(ctx.payment_id)},
+            },
+        )
+    )
+    result = await gateway.charge_saved(ctx, "pm-22d6d597")
+    assert result.status is TransactionStatus.COMPLETED
+    assert result.external_id == "yk-auto-1"
+    assert result.payment_id == ctx.payment_id
+    req = route.calls.last.request
+    assert req.headers["Idempotence-Key"] == str(ctx.payment_id)
+    sent = json.loads(req.content)
+    assert sent["payment_method_id"] == "pm-22d6d597"
+    assert "confirmation" not in sent
+    assert "save_payment_method" not in sent
+
+
+@respx.mock
+async def test_yookassa_charge_saved_error_raises() -> None:
+    gateway = YookassaGateway({"shop_id": "1", "secret_key": "sk"})
+    respx.post("https://api.yookassa.ru/v3/payments").mock(
+        return_value=httpx.Response(400, json={"description": "payment_method not saved"})
+    )
+    with pytest.raises(PaymentError):
+        await gateway.charge_saved(_ctx(), "pm-dead")
+
+
 # --- CryptoBot ---------------------------------------------------------------
 
 TOKEN = "12345:AAtesttoken"
