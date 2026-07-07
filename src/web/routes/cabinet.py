@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from src.application.common.payments import PaymentContext, PaymentResultKind
 from src.application.dto.pricing import PurchaseRequest
 from src.application.services.connection import build_deep_links
 from src.application.services.ids import generate_referral_code
@@ -25,10 +26,12 @@ from src.core.exceptions import (
     RemnawaveError,
 )
 from src.core.logging import get_logger
+from src.core.money import Money
 from src.core.security import validate_init_data
 from src.infrastructure.database.models.plan import Plan
 from src.infrastructure.database.models.user import User
 from src.infrastructure.di import AppContainer
+from src.infrastructure.payments.crypto import decrypt_gateway_settings
 from src.web.deps import get_container
 
 log = get_logger(__name__)
@@ -113,6 +116,13 @@ async def me(
         bot_username = str(await cfg.value(uow, "BOT_USERNAME") or "")
         proxy_enabled = bool(await cfg.value(uow, "MTPROTO_PROXY_ENABLED"))
         proxy_url = str(await cfg.value(uow, "MTPROTO_PROXY_URL") or "")
+        gateways = [
+            {"id": g.type.value, "label": g.display_name or g.type.value}
+            for g in await uow.payment_gateways.list()
+            if g.is_active
+            and g.type in container.gateway_factory.supported()
+            and g.type.value not in ("manual", "telegram_stars")
+        ]
         await uow.commit()
     return {
         "user": {
@@ -135,6 +145,7 @@ async def me(
             "bot_username": bot_username,
             "mtproto_proxy": _proxy_link(proxy_url) if proxy_enabled and proxy_url else None,
             "ui": miniapp.ui or {},
+            "payment_methods": gateways,
         },
     }
 
@@ -228,7 +239,7 @@ async def payments_history(
 class PurchaseIn(BaseModel):
     plan_id: int
     days: int = Field(..., ge=1, le=3650)
-    method: str = Field("balance", pattern="^(balance|stars)$")
+    method: str = Field("balance", max_length=32)  # balance | stars | <gateway type>
 
 
 @router.post("/purchase")
@@ -265,6 +276,9 @@ async def purchase(
             await uow.commit()
         return {"ok": True, "paid_with": "balance"}
 
+    if body.method not in ("balance", "stars"):
+        return await _pay_with_gateway(container, user, req, body.method)
+
     # Stars: pending tx + invoice link opened via Telegram.WebApp.openInvoice.
     async with container.uow() as uow:
         try:
@@ -292,6 +306,59 @@ async def purchase(
     finally:
         await bot.session.close()
     return {"ok": True, "invoice_link": link}
+
+
+async def _pay_with_gateway(
+    container: AppContainer, user: User, req: PurchaseRequest, method: str
+) -> dict[str, Any]:
+    """Hosted payment: pending tx -> provider invoice -> redirect URL.
+
+    The provider webhook completes the transaction through the standard idempotent
+    pipeline; nothing is fulfilled here.
+    """
+    from src.core.enums import PaymentGatewayType
+
+    try:
+        gtype = PaymentGatewayType(method)
+    except ValueError as exc:
+        raise HTTPException(400, "unknown payment method") from exc
+
+    async with container.uow() as uow:
+        row = await uow.payment_gateways.get_active(gtype)
+        if row is None or gtype not in container.gateway_factory.supported():
+            raise HTTPException(400, "payment method is not enabled")
+        settings = decrypt_gateway_settings(container.secret_box, dict(row.settings))
+        try:
+            txn, quote = await container.purchase.start(uow, req)
+        except DomainError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if quote.is_free:
+            await uow.commit()
+            return {"ok": True, "paid_with": "free"}
+        miniapp_url = str(await container.bot_config.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "")
+        title = str((txn.plan_snapshot or {}).get("name") or "VPN")
+        gateway = container.gateway_factory.create(gtype, settings)
+        try:
+            result = await gateway.create_payment(
+                PaymentContext(
+                    payment_id=txn.payment_id,
+                    amount=Money(quote.final.amount_minor, txn.currency),
+                    description=f"{title} · {req.duration_days} дн.",
+                    user_id=user.id,
+                    telegram_id=user.telegram_id,
+                    return_url=miniapp_url or None,
+                )
+            )
+        except Exception as exc:
+            log.error("gateway create_payment failed", gateway=method, error=str(exc))
+            raise HTTPException(502, f"panel error: provider {method} failed") from exc
+        if result.kind is not PaymentResultKind.REDIRECT or not result.redirect_url:
+            raise HTTPException(502, f"provider {method} returned no payment url")
+        txn.gateway_type = gtype
+        txn.external_id = result.external_id
+        txn.gateway_display_name = row.display_name or gtype.value
+        await uow.commit()
+        return {"ok": True, "redirect_url": result.redirect_url}
 
 
 class PromoIn(BaseModel):

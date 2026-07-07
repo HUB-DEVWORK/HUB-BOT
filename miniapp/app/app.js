@@ -241,6 +241,13 @@
           el("div", { class: "chips" }, [
             el("button", { class: `chip${state.paySel === "balance" ? " on" : ""}`, onclick: () => { state.paySel = "balance"; render(); }, text: `${T.payBalance} · ${me ? money(me.user.balance_minor) : ""}` }),
             el("button", { class: `chip${state.paySel === "stars" ? " on" : ""}`, onclick: () => { state.paySel = "stars"; render(); }, text: `⭐ ${T.payStars} · ${sel ? sel.price_stars : ""}` }),
+            ...((me && me.app.payment_methods) || []).map((pm) =>
+              el("button", {
+                class: `chip${state.paySel === pm.id ? " on" : ""}`,
+                onclick: () => { state.paySel = pm.id; render(); },
+                text: `💳 ${pm.label}`,
+              }),
+            ),
           ]),
           el("button", { class: "btn primary", style: "margin-top:14px;" + btnStyle("renew"), onclick: () => purchase(plan, sel), text: `${btnText("renew", usable ? T.renew : T.buy)} · ${sel ? money(sel.price_minor) : ""}` }),
         ]),
@@ -471,9 +478,13 @@
       const r = await api("POST", "/api/cabinet/purchase", {
         plan_id: plan.id,
         days: dur.days,
-        method: state.paySel === "balance" ? "balance" : "stars",
+        method: state.paySel,
       });
-      if (r.invoice_link && wa && wa.openInvoice) {
+      if (r.redirect_url) {
+        wa && wa.openLink ? wa.openLink(r.redirect_url) : window.open(r.redirect_url, "_blank");
+        toast(T === RU ? "Оплати по открывшейся ссылке" : "Complete the payment in the opened page");
+        setTimeout(load, 4000);
+      } else if (r.invoice_link && wa && wa.openInvoice) {
         wa.openInvoice(r.invoice_link, (status) => {
           if (status === "paid") {
             toast(T.bought);

@@ -165,15 +165,15 @@ PROVIDER_META: dict[PaymentGatewayType, dict[str, Any]] = {
     PaymentGatewayType.YOOKASSA: {
         "title": "YooKassa",
         "methods": "карта, СБП, SberPay",
-        "fields": ["shop_id", "secret_key"],
-        "ready": False,
+        "fields": ["shop_id", "secret_key", "return_url"],
+        "ready": True,
         "emoji": "🏦",
     },
     PaymentGatewayType.CRYPTOBOT: {
         "title": "CryptoBot",
         "methods": "USDT, TON, BTC",
         "fields": ["api_token"],
-        "ready": False,
+        "ready": True,
         "emoji": "🤖",
     },
     PaymentGatewayType.CRYPTOMUS: {
@@ -428,5 +428,47 @@ async def test_provider(
         raise HTTPException(404, "provider not configured")
     if gtype in (PaymentGatewayType.MANUAL, PaymentGatewayType.TELEGRAM_STARS):
         return {"ok": True, "balance": None, "detail": "no external API required"}
+
+    from src.infrastructure.payments.crypto import decrypt_gateway_settings
+
+    settings = decrypt_gateway_settings(container.secret_box, dict(gw.settings))
+    import httpx
+
+    if gtype is PaymentGatewayType.YOOKASSA:
+        shop_id = str(settings.get("shop_id") or "")
+        secret = str(settings.get("secret_key") or "")
+        if not shop_id or not secret:
+            return {"ok": False, "balance": None, "detail": "заполни shop_id и secret_key"}
+        async with httpx.AsyncClient(timeout=15) as http:
+            res = await http.get("https://api.yookassa.ru/v3/me", auth=(shop_id, secret))
+        if res.status_code == 200:
+            acc = res.json()
+            return {
+                "ok": True,
+                "balance": None,
+                "detail": f"магазин {acc.get('account_id')} · статус {acc.get('status')}",
+            }
+        return {"ok": False, "balance": None, "detail": f"YooKassa ответила {res.status_code}"}
+
+    if gtype is PaymentGatewayType.CRYPTOBOT:
+        token = str(settings.get("api_token") or "")
+        if not token:
+            return {"ok": False, "balance": None, "detail": "заполни api_token"}
+        async with httpx.AsyncClient(timeout=15) as http:
+            me = await http.get(
+                "https://pay.crypt.bot/api/getMe", headers={"Crypto-Pay-API-Token": token}
+            )
+            bal = await http.get(
+                "https://pay.crypt.bot/api/getBalance", headers={"Crypto-Pay-API-Token": token}
+            )
+        if me.status_code == 200 and me.json().get("ok"):
+            balances = bal.json().get("result", []) if bal.status_code == 200 else []
+            usdt = next(
+                (b.get("available") for b in balances if b.get("currency_code") == "USDT"), None
+            )
+            name = me.json()["result"].get("name")
+            return {"ok": True, "balance": usdt, "detail": f"приложение {name} · USDT {usdt or 0}"}
+        return {"ok": False, "balance": None, "detail": f"CryptoBot ответил {me.status_code}"}
+
     # Real balance probes land with each gateway implementation (single-file drop-ins).
     return {"ok": False, "balance": None, "detail": "gateway implementation not installed"}

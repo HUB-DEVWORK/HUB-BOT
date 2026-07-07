@@ -6,7 +6,6 @@ No fulfilment happens inline (gotcha #6).
 
 from __future__ import annotations
 
-import contextlib
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,26 +14,11 @@ from src.application.common.payments import WebhookRequest
 from src.core.enums import PaymentGatewayType
 from src.core.exceptions import GatewayNotConfigured, NotFound, WebhookVerificationError
 from src.infrastructure.di import AppContainer
-from src.infrastructure.payments.crypto import SecretBox
+from src.infrastructure.payments.crypto import decrypt_gateway_settings
 from src.infrastructure.taskiq.tasks import process_payment
 from src.web.deps import get_container
 
 router = APIRouter(prefix="/api/v1/payments", tags=["payments"])
-
-_SECRET_KEYS = {"secret", "api_key", "token", "password", "shop_secret"}
-
-
-def _decrypt_settings(box: SecretBox | None, settings: dict[str, Any]) -> dict[str, Any]:
-    if box is None:
-        return settings
-    out = dict(settings)
-    for key in _SECRET_KEYS & out.keys():
-        value = out[key]
-        if isinstance(value, str) and value:
-            # value may already be plaintext in dev — tolerate a decrypt failure.
-            with contextlib.suppress(Exception):
-                out[key] = box.decrypt(value)
-    return out
 
 
 @router.post("/{gateway_type}")
@@ -53,7 +37,7 @@ async def payment_webhook(
         raise HTTPException(status_code=404, detail="gateway not configured")
 
     gateway = container.gateway_factory.create(
-        gt, _decrypt_settings(container.secret_box, settings)
+        gt, decrypt_gateway_settings(container.secret_box, settings)
     )
     body = await request.body()
     wreq = WebhookRequest(

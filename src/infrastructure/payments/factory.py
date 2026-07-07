@@ -11,13 +11,17 @@ from typing import Any
 from src.core.enums import PaymentGatewayType
 from src.core.exceptions import GatewayNotConfigured
 from src.infrastructure.payments.base import BasePaymentGateway
+from src.infrastructure.payments.gateways.cryptobot import CryptobotGateway
 from src.infrastructure.payments.gateways.manual import ManualGateway
 from src.infrastructure.payments.gateways.telegram_stars import TelegramStarsGateway
+from src.infrastructure.payments.gateways.yookassa import YookassaGateway
 
 # Register a new provider here (plus a core.enums value and a DB seed row).
 _REGISTRY: dict[PaymentGatewayType, type[BasePaymentGateway]] = {
     PaymentGatewayType.MANUAL: ManualGateway,
     PaymentGatewayType.TELEGRAM_STARS: TelegramStarsGateway,
+    PaymentGatewayType.YOOKASSA: YookassaGateway,
+    PaymentGatewayType.CRYPTOBOT: CryptobotGateway,
 }
 
 

@@ -106,6 +106,13 @@ async def choose_payment(cb: CallbackQuery, container: AppContainer, db_user: Us
             return
         stars_rate = int(await container.bot_config.value(uow, "STARS_RATE_RUB"))
         balance_enabled = bool(await container.bot_config.value(uow, "BALANCE_ENABLED"))
+        online_gateways = [
+            (g.type.value, g.display_name or g.type.value)
+            for g in await uow.payment_gateways.list()
+            if g.is_active
+            and g.type in container.gateway_factory.supported()
+            and g.type.value not in ("manual", "telegram_stars")
+        ]
     price = quote.final.amount_minor
     stars = max(1, math.ceil(price / max(1, stars_rate)))
     rows = []
@@ -115,6 +122,8 @@ async def choose_payment(cb: CallbackQuery, container: AppContainer, db_user: Us
             (f"{ok} С баланса ({fmt_money(db_user.balance_minor)})", f"pay:{plan_id}:{days}:bal")
         )
     rows.append((f"⭐ Telegram Stars · {stars} ★", f"pay:{plan_id}:{days}:stars"))
+    for gtype, label in online_gateways:
+        rows.append((f"💳 {label}", f"pay:{plan_id}:{days}:{gtype}"))
     rows.append(("‹ Назад", f"plan:{plan_id}"))
     discount = f" (−{quote.discount_pct}%)" if quote.discount_pct else ""
     if cb.message is not None:
@@ -165,6 +174,10 @@ async def pay(cb: CallbackQuery, container: AppContainer, db_user: User) -> None
         await _pay_with_balance(cb, container, req)
         return
 
+    if method != "stars":
+        await _pay_with_gateway(cb, container, req, method)
+        return
+
     # Stars: create the pending transaction, then send an XTR invoice.
     async with container.uow() as uow:
         try:
@@ -186,6 +199,77 @@ async def pay(cb: CallbackQuery, container: AppContainer, db_user: User) -> None
             payload=payment_id,
             currency="XTR",
             prices=[LabeledPrice(label="VPN", amount=stars)],
+        )
+    await cb.answer()
+
+
+async def _pay_with_gateway(
+    cb: CallbackQuery, container: AppContainer, req: PurchaseRequest, method: str
+) -> None:
+    """Hosted payment: pending tx -> provider invoice -> «Оплатить» button.
+
+    The provider webhook drives fulfilment through the standard pipeline.
+    """
+    from src.application.common.payments import PaymentContext, PaymentResultKind
+    from src.core.enums import PaymentGatewayType
+    from src.core.money import Money
+    from src.infrastructure.payments.crypto import decrypt_gateway_settings
+
+    try:
+        gtype = PaymentGatewayType(method)
+    except ValueError:
+        await cb.answer("Неизвестный способ оплаты", show_alert=True)
+        return
+    async with container.uow() as uow:
+        row = await uow.payment_gateways.get_active(gtype)
+        if row is None or gtype not in container.gateway_factory.supported():
+            await cb.answer("Способ оплаты выключен", show_alert=True)
+            return
+        settings = decrypt_gateway_settings(container.secret_box, dict(row.settings))
+        try:
+            txn, quote = await container.purchase.start(uow, req)
+        except DomainError as exc:
+            await cb.answer(str(exc), show_alert=True)
+            return
+        title = str((txn.plan_snapshot or {}).get("name") or "VPN")
+        gateway = container.gateway_factory.create(gtype, settings)
+        try:
+            result = await gateway.create_payment(
+                PaymentContext(
+                    payment_id=txn.payment_id,
+                    amount=Money(quote.final.amount_minor, txn.currency),
+                    description=f"{title} · {req.duration_days} дн.",
+                    user_id=req.user_id,
+                    telegram_id=cb.from_user.id if cb.from_user else None,
+                )
+            )
+        except Exception as exc:
+            log.error("gateway create failed", gateway=method, error=str(exc))
+            await cb.answer("Платёжка временно недоступна, попробуй другой способ", show_alert=True)
+            return
+        if result.kind is not PaymentResultKind.REDIRECT or not result.redirect_url:
+            await cb.answer("Платёжка не вернула ссылку на оплату", show_alert=True)
+            return
+        txn.gateway_type = gtype
+        txn.external_id = result.external_id
+        txn.gateway_display_name = row.display_name or gtype.value
+        await uow.commit()
+        pay_url = result.redirect_url
+        label = row.display_name or gtype.value
+
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"💳 Оплатить · {label}", url=pay_url)],
+            [InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")],
+        ]
+    )
+    if cb.message is not None:
+        await cb.message.edit_text(  # type: ignore[union-attr]
+            "Счёт создан — оплати по кнопке ниже.\n"
+            "Подписка активируется автоматически сразу после оплаты ⚡",
+            reply_markup=markup,
         )
     await cb.answer()
 
