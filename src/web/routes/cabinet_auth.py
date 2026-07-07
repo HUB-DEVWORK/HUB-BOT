@@ -357,7 +357,8 @@ async def login_auto(
 
 
 def _redirect_uri(cabinet_url: str) -> str:
-    return f"{cabinet_url.rstrip('/')}/auth/oauth/callback"
+    # The web SPA (this same page) reads ?code&state on load — no separate route.
+    return cabinet_url.rstrip("/")
 
 
 async def _oauth_provider(container: AppContainer, name: str):  # type: ignore[no-untyped-def]

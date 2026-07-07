@@ -26,6 +26,8 @@ from src.web.routes.admin.reminders import bootstrap_reminders
 _ADMIN_DIST = Path(__file__).resolve().parents[2] / "admin" / "dist"
 # End-user mini-app (static, no build step).
 _MINIAPP_DIR = Path(__file__).resolve().parents[2] / "miniapp" / "app"
+# Standalone browser cabinet (email/OAuth/guest purchase) — served at /web.
+_WEB_DIR = Path(__file__).resolve().parents[2] / "web"
 # Admin-uploaded media (broadcasts, menu screens, covers) — created on demand.
 _UPLOADS_DIR = Path("uploads")
 
@@ -66,6 +68,8 @@ def create_app() -> FastAPI:
         app.mount("/admin", StaticFiles(directory=_ADMIN_DIST, html=True), name="admin-spa")
     if _MINIAPP_DIR.is_dir():
         app.mount("/app", StaticFiles(directory=_MINIAPP_DIR, html=True), name="miniapp")
+    if _WEB_DIR.is_dir():
+        app.mount("/web", StaticFiles(directory=_WEB_DIR, html=True), name="web-cabinet")
     _UPLOADS_DIR.mkdir(exist_ok=True)
     app.mount("/uploads", StaticFiles(directory=_UPLOADS_DIR), name="uploads")
     return app
