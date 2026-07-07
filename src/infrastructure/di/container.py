@@ -64,7 +64,9 @@ class AppContainer:
         self.pricing = PricingService()
         self.bot_config = BotConfigService(self.secret_box)
         self.subscriptions = SubscriptionService(self.remnawave)
-        self.purchase = PurchaseService(self.pricing, self.subscriptions, self.event_bus)
+        self.purchase = PurchaseService(
+            self.pricing, self.subscriptions, self.event_bus, config=self.bot_config
+        )
         self.referrals = ReferralService(
             self.event_bus, subscriptions=self.subscriptions, config=self.bot_config
         )

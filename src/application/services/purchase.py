@@ -22,6 +22,7 @@ from src.infrastructure.database.models.subscription import Subscription
 from src.infrastructure.database.models.transaction import Transaction
 
 if TYPE_CHECKING:
+    from src.application.services.bot_config import BotConfigService
     from src.infrastructure.database.uow import UnitOfWork
 
 # The hidden service plan constructor purchases hang off (snapshot + subscriptions.plan_id FK).
@@ -36,10 +37,12 @@ class PurchaseService:
         pricing: PricingService,
         subscriptions: SubscriptionService,
         event_bus: EventBus,
+        config: BotConfigService | None = None,
     ) -> None:
         self._pricing = pricing
         self._subscriptions = subscriptions
         self._events = event_bus
+        self._config = config
 
     async def start(self, uow: UnitOfWork, req: PurchaseRequest) -> tuple[Transaction, PriceQuote]:
         """Create the PENDING transaction. Free purchases are completed inline."""
@@ -247,7 +250,12 @@ class PurchaseService:
             sub = await uow.subscriptions.get(req.subscription_id)
             if sub is None or sub.user_id != user.id:
                 raise PurchaseError(f"subscription {req.subscription_id} not found for change")
-            return await self._subscriptions.change(uow, sub, user=user, plan=plan, req=req)
+            carryover = True
+            if self._config is not None:
+                carryover = bool(await self._config.value(uow, "TRIAL_CARRYOVER_DAYS"))
+            return await self._subscriptions.change(
+                uow, sub, user=user, plan=plan, req=req, carryover_trial=carryover
+            )
         if req.purchase_type is PurchaseType.TRAFFIC_TOPUP:
             if req.subscription_id is None or req.traffic_pack_id is None:
                 raise PurchaseError("traffic top-up requires subscription_id and traffic_pack_id")

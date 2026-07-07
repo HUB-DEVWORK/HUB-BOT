@@ -47,7 +47,49 @@ async def process_payment(
         )
     if moved and status == TransactionStatus.COMPLETED.value:
         await _notify_paid(container, pid)
+        await _try_auto_purchase(container, pid)
     return moved
+
+
+async def _try_auto_purchase(container: object, payment_id: UUID) -> None:
+    """After a top-up credits the wallet, complete a stashed «smart cart» purchase."""
+    from typing import cast
+
+    from src.core.enums import TransactionType
+    from src.infrastructure.services.cart import pop_cart
+
+    c = cast("AppContainer", container)
+    async with c.uow() as uow:
+        txn = await uow.transactions.get_by_payment_id(payment_id)
+        if txn is None or txn.type is not TransactionType.DEPOSIT:
+            return
+        if not bool(await c.bot_config.value(uow, "AUTO_PURCHASE_AFTER_TOPUP")):
+            return
+        user_id = txn.user_id
+    req = await pop_cart(c.redis, user_id)
+    if req is None:
+        return
+    try:
+        async with c.uow() as uow:
+            await c.purchase.checkout_from_balance(uow, req)
+            await uow.commit()
+    except Exception as exc:
+        log.info("auto purchase deferred", user=user_id, error=str(exc))
+        return
+    async with c.uow() as uow:
+        user = await uow.users.get(user_id)
+        sub = (
+            await uow.subscriptions.get(user.current_subscription_id)
+            if user and user.current_subscription_id
+            else None
+        )
+        telegram_id = user.telegram_id if user else None
+        url = sub.subscription_url if sub else None
+    if telegram_id is not None:
+        text = "✅ Подписка оформлена автоматически после пополнения!"
+        if url:
+            text += f"\n{url}"
+        await c.notifier.notify_user(telegram_id, text)
 
 
 async def _store_saved_method(

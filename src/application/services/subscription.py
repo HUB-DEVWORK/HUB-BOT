@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 from typing import TYPE_CHECKING, Any
 
 from src.application.dto.pricing import PurchaseRequest
@@ -135,15 +136,20 @@ class SubscriptionService:
         user: User,
         plan: Plan,
         req: PurchaseRequest,
+        carryover_trial: bool = False,
     ) -> Subscription:
         """Switch the subscription to another plan: same panel user, new period from now.
 
-        The unused remainder of the old period has already been monetized as a price
-        credit (PricingService), so the new period simply starts at purchase time.
-        Panel-first like every other write.
+        A PAID old period's remainder is already monetized as a price credit
+        (PricingService); a TRIAL remainder is carried over as bonus days when
+        ``carryover_trial`` is set. Panel-first like every other write.
         """
         if subscription.remnawave_uuid is None:
             raise PurchaseError("cannot change a subscription with no panel user")
+        bonus = 0
+        if carryover_trial and subscription.is_trial and subscription.expire_at is not None:
+            remaining = (subscription.expire_at - dt.datetime.now(dt.UTC)).total_seconds()
+            bonus = max(0, math.ceil(remaining / 86400))  # don't lose a partial day
         subscription.plan_id = plan.id
         subscription.plan_snapshot = _plan_snapshot(plan)
         subscription.is_trial = False
@@ -160,7 +166,9 @@ class SubscriptionService:
             subscription.internal_squads = list(req.internal_squads)
         elif plan.internal_squads:
             subscription.internal_squads = list(plan.internal_squads)
-        subscription.expire_at = dt.datetime.now(dt.UTC) + dt.timedelta(days=req.duration_days)
+        subscription.expire_at = dt.datetime.now(dt.UTC) + dt.timedelta(
+            days=req.duration_days + bonus
+        )
         spec = self._remnawave.build_spec(
             short_id=subscription.short_id,
             telegram_id=user.telegram_id,

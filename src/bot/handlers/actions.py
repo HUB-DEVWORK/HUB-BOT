@@ -385,7 +385,7 @@ async def act_referral(cb: CallbackQuery, container: AppContainer, db_user: User
 
 @router.callback_query(F.data.startswith("act:trial"))
 async def act_trial(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    if not await ensure_channel(cb, container):  # channel-lock (#1)
+    if not await ensure_channel(cb, container, scope="trial"):  # channel-lock (#1)
         return
     async with container.uow() as uow:
         cfg = container.bot_config
@@ -400,6 +400,15 @@ async def act_trial(cb: CallbackQuery, container: AppContainer, db_user: User) -
         days = int(await cfg.value(uow, "TRIAL_DURATION_DAYS"))
         traffic_gb = int(await cfg.value(uow, "TRIAL_TRAFFIC_GB"))
         devices = int(await cfg.value(uow, "TRIAL_DEVICE_LIMIT"))
+        trial_price = int(await cfg.value(uow, "TRIAL_PRICE"))
+
+        # Paid trial: charge the wallet (guarded) before provisioning.
+        if trial_price > 0 and not await uow.users.debit_balance_guarded(user, trial_price):
+            await cb.answer(
+                f"Пробный стоит {trial_price / 100:.0f} ₽ — пополни баланс и повтори",
+                show_alert=True,
+            )
+            return
 
         plan = await uow.plans.find_one(is_trial=True) or await uow.plans.find_one(name="Trial")
         if plan is not None and not plan.is_trial:

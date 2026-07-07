@@ -57,7 +57,7 @@ async def open_buy(cb: CallbackQuery, container: AppContainer, db_user: User) ->
 
 
 async def show_plans(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    if not await ensure_channel(cb, container):  # channel-lock (#1)
+    if not await ensure_channel(cb, container, scope="buy"):  # channel-lock (#1)
         return
     async with container.uow() as uow:
         plans = [p for p in await uow.plans.list_with_durations() if p.is_active and not p.is_trial]
@@ -80,7 +80,7 @@ async def show_plans(cb: CallbackQuery, container: AppContainer, db_user: User) 
 @router.callback_query(F.data == "check:sub")
 async def check_sub(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
     """'Я подписался' — re-check channel membership, then open the buy flow on success."""
-    if await ensure_channel(cb, container):
+    if await ensure_channel(cb, container, scope="buy"):
         await open_buy(cb, container, db_user)
 
 
@@ -264,7 +264,7 @@ async def _constructor_request(
 
 
 async def show_constructor(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    if not await ensure_channel(cb, container):  # channel-lock (#1)
+    if not await ensure_channel(cb, container, scope="buy"):  # channel-lock (#1)
         return
     async with container.uow() as uow:
         periods = [p for p in await uow.constructor_periods.list() if p.is_active]
@@ -448,6 +448,7 @@ async def _show_activated(cb: CallbackQuery, container: AppContainer, user_id: i
 async def _pay_with_balance(
     cb: CallbackQuery, container: AppContainer, req: PurchaseRequest
 ) -> None:
+    insufficient = False
     async with container.uow() as uow:
         try:
             await container.purchase.checkout_from_balance(uow, req)  # shared with the mini-app
@@ -456,15 +457,34 @@ async def _pay_with_balance(
             await cb.answer("Оплата не списана: сервис выдачи временно недоступен", show_alert=True)
             return  # no commit -> full rollback
         except InsufficientBalance:
-            await cb.answer("Недостаточно средств на балансе", show_alert=True)
-            return
+            insufficient = True
+            auto = bool(await container.bot_config.value(uow, "AUTO_PURCHASE_AFTER_TOPUP"))
+            ttl = int(await container.bot_config.value(uow, "CART_TTL_SECONDS"))
         except InvalidStateTransition:
             await cb.answer("Платёж уже обработан", show_alert=True)
             return
         except DomainError as exc:
             await cb.answer(str(exc), show_alert=True)
             return
-        await uow.commit()
+        else:
+            await uow.commit()
+
+    if insufficient:
+        if auto:
+            # Stash the intent — the deposit path auto-completes it after a top-up.
+            from src.infrastructure.services.cart import save_cart
+
+            await save_cart(container.redis, req, ttl)
+            await show_screen(
+                cb,
+                "На балансе не хватает средств.\n"
+                "Пополни — и подписка оформится сама сразу после зачисления ⚡",
+                simple_keyboard([("⭐ Пополнить", "topup:menu"), ("‹ Меню", "nav:root")]),
+            )
+            await cb.answer()
+        else:
+            await cb.answer("Недостаточно средств на балансе", show_alert=True)
+        return
 
     await _show_activated(cb, container, req.user_id)
 
