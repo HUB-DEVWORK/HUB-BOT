@@ -106,6 +106,28 @@ class YookassaGateway(BasePaymentGateway):
             kind=PaymentResultKind.REDIRECT, external_id=str(data["id"]), redirect_url=url
         )
 
+    async def refund(self, external_id: str, amount: Money) -> bool:
+        """POST /v3/refunds — idempotent per payment (one full refund per transaction)."""
+        value = (Decimal(amount.amount_minor) / 100).quantize(Decimal("0.01"))
+        payload = {
+            "payment_id": external_id,
+            "amount": {"value": str(value), "currency": amount.currency.value},
+        }
+        async with httpx.AsyncClient(timeout=20) as http:
+            res = await http.post(
+                f"{API}/refunds",
+                json=payload,
+                auth=self._auth(),
+                headers={"Idempotence-Key": f"refund-{external_id}"},
+            )
+        ok = res.status_code in (200, 201) and res.json().get("status") in (
+            "succeeded",
+            "pending",
+        )
+        if not ok:
+            log.error("yookassa refund failed", status=res.status_code, body=res.text[:300])
+        return ok
+
     async def charge_saved(self, ctx: PaymentContext, payment_method_id: str) -> WebhookResult:
         """Merchant-initiated charge on a saved card: no ``confirmation`` step.
 

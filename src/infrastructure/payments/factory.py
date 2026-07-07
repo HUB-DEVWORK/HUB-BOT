@@ -11,10 +11,13 @@ from typing import Any
 from src.core.enums import PaymentGatewayType
 from src.core.exceptions import GatewayNotConfigured
 from src.infrastructure.payments.base import BasePaymentGateway
+from src.infrastructure.payments.gateways.cloudpayments import CloudpaymentsGateway
 from src.infrastructure.payments.gateways.cryptobot import CryptobotGateway
 from src.infrastructure.payments.gateways.cryptomus import CryptomusGateway
+from src.infrastructure.payments.gateways.freekassa import FreekassaGateway
 from src.infrastructure.payments.gateways.heleket import HeleketGateway
 from src.infrastructure.payments.gateways.manual import ManualGateway
+from src.infrastructure.payments.gateways.paypalych import PaypalychGateway
 from src.infrastructure.payments.gateways.platega import PlategaGateway
 from src.infrastructure.payments.gateways.robokassa import RobokassaGateway
 from src.infrastructure.payments.gateways.telegram_stars import TelegramStarsGateway
@@ -34,6 +37,9 @@ _REGISTRY: dict[PaymentGatewayType, type[BasePaymentGateway]] = {
     PaymentGatewayType.HELEKET: HeleketGateway,
     PaymentGatewayType.YOOMONEY: YoomoneyGateway,
     PaymentGatewayType.WATA: WataGateway,
+    PaymentGatewayType.FREEKASSA: FreekassaGateway,
+    PaymentGatewayType.PAYPALYCH: PaypalychGateway,
+    PaymentGatewayType.CLOUDPAYMENTS: CloudpaymentsGateway,
 }
 
 

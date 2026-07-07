@@ -33,6 +33,7 @@ from src.application.common.payments import (
 from src.core.enums import Currency, PaymentGatewayType, TransactionStatus
 from src.core.exceptions import PaymentError, WebhookVerificationError
 from src.core.logging import get_logger
+from src.core.money import Money
 from src.infrastructure.payments.base import BasePaymentGateway
 
 log = get_logger(__name__)
@@ -52,7 +53,9 @@ class CryptomusGateway(BasePaymentGateway):
 
     @property
     def capabilities(self) -> GatewayCapabilities:
-        return GatewayCapabilities(currencies=frozenset({Currency.RUB}), needs_http_webhook=True)
+        return GatewayCapabilities(
+            currencies=frozenset({Currency.RUB}), needs_http_webhook=True, supports_refund=True
+        )
 
     def _creds(self) -> tuple[str, str]:
         merchant = str(self.settings.get("merchant_uuid") or "")
@@ -120,6 +123,27 @@ class CryptomusGateway(BasePaymentGateway):
             payment_id=payment_id,
             external_id=str(body.get("uuid") or "") or None,
         )
+
+    async def refund(self, external_id: str, amount: Money) -> bool:
+        """POST /v1/payment/refund — full refund to the payer's address."""
+        merchant, _ = self._creds()
+        payload = _compact({"uuid": external_id, "is_subtract": True})
+        async with httpx.AsyncClient(timeout=20) as http:
+            res = await http.post(
+                f"{self.api_base}/payment/refund",
+                content=payload,
+                headers={
+                    "merchant": merchant,
+                    "sign": self._sign(payload),
+                    "Content-Type": "application/json",
+                },
+            )
+        ok = res.status_code == 200 and (res.json() or {}).get("result") is not None
+        if not ok:
+            log.error(
+                f"{self.title.lower()} refund failed", status=res.status_code, body=res.text[:300]
+            )
+        return ok
 
     async def fetch_status(self, external_id: str) -> WebhookResult | None:
         merchant, _ = self._creds()

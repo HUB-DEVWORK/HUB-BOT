@@ -23,7 +23,8 @@ from src.application.common.payments import (
     WebhookResult,
 )
 from src.core.enums import PaymentGatewayType
-from src.core.exceptions import WebhookVerificationError
+from src.core.exceptions import PaymentError, WebhookVerificationError
+from src.core.money import Money
 
 
 class BasePaymentGateway(ABC):
@@ -43,6 +44,14 @@ class BasePaymentGateway(ABC):
 
     @abstractmethod
     async def handle_webhook(self, request: WebhookRequest) -> WebhookResult: ...
+
+    async def refund(self, external_id: str, amount: Money) -> bool:
+        """Refund a completed payment at the provider. Default: not supported.
+
+        Gateways with ``capabilities.supports_refund`` override this; everything else
+        is refunded manually by the admin (the cabinet only records the outcome).
+        """
+        raise PaymentError(f"{self.gateway_type.value}: refunds via API are not supported")
 
     async def fetch_status(self, external_id: str) -> WebhookResult | None:
         """Poll the provider for a payment's current state (reconcile path).

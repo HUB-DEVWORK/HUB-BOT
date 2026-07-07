@@ -112,6 +112,21 @@ export default function Payments() {
     queryFn: () => api.get<{ items: Wd[]; pending_count: number }>("/api/admin/withdrawals"),
   });
 
+  async function refundTx(id: number) {
+    if (!window.confirm(t.refundConfirm)) return;
+    const revoke = window.confirm(t.refundRevokeQ);
+    try {
+      const r = await api.post<{ via: string; warnings: string[] }>(
+        `/api/admin/payments/${id}/refund`,
+        { revoke_subscription: revoke },
+      );
+      void qc.invalidateQueries({ queryKey: ["payments"] });
+      toast(`${t.refunded} (${r.via})` + (r.warnings.length ? ` · ${r.warnings.join("; ")}` : ""));
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  }
+
   async function processWd(id: number, status: "paid" | "rejected") {
     const comment = status === "rejected" ? window.prompt(t.wdRejectReason) ?? "" : null;
     try {
@@ -219,7 +234,7 @@ export default function Payments() {
                 />
               </div>
               <div className="tbl">
-                <div className="tr head" style={{ gridTemplateColumns: "1fr 1.3fr 1fr 1fr 0.6fr 1fr" }}>
+                <div className="tr head" style={{ gridTemplateColumns: "1fr 1.2fr 0.9fr 1fr 0.5fr 1fr 0.5fr" }}>
                   <span>TX</span>
                   <span>{t.colUser}</span>
                   <span>Тип</span>
@@ -228,7 +243,7 @@ export default function Payments() {
                   <span>Время</span>
                 </div>
                 {(txs.data?.items ?? []).map((x) => (
-                  <div key={x.id} className="tr" style={{ gridTemplateColumns: "1fr 1.3fr 1fr 1fr 0.6fr 1fr" }}>
+                  <div key={x.id} className="tr" style={{ gridTemplateColumns: "1fr 1.2fr 0.9fr 1fr 0.5fr 1fr 0.5fr" }}>
                     <span className="mono dim">TX-{x.tx}</span>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{x.user}</span>
                     <span className="muted">{x.type}</span>
@@ -236,6 +251,17 @@ export default function Payments() {
                     <span className="mono">{ST_GLYPH[x.status] ?? "?"}</span>
                     <span className="dim" style={{ fontSize: 12 }}>
                       {dtTime(x.created_at)}
+                    </span>
+                    <span>
+                      {x.status === "completed" && (
+                        <button
+                          className="btn ghost sm"
+                          title={t.refund}
+                          onClick={() => void refundTx(x.id)}
+                        >
+                          ↩
+                        </button>
+                      )}
                     </span>
                   </div>
                 ))}

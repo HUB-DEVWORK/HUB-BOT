@@ -224,6 +224,27 @@ PROVIDER_META: dict[PaymentGatewayType, dict[str, Any]] = {
         "ready": True,
         "emoji": "🏦",
     },
+    PaymentGatewayType.FREEKASSA: {
+        "title": "FreeKassa",
+        "methods": "карта, СБП, кошельки",
+        "fields": ["shop_id", "secret1", "secret2"],
+        "ready": True,
+        "emoji": "🧾",
+    },
+    PaymentGatewayType.PAYPALYCH: {
+        "title": "PayPalych",
+        "methods": "карта, СБП",
+        "fields": ["api_token", "shop_id", "signature_token"],
+        "ready": True,
+        "emoji": "💳",
+    },
+    PaymentGatewayType.CLOUDPAYMENTS: {
+        "title": "CloudPayments",
+        "methods": "карта (виджет/заказы)",
+        "fields": ["public_id", "api_secret"],
+        "ready": True,
+        "emoji": "☁️",
+    },
     PaymentGatewayType.ROBOKASSA: {
         "title": "Robokassa",
         "methods": "карта, СБП, кошельки",
@@ -237,27 +258,6 @@ PROVIDER_META: dict[PaymentGatewayType, dict[str, Any]] = {
         "fields": ["wallet", "notification_secret"],
         "ready": True,
         "emoji": "👛",
-    },
-    PaymentGatewayType.FREEKASSA: {
-        "title": "Freekassa",
-        "methods": "карта, СБП, кошельки",
-        "fields": ["shop_id", "api_key", "secret1", "secret2"],
-        "ready": False,
-        "emoji": "🏦",
-    },
-    PaymentGatewayType.PAYPALYCH: {
-        "title": "PayPalych",
-        "methods": "карта, СБП",
-        "fields": ["api_token", "shop_id"],
-        "ready": False,
-        "emoji": "🏦",
-    },
-    PaymentGatewayType.CLOUDPAYMENTS: {
-        "title": "CloudPayments",
-        "methods": "карта",
-        "fields": ["public_id", "api_secret"],
-        "ready": False,
-        "emoji": "🏦",
     },
     PaymentGatewayType.MULENPAY: {
         "title": "MulenPay",
@@ -369,6 +369,103 @@ def _provider_row(g: PaymentGateway | None, gtype: PaymentGatewayType) -> dict[s
         or PROVIDER_EXTRAS.get(gtype, {}).get("forms", []),
         "brand": PROVIDER_EXTRAS.get(gtype, {}).get("brand", "#666"),
     }
+
+
+class RefundIn(BaseModel):
+    revoke_subscription: bool = True
+    comment: str | None = Field(None, max_length=256)
+
+
+@router.post("/payments/{txn_id}/refund")
+async def refund_payment(
+    txn_id: int,
+    body: RefundIn,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, Any]:
+    """Refund a completed payment: via the provider API when it supports refunds,
+    otherwise record-only (the admin sends the money manually). Optionally revokes
+    the subscription the payment provisioned (panel-first disable)."""
+    from src.core.enums import SubscriptionStatus, TransactionStatus
+    from src.core.money import Money
+    from src.infrastructure.payments.crypto import decrypt_gateway_settings
+
+    warnings: list[str] = []
+    async with container.uow() as uow:
+        txn = await uow.transactions.get(txn_id)
+        if txn is None:
+            raise HTTPException(404, "transaction not found")
+        if txn.status is not TransactionStatus.COMPLETED:
+            raise HTTPException(409, "only completed payments can be refunded")
+
+        refunded_via = "manual"
+        if txn.gateway_type is not None and txn.external_id:
+            row = await uow.payment_gateways.get_active(txn.gateway_type)
+            if row is not None and txn.gateway_type in container.gateway_factory.supported():
+                gateway = container.gateway_factory.create(
+                    txn.gateway_type,
+                    decrypt_gateway_settings(container.secret_box, dict(row.settings)),
+                )
+                if gateway.capabilities.supports_refund:
+                    try:
+                        ok = await gateway.refund(
+                            txn.external_id, Money(txn.amount_minor, txn.currency)
+                        )
+                    except Exception as exc:
+                        raise HTTPException(502, f"провайдер отказал: {exc}") from exc
+                    if not ok:
+                        raise HTTPException(502, "провайдер отклонил возврат — см. логи")
+                    refunded_via = txn.gateway_type.value
+                else:
+                    warnings.append("нет API-возврата — деньги нужно вернуть вручную")
+
+        moved = await uow.transactions.transition_status(
+            txn.payment_id, TransactionStatus.REFUNDED, (TransactionStatus.COMPLETED,)
+        )
+        if not moved:
+            raise HTTPException(409, "transaction already processed")
+
+        user = await uow.users.get(txn.user_id)
+        # a refunded top-up takes the money back off the wallet (never below zero)
+        if (
+            txn.type is TransactionType.DEPOSIT
+            and user is not None
+            and not await uow.users.debit_balance_guarded(user, txn.amount_minor)
+        ):
+            warnings.append("на балансе меньше суммы возврата — баланс не списан")
+
+        revoked = False
+        sub_id = (txn.pricing or {}).get("subscription_id")
+        if body.revoke_subscription and sub_id:
+            sub = await uow.subscriptions.get(int(sub_id))
+            if sub is not None and sub.status.is_usable:
+                if sub.remnawave_uuid is not None:
+                    try:
+                        await container.remnawave_client.disable_user(sub.remnawave_uuid)
+                    except Exception:
+                        warnings.append("панель недоступна — подписка выключена только локально")
+                sub.status = SubscriptionStatus.DISABLED
+                revoked = True
+
+        await audit(
+            uow,
+            identity,
+            "payment.refund",
+            f"txn:{txn_id}",
+            via=refunded_via,
+            amount_minor=txn.amount_minor,
+            revoked=revoked,
+        )
+        await uow.commit()
+        telegram_id = user.telegram_id if user else None
+        amount = txn.amount_minor
+
+    if telegram_id is not None:
+        note = f"↩️ Оформлен возврат {amount / 100:.2f} ₽ по вашему платежу."
+        if body.comment:
+            note += "\n" + body.comment
+        await container.notifier.notify_user(telegram_id, note)
+    return {"ok": True, "via": refunded_via, "revoked": revoked, "warnings": warnings}
 
 
 @router.get("/providers")
