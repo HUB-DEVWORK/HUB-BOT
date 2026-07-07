@@ -245,6 +245,34 @@ PROVIDER_META: dict[PaymentGatewayType, dict[str, Any]] = {
         "ready": True,
         "emoji": "☁️",
     },
+    PaymentGatewayType.LAVA: {
+        "title": "Lava",
+        "methods": "карта, СБП",
+        "fields": ["shop_id", "secret_key", "webhook_secret"],
+        "ready": True,
+        "emoji": "🌋",
+    },
+    PaymentGatewayType.MULENPAY: {
+        "title": "MulenPay",
+        "methods": "карта, СБП",
+        "fields": ["api_key", "shop_id", "secret_key"],
+        "ready": True,
+        "emoji": "💳",
+    },
+    PaymentGatewayType.KASSA_AI: {
+        "title": "KassaAI",
+        "methods": "карта, СБП, кошельки",
+        "fields": ["shop_id", "api_key", "secret2", "payment_system_id"],
+        "ready": True,
+        "emoji": "🤖",
+    },
+    PaymentGatewayType.ROLLYPAY: {
+        "title": "RollyPay",
+        "methods": "карта, СБП, крипта",
+        "fields": ["api_key", "signing_secret"],
+        "ready": True,
+        "emoji": "🎢",
+    },
     PaymentGatewayType.ROBOKASSA: {
         "title": "Robokassa",
         "methods": "карта, СБП, кошельки",
@@ -258,20 +286,6 @@ PROVIDER_META: dict[PaymentGatewayType, dict[str, Any]] = {
         "fields": ["wallet", "notification_secret"],
         "ready": True,
         "emoji": "👛",
-    },
-    PaymentGatewayType.MULENPAY: {
-        "title": "MulenPay",
-        "methods": "карта, СБП",
-        "fields": ["api_key", "secret_key", "shop_id"],
-        "ready": False,
-        "emoji": "🏦",
-    },
-    PaymentGatewayType.KASSA_AI: {
-        "title": "Kassa.ai",
-        "methods": "карта, СБП",
-        "fields": ["shop_id", "api_key"],
-        "ready": False,
-        "emoji": "🏦",
     },
     PaymentGatewayType.RIOPAY: {
         "title": "RioPay",
@@ -308,13 +322,6 @@ PROVIDER_META: dict[PaymentGatewayType, dict[str, Any]] = {
         "ready": False,
         "emoji": "🏦",
     },
-    PaymentGatewayType.ROLLYPAY: {
-        "title": "RollyPay",
-        "methods": "СБП, крипта",
-        "fields": ["api_key", "shop_id"],
-        "ready": False,
-        "emoji": "🏦",
-    },
 }
 
 
@@ -335,6 +342,7 @@ PROVIDER_EXTRAS: dict[PaymentGatewayType, dict[str, Any]] = {
     PaymentGatewayType.PAYPALYCH: {"forms": ["card", "sbp"], "brand": "#4C6FFF"},
     PaymentGatewayType.CLOUDPAYMENTS: {"forms": ["card"], "brand": "#2F9BFF"},
     PaymentGatewayType.MULENPAY: {"forms": ["card", "sbp"], "brand": "#9C27B0"},
+    PaymentGatewayType.LAVA: {"forms": ["card", "sbp"], "brand": "#FF4D00"},
     PaymentGatewayType.KASSA_AI: {"forms": ["card", "sbp"], "brand": "#00BFA5"},
     PaymentGatewayType.RIOPAY: {"forms": ["card", "sbp"], "brand": "#E91E63"},
     PaymentGatewayType.SEVERPAY: {"forms": ["card", "sbp"], "brand": "#3F51B5"},

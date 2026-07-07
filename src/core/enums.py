@@ -170,6 +170,7 @@ class PaymentGatewayType(StrEnum):
     PAYPALYCH = "paypalych"
     CLOUDPAYMENTS = "cloudpayments"
     MULENPAY = "mulenpay"
+    LAVA = "lava"
     KASSA_AI = "kassa_ai"
     RIOPAY = "riopay"
     SEVERPAY = "severpay"

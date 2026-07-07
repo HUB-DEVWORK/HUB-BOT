@@ -16,10 +16,14 @@ from src.infrastructure.payments.gateways.cryptobot import CryptobotGateway
 from src.infrastructure.payments.gateways.cryptomus import CryptomusGateway
 from src.infrastructure.payments.gateways.freekassa import FreekassaGateway
 from src.infrastructure.payments.gateways.heleket import HeleketGateway
+from src.infrastructure.payments.gateways.kassa_ai import KassaAiGateway
+from src.infrastructure.payments.gateways.lava import LavaGateway
 from src.infrastructure.payments.gateways.manual import ManualGateway
+from src.infrastructure.payments.gateways.mulenpay import MulenpayGateway
 from src.infrastructure.payments.gateways.paypalych import PaypalychGateway
 from src.infrastructure.payments.gateways.platega import PlategaGateway
 from src.infrastructure.payments.gateways.robokassa import RobokassaGateway
+from src.infrastructure.payments.gateways.rollypay import RollypayGateway
 from src.infrastructure.payments.gateways.telegram_stars import TelegramStarsGateway
 from src.infrastructure.payments.gateways.wata import WataGateway
 from src.infrastructure.payments.gateways.yookassa import YookassaGateway
@@ -40,6 +44,10 @@ _REGISTRY: dict[PaymentGatewayType, type[BasePaymentGateway]] = {
     PaymentGatewayType.FREEKASSA: FreekassaGateway,
     PaymentGatewayType.PAYPALYCH: PaypalychGateway,
     PaymentGatewayType.CLOUDPAYMENTS: CloudpaymentsGateway,
+    PaymentGatewayType.LAVA: LavaGateway,
+    PaymentGatewayType.MULENPAY: MulenpayGateway,
+    PaymentGatewayType.KASSA_AI: KassaAiGateway,
+    PaymentGatewayType.ROLLYPAY: RollypayGateway,
 }
 
 
