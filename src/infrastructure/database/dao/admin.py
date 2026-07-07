@@ -17,6 +17,7 @@ from src.infrastructure.database.models.constructor import ConstructorPeriod, Tr
 from src.infrastructure.database.models.holiday import Holiday
 from src.infrastructure.database.models.menu_node import MenuNode
 from src.infrastructure.database.models.miniapp_config import MiniappConfig
+from src.infrastructure.database.models.notification_template import NotificationTemplate
 from src.infrastructure.database.models.reminder_step import ReminderStep
 from src.infrastructure.database.models.report_topic import ReportTopic
 from src.infrastructure.database.models.server_node import ServerNode
@@ -121,6 +122,19 @@ class ReminderStepDAO(BaseDAO[ReminderStep]):
         """Furthest-out first: 24 h → 12 h → 1 h → 0 h (at expiry)."""
         result = await self.session.scalars(
             select(ReminderStep).order_by(ReminderStep.hours_before.desc())
+        )
+        return result.all()
+
+
+class NotificationTemplateDAO(BaseDAO[NotificationTemplate]):
+    model = NotificationTemplate
+
+    async def by_event(self, event: str) -> NotificationTemplate | None:
+        return await self.find_one(event=event)
+
+    async def ordered(self) -> Sequence[NotificationTemplate]:
+        result = await self.session.scalars(
+            select(NotificationTemplate).order_by(NotificationTemplate.event)
         )
         return result.all()
 

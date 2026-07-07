@@ -18,6 +18,7 @@ from src.web.routes.admin import (
     menu,
     migration,
     miniapp,
+    notifications,
     payments,
     promos,
     reminders,
@@ -48,6 +49,7 @@ _protected.include_router(servers.router)
 _protected.include_router(settings.router)
 _protected.include_router(menu.router)
 _protected.include_router(reminders.router)
+_protected.include_router(notifications.router)
 _protected.include_router(miniapp.router)
 _protected.include_router(maintenance.router)
 _protected.include_router(migration.router)

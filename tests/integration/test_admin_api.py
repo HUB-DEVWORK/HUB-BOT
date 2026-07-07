@@ -324,6 +324,58 @@ async def test_bootstrap_reminders_seeds_once(
         assert await uow.reminders.count() == len(DEFAULT_STEPS)
 
 
+# --- notification templates ---------------------------------------------------------
+
+
+async def test_notifications_list_and_patch(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    http, _ = client
+    auth = await _login(http)
+    res = await http.get("/api/admin/notifications", headers=auth)
+    assert res.status_code == 200
+    events = {i["event"] for i in res.json()["items"]}
+    assert {"purchase", "balance_topup", "welcome", "refund"} <= events
+    res = await http.patch(
+        "/api/admin/notifications/purchase",
+        headers=auth,
+        json={"text": "Готово, {name}!", "enabled": True},
+    )
+    assert res.status_code == 200 and res.json()["text"] == "Готово, {name}!"
+    assert (
+        await http.patch("/api/admin/notifications/nope", headers=auth, json={"enabled": False})
+    ).status_code == 404
+
+
+async def test_bootstrap_notifications_additive_and_render(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    from src.web.routes.admin.notifications import (
+        NOTIFICATION_EVENTS,
+        bootstrap_notifications,
+        notification_text,
+    )
+
+    _, container = client
+    async with container.uow() as uow:
+        assert await uow.notifications.count() == 0
+    await bootstrap_notifications(container)
+    async with container.uow() as uow:
+        assert await uow.notifications.count() == len(NOTIFICATION_EVENTS)
+        rendered = await notification_text(uow, "welcome", name="Иван")
+        assert rendered is not None and "Иван" in rendered
+    await bootstrap_notifications(container)  # idempotent
+    async with container.uow() as uow:
+        assert await uow.notifications.count() == len(NOTIFICATION_EVENTS)
+        # a disabled event yields None so the caller stays silent
+        row = await uow.notifications.by_event("purchase")
+        assert row is not None
+        row.enabled = False
+        await uow.commit()
+    async with container.uow() as uow:
+        assert await notification_text(uow, "purchase") is None
+
+
 # --- users actions ------------------------------------------------------------------
 
 

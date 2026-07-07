@@ -128,23 +128,40 @@ async def _notify_paid(container: object, payment_id: UUID) -> None:
         user = await uow.users.get(txn.user_id)
         if user is None:
             return
+        from src.infrastructure.services.reports import fmt_amount
+        from src.web.routes.admin.notifications import notification_text
+
         sub_url = None
+        text: str | None
         if txn.type is TransactionType.DEPOSIT:
-            text = "✅ Баланс пополнен."
+            text = await notification_text(
+                uow,
+                "balance_topup",
+                name=user.first_name or "",
+                amount=fmt_amount(txn.amount_minor, txn.currency.value),
+                balance=fmt_amount(user.balance_minor, txn.currency.value),
+            )
         elif txn.type is TransactionType.SUBSCRIPTION_PAYMENT:
-            text = "✅ Оплата получена — подписка активна!"
+            plan_name, expire = "", ""
             if user.current_subscription_id is not None:
                 sub = await uow.subscriptions.get(user.current_subscription_id)
-                if sub is not None and sub.subscription_url:
+                if sub is not None:
+                    plan_name = str((sub.plan_snapshot or {}).get("name") or "")
+                    expire = sub.expire_at.strftime("%d.%m.%Y") if sub.expire_at else ""
                     sub_url = sub.subscription_url
-                    text += f"\n{sub_url}"
+            text = await notification_text(
+                uow, "purchase", name=user.first_name or "", plan=plan_name, expire=expire
+            )
+            if text is not None and sub_url:
+                text += f"\n{sub_url}"
         else:
             text = "✅ Оплата получена."
         telegram_id = user.telegram_id
         email = user.email
 
     if telegram_id is not None:
-        await c.notifier.notify_user(telegram_id, text)
+        if text is not None:  # None = owner disabled this notification
+            await c.notifier.notify_user(telegram_id, text)
     elif email:  # web / guest buyer has no Telegram — deliver by email
         body = "Спасибо за оплату!"
         if sub_url:

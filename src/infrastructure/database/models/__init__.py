@@ -14,6 +14,7 @@ from src.infrastructure.database.models.constructor import ConstructorPeriod, Tr
 from src.infrastructure.database.models.holiday import Holiday
 from src.infrastructure.database.models.menu_node import MenuNode
 from src.infrastructure.database.models.miniapp_config import MiniappConfig
+from src.infrastructure.database.models.notification_template import NotificationTemplate
 from src.infrastructure.database.models.payment_gateway import PaymentGateway
 from src.infrastructure.database.models.plan import Plan, PlanDuration, PlanPrice
 from src.infrastructure.database.models.promo_group import PromoGroup, UserPromoGroup
@@ -43,6 +44,7 @@ __all__ = [
     "Holiday",
     "MenuNode",
     "MiniappConfig",
+    "NotificationTemplate",
     "PaymentGateway",
     "Plan",
     "PlanDuration",
