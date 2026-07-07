@@ -376,6 +376,37 @@ async def test_bootstrap_notifications_additive_and_render(
         assert await notification_text(uow, "purchase") is None
 
 
+# --- sale campaigns -----------------------------------------------------------------
+
+
+async def test_sales_crud_and_window_guard(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    http, _ = client
+    auth = await _login(http)
+    res = await http.post(
+        "/api/admin/sales",
+        headers=auth,
+        json={"discount_pct": 25, "start_day": 1, "end_day": 3, "max_uses": 50},
+    )
+    assert res.status_code == 200, res.text
+    sid = res.json()["id"]
+    # start_day > end_day is rejected by validation
+    bad = await http.post(
+        "/api/admin/sales",
+        headers=auth,
+        json={"discount_pct": 10, "start_day": 5, "end_day": 2},
+    )
+    assert bad.status_code == 422
+    listed = (await http.get("/api/admin/sales", headers=auth)).json()["items"]
+    assert any(s["id"] == sid for s in listed)
+    res = await http.patch(
+        f"/api/admin/sales/{sid}", headers=auth, json={"enabled": True, "discount_pct": 30}
+    )
+    assert res.status_code == 200 and res.json()["discount_pct"] == 30
+    assert (await http.delete(f"/api/admin/sales/{sid}", headers=auth)).status_code == 200
+
+
 # --- users actions ------------------------------------------------------------------
 
 

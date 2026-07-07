@@ -22,6 +22,7 @@ from src.infrastructure.database.models.promocode import Promocode, PromocodeAct
 from src.infrastructure.database.models.referral import Referral, ReferralEarning
 from src.infrastructure.database.models.reminder_step import ReminderStep
 from src.infrastructure.database.models.report_topic import ReportTopic
+from src.infrastructure.database.models.sale_campaign import SaleCampaign
 from src.infrastructure.database.models.server_node import ServerNode
 from src.infrastructure.database.models.server_squad import ServerSquad
 from src.infrastructure.database.models.settings import Settings
@@ -56,6 +57,7 @@ __all__ = [
     "ReferralEarning",
     "ReminderStep",
     "ReportTopic",
+    "SaleCampaign",
     "ServerNode",
     "ServerSquad",
     "Settings",

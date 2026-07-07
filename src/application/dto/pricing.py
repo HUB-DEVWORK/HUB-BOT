@@ -38,6 +38,7 @@ class PriceQuote:
     discount_pct: int
     final: Money
     components: dict[str, int] = field(default_factory=dict)  # component -> minor units
+    sale_campaign_id: int | None = None  # limited-quota sale applied (consumed at fulfilment)
 
     @property
     def is_free(self) -> bool:

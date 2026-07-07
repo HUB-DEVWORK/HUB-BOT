@@ -48,8 +48,9 @@ class PricingService:
         user = await uow.users.get(req.user_id)
         personal = user.personal_discount_pct if user else 0
         purchase = user.purchase_discount_pct if user else 0
+        sale_pct, sale_id = await self._sale_discount(uow)
 
-        discount_pct = min(MAX_DISCOUNT_PERCENT, promo_pct + personal + purchase)
+        discount_pct = min(MAX_DISCOUNT_PERCENT, promo_pct + personal + purchase + sale_pct)
         final = base_total.apply_discount(discount_pct)
 
         if req.purchase_type is PurchaseType.CHANGE and req.subscription_id is not None:
@@ -66,7 +67,13 @@ class PricingService:
             discount_pct=discount_pct,
             final=final,
             components=components,
+            sale_campaign_id=sale_id if sale_pct > 0 else None,
         )
+
+    async def _sale_discount(self, uow: UnitOfWork) -> tuple[int, int | None]:
+        """Best active limited-quantity sale: (discount_pct, campaign_id) or (0, None)."""
+        sale = await uow.sales.active_now(dt.datetime.now(dt.UTC))
+        return (sale.discount_pct, sale.id) if sale else (0, None)
 
     async def _topup_quote(self, uow: UnitOfWork, req: PurchaseRequest) -> PriceQuote:
         """Traffic top-up: the pack price with the user's discounts applied."""

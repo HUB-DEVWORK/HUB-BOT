@@ -30,6 +30,7 @@ from src.infrastructure.database.dao.admin import (
     NotificationTemplateDAO,
     ReminderStepDAO,
     ReportTopicDAO,
+    SaleCampaignDAO,
     ServerNodeDAO,
     SmartReminderDAO,
     TicketDAO,
@@ -85,6 +86,7 @@ class UnitOfWork:
         self.smart_reminder = SmartReminderDAO(session)
         self.reminders = ReminderStepDAO(session)
         self.notifications = NotificationTemplateDAO(session)
+        self.sales = SaleCampaignDAO(session)
         self.holidays = HolidayDAO(session)
         self.winback_steps = WinbackStepDAO(session)
         self.campaigns = CampaignDAO(session)

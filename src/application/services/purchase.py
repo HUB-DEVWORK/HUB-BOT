@@ -208,6 +208,11 @@ class PurchaseService:
         )
         subscription = await self._provision(uow, user=user, plan=plan, req=req)
         self._subscriptions.apply_purchase_discount_reset(user, req.purchase_type)
+        sale_id = (txn.pricing or {}).get("sale_campaign_id")
+        if sale_id:
+            import datetime as _dt
+
+            await uow.sales.consume(int(sale_id), _dt.datetime.now(_dt.UTC))
         await uow.flush()  # populate subscription.id
         # Link the payment to the subscription it provisioned — the plan-change credit
         # (PricingService._change_credit) needs this to value the unused remainder.
@@ -285,4 +290,5 @@ class PurchaseService:
             "traffic_pack_id": req.traffic_pack_id,
             "traffic_limit_bytes": req.traffic_limit_bytes,
             "device_limit": req.device_limit,
+            "sale_campaign_id": quote.sale_campaign_id,
         }

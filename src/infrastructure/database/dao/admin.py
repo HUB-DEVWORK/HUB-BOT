@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Sequence
 
 from sqlalchemy import func, select
@@ -20,6 +21,7 @@ from src.infrastructure.database.models.miniapp_config import MiniappConfig
 from src.infrastructure.database.models.notification_template import NotificationTemplate
 from src.infrastructure.database.models.reminder_step import ReminderStep
 from src.infrastructure.database.models.report_topic import ReportTopic
+from src.infrastructure.database.models.sale_campaign import SaleCampaign
 from src.infrastructure.database.models.server_node import ServerNode
 from src.infrastructure.database.models.smart_reminder import SmartReminder
 from src.infrastructure.database.models.ticket import Ticket, TicketMessage
@@ -137,6 +139,44 @@ class NotificationTemplateDAO(BaseDAO[NotificationTemplate]):
             select(NotificationTemplate).order_by(NotificationTemplate.event)
         )
         return result.all()
+
+
+class SaleCampaignDAO(BaseDAO[SaleCampaign]):
+    model = SaleCampaign
+
+    async def ordered(self) -> Sequence[SaleCampaign]:
+        result = await self.session.scalars(
+            select(SaleCampaign).order_by(SaleCampaign.discount_pct.desc())
+        )
+        return result.all()
+
+    async def active_now(self, now: dt.datetime) -> SaleCampaign | None:
+        """Best enabled sale whose day-window covers ``now`` and whose monthly quota is not
+        yet spent; highest discount wins."""
+        period, day = now.strftime("%Y-%m"), now.day
+        rows = await self.session.scalars(
+            select(SaleCampaign)
+            .where(SaleCampaign.enabled.is_(True))
+            .order_by(SaleCampaign.discount_pct.desc())
+        )
+        for c in rows:
+            if not (c.start_day <= day <= c.end_day):
+                continue
+            used = c.used_count if c.used_period == period else 0
+            if c.max_uses == 0 or used < c.max_uses:
+                return c
+        return None
+
+    async def consume(self, campaign_id: int, now: dt.datetime) -> None:
+        """Count one sale purchase against this month's quota (resets on month rollover)."""
+        c = await self.get(campaign_id)
+        if c is None:
+            return
+        period = now.strftime("%Y-%m")
+        if c.used_period != period:
+            c.used_count = 0
+            c.used_period = period
+        c.used_count += 1
 
 
 class CampaignDAO(BaseDAO[Campaign]):
