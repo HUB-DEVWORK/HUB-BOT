@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
+from collections.abc import Awaitable
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, or_, select
@@ -154,7 +155,8 @@ async def system_status(container: AppContainer = Depends(get_container)) -> dic
     """Panel/API/DB/Redis health for the «Система» panel."""
     out: dict[str, Any] = {"api": "ok"}
     try:
-        pong = await container.redis.ping()
+        # redis-py 7 types ping() as Awaitable[bool] | bool — cast keeps mypy strict happy
+        pong = await cast("Awaitable[bool]", container.redis.ping())
         out["redis"] = "ok" if pong else "error"
     except Exception:
         out["redis"] = "error"
