@@ -13,7 +13,7 @@ echo "==> rsync -> $HOST:$APP_DIR"
 rsync -az --delete \
   --exclude '.git' --exclude '.venv' --exclude 'node_modules' --exclude '.env' \
   --exclude '__pycache__' --exclude '.pytest_cache' --exclude '.mypy_cache' \
-  --exclude 'backups' --exclude 'scripts/mock_panel_state.json' \
+  --exclude 'backups' --exclude 'uploads' --exclude 'scripts/mock_panel_state.json' \
   ./ "$HOST:$APP_DIR/"
 
 echo "==> sync deps + migrate + restart"
