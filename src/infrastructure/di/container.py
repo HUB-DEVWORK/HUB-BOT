@@ -64,7 +64,7 @@ class AppContainer:
         self.purchase = PurchaseService(self.pricing, self.subscriptions, self.event_bus)
         self.referrals = ReferralService(self.event_bus)
         self.payments = PaymentService(self.purchase, self.event_bus, self.referrals)
-        self.promo = PromoService()
+        self.promo = PromoService(self.subscriptions)
         self.bot_config = BotConfigService(self.secret_box)
         self.panel_sync = PanelSyncService(self.remnawave_client)
 

@@ -143,7 +143,7 @@
   }
 
   // ---------- state ----------
-  const state = { tab: "home", me: null, plans: null, referral: null, payments: null, connection: null, planSel: 1, paySel: "stars" };
+  const state = { tab: "home", me: null, plans: null, referral: null, payments: null, connection: null, tariffSel: 0, planSel: 0, paySel: "stars" };
   let UI = {}; // admin overrides: {scale, sections, buttons:{key:{text,color}}}
 
   function btnText(key, fallback) {
@@ -203,15 +203,30 @@
     );
 
     // plans + pay
-    const plan = state.plans && state.plans.items[0];
+    const allPlans = (state.plans && state.plans.items) || [];
+    const plan = allPlans[state.tariffSel] || allPlans[0];
     if (plan) {
       const frag = sections.plans;
       const durs = plan.durations;
-      const sel = durs[state.planSel] || durs[0];
+      const selIdx = durs[state.planSel] ? state.planSel : 0;
+      const sel = durs[selIdx];
       const base = durs[0] ? durs[0].price_minor / durs[0].days : 0;
       frag.push(
         el("div", { class: "card fade" }, [
           el("div", { class: "h-cap", text: T.choosePlan }),
+          allPlans.length > 1
+            ? el(
+                "div",
+                { class: "chips", style: "margin-bottom:10px" },
+                allPlans.map((p, i) =>
+                  el("button", {
+                    class: `chip${(state.tariffSel || 0) === i ? " on" : ""}`,
+                    onclick: () => { state.tariffSel = i; state.planSel = 0; haptic(); render(); },
+                    text: p.name,
+                  }),
+                ),
+              )
+            : null,
           el(
             "div",
             { class: "plans-row" },
@@ -220,7 +235,7 @@
               return el(
                 "div",
                 {
-                  class: `plan-opt${i === state.planSel ? " on" : ""}`,
+                  class: `plan-opt${i === selIdx ? " on" : ""}`,
                   style: "position:relative",
                   onclick: () => {
                     state.planSel = i;
@@ -239,7 +254,9 @@
           ),
           el("div", { class: "h-cap", style: "margin-top:14px", text: T.payMethod }),
           el("div", { class: "chips" }, [
-            el("button", { class: `chip${state.paySel === "balance" ? " on" : ""}`, onclick: () => { state.paySel = "balance"; render(); }, text: `${T.payBalance} · ${me ? money(me.user.balance_minor) : ""}` }),
+            me && me.app.balance_enabled === false
+              ? null
+              : el("button", { class: `chip${state.paySel === "balance" ? " on" : ""}`, onclick: () => { state.paySel = "balance"; render(); }, text: `${T.payBalance} · ${me ? money(me.user.balance_minor) : ""}` }),
             el("button", { class: `chip${state.paySel === "stars" ? " on" : ""}`, onclick: () => { state.paySel = "stars"; render(); }, text: `⭐ ${T.payStars} · ${sel ? sel.price_stars : ""}` }),
             ...((me && me.app.payment_methods) || []).map((pm) =>
               el("button", {
@@ -475,10 +492,14 @@
     if (!dur) return;
     haptic();
     try {
+      const method =
+        state.paySel === "balance" && state.me && state.me.app.balance_enabled === false
+          ? "stars"
+          : state.paySel;
       const r = await api("POST", "/api/cabinet/purchase", {
         plan_id: plan.id,
         days: dur.days,
-        method: state.paySel,
+        method,
       });
       if (r.redirect_url) {
         wa && wa.openLink ? wa.openLink(r.redirect_url) : window.open(r.redirect_url, "_blank");

@@ -44,6 +44,15 @@ class BasePaymentGateway(ABC):
     @abstractmethod
     async def handle_webhook(self, request: WebhookRequest) -> WebhookResult: ...
 
+    async def fetch_status(self, external_id: str) -> WebhookResult | None:
+        """Poll the provider for a payment's current state (reconcile path).
+
+        Returns ``None`` when the gateway cannot poll (default) or the state is not
+        terminal yet. Used by the scheduled reconciler to recover payments whose
+        webhook was lost or whose fulfilment failed mid-flight.
+        """
+        return None
+
     # --- shared helpers ---------------------------------------------------
     @staticmethod
     def verify_hmac(body: bytes, signature: str, secret: str, *, algo: str = "sha256") -> None:

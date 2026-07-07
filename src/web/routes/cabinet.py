@@ -146,6 +146,7 @@ async def me(
             "mtproto_proxy": _proxy_link(proxy_url) if proxy_enabled and proxy_url else None,
             "ui": miniapp.ui or {},
             "payment_methods": gateways,
+            "balance_enabled": bool(await container.bot_config.value(uow, "BALANCE_ENABLED")),
         },
     }
 
@@ -219,7 +220,7 @@ async def payments_history(
     user: User = Depends(cabinet_user), container: AppContainer = Depends(get_container)
 ) -> dict[str, Any]:
     async with container.uow() as uow:
-        txs = await uow.transactions.list(user_id=user.id, limit=20)
+        txs = await uow.transactions.list_recent(user.id, limit=20)
     return {
         "items": [
             {
@@ -261,6 +262,8 @@ async def purchase(
 
     if body.method == "balance":
         async with container.uow() as uow:
+            if not bool(await container.bot_config.value(uow, "BALANCE_ENABLED")):
+                raise HTTPException(400, "balance payments are disabled")
             try:
                 # Shared checkout path — identical to the bot's balance purchase.
                 await container.purchase.checkout_from_balance(uow, req)
@@ -285,6 +288,9 @@ async def purchase(
             txn, quote = await container.purchase.start(uow, req)
         except DomainError as exc:
             raise HTTPException(400, str(exc)) from exc
+        if quote.is_free:
+            await uow.commit()  # start() already fulfilled the 100%-discount purchase
+            return {"ok": True, "paid_with": "free"}
         stars_rate = int(await container.bot_config.value(uow, "STARS_RATE_RUB"))
         title = str((txn.plan_snapshot or {}).get("name") or "VPN")
         await uow.commit()
@@ -390,13 +396,16 @@ async def activate_trial(
         cfg = container.bot_config
         if not bool(await cfg.value(uow, "TRIAL_ENABLED")):
             raise HTTPException(400, "trial disabled")
-        u = await uow.users.get(user.id)
+        # FOR UPDATE: two concurrent /trial calls must not both pass the check.
+        u = await uow.users.lock_for_update(user.id)
         if u is None or not u.is_trial_available:
             raise HTTPException(400, "trial already used")
         days = int(await cfg.value(uow, "TRIAL_DURATION_DAYS"))
         traffic_gb = int(await cfg.value(uow, "TRIAL_TRAFFIC_GB"))
         devices = int(await cfg.value(uow, "TRIAL_DEVICE_LIMIT"))
-        plan = await uow.plans.find_one(is_trial=True)
+        plan = await uow.plans.find_one(is_trial=True) or await uow.plans.find_one(name="Trial")
+        if plan is not None and not plan.is_trial:
+            plan.is_trial = True
         if plan is None:
             plan = Plan(
                 public_code="trial",

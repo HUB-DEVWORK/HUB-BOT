@@ -6,7 +6,7 @@ import datetime as dt
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from src.core.enums import SubscriptionStatus, TransactionStatus, TransactionType
 from src.infrastructure.database.models.subscription import Subscription
@@ -18,14 +18,21 @@ from src.web.routes.admin._common import day_bounds_utc, iso
 
 router = APIRouter(prefix="/dashboard")
 
-_REVENUE_TYPES = (TransactionType.DEPOSIT, TransactionType.SUBSCRIPTION_PAYMENT)
+# Revenue = external money only. A balance purchase (gateway_type NULL) is an internal
+# transfer — its rubles already counted as revenue when the deposit came in; summing both
+# double-counts every balance-funded subscription.
+_EXTERNAL_MONEY = or_(
+    Transaction.type == TransactionType.DEPOSIT,
+    (Transaction.type == TransactionType.SUBSCRIPTION_PAYMENT)
+    & Transaction.gateway_type.is_not(None),
+)
 
 
 async def _revenue_between(uow: Any, start: dt.datetime, end: dt.datetime) -> int:
     stmt = (
         select(func.coalesce(func.sum(Transaction.amount_minor), 0))
         .where(Transaction.status == TransactionStatus.COMPLETED)
-        .where(Transaction.type.in_(_REVENUE_TYPES))
+        .where(_EXTERNAL_MONEY)
         .where(Transaction.completed_at >= start, Transaction.completed_at < end)
         .where(Transaction.is_test.is_(False))
     )

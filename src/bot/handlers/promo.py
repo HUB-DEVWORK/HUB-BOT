@@ -14,6 +14,7 @@ from aiogram.types import CallbackQuery, Message
 
 from src.application.services.promo import PromoError
 from src.bot.keyboards import simple_keyboard
+from src.bot.screen import show_screen
 from src.core.enums import RewardType
 from src.infrastructure.database.models.user import User
 from src.infrastructure.di import AppContainer
@@ -30,19 +31,22 @@ _REWARD_TEXT: dict[RewardType, str] = {
     RewardType.PERSONAL_DISCOUNT: "Персональная скидка активирована.",
     RewardType.PURCHASE_DISCOUNT: "Скидка на следующую покупку активирована.",
     RewardType.PROMO_GROUP: "Промо-группа применена.",
+    RewardType.DURATION: "Подписка продлена 🎉",
+    RewardType.SUBSCRIPTION: "Бесплатные дни подписки начислены 🎉",
 }
 
 
-@router.callback_query(F.data == "act:promocode")
+@router.callback_query(F.data.startswith("act:promocode"))
 async def ask_code(
     cb: CallbackQuery, container: AppContainer, db_user: User, state: FSMContext
 ) -> None:
     await state.set_state(PromoForm.waiting_code)
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            "Введи промокод одним сообщением:",
-            reply_markup=simple_keyboard([("‹ Меню", "nav:root")]),
-        )
+    await show_screen(
+        cb,
+        "Введи промокод одним сообщением:",
+        simple_keyboard([("‹ Меню", "nav:root")]),
+        parse_mode=None,
+    )
     await cb.answer()
 
 
@@ -51,7 +55,8 @@ async def apply_code(
     message: Message, container: AppContainer, db_user: User, state: FSMContext
 ) -> None:
     await state.clear()
-    code = (message.text or "").strip()
+    # Codes are stored uppercase (admin/miniapp normalize input) — the bot must too.
+    code = (message.text or "").strip().upper()
     if not code:
         await message.answer("Пустой промокод.")
         return

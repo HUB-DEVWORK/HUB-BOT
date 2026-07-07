@@ -16,7 +16,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from src.bot.keyboards import simple_keyboard
+from src.bot.screen import show_screen
 from src.core.enums import TicketAuthor, TicketStatus
+from src.infrastructure.database.base import utcnow
 from src.infrastructure.database.models.ticket import Ticket, TicketMessage
 from src.infrastructure.database.models.user import User
 from src.infrastructure.di import AppContainer
@@ -40,12 +42,7 @@ async def begin_ticket(cb: CallbackQuery, container: AppContainer, db_user: User
         )
     else:
         text = "Опиши проблему одним сообщением — создадим тикет и ответим здесь."
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            text,
-            reply_markup=simple_keyboard([("‹ Меню", "nav:root")]),
-            parse_mode="HTML",
-        )
+    await show_screen(cb, text, simple_keyboard([("‹ Меню", "nav:root")]))
     await cb.answer()
 
 
@@ -81,6 +78,7 @@ async def user_message(
             TicketMessage(ticket_id=active.id, author=TicketAuthor.USER, text=text[:4096])
         )
         active.status = TicketStatus.OPEN
+        active.updated_at = utcnow()  # same-status assign is not dirty -> force the bump
         await uow.commit()
         ticket_id = active.id
 

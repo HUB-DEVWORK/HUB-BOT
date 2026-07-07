@@ -10,8 +10,9 @@ from __future__ import annotations
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
+from src.bot.screen import show_screen
 from src.core.enums import SubscriptionStatus, TransactionStatus, TransactionType
 from src.infrastructure.database.base import utcnow
 from src.infrastructure.database.models.subscription import Subscription
@@ -47,10 +48,7 @@ def _admin_menu(admin_url: str) -> InlineKeyboardMarkup:
 async def _render_menu(cb: CallbackQuery, container: AppContainer) -> None:
     async with container.uow() as uow:
         admin_url = str(await container.bot_config.value(uow, "ADMIN_PANEL_URL") or "")
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            "🛠 <b>Админ-панель</b>", reply_markup=_admin_menu(admin_url), parse_mode="HTML"
-        )
+    await show_screen(cb, "🛠 <b>Админ-панель</b>", _admin_menu(admin_url))
     await cb.answer()
 
 
@@ -101,8 +99,14 @@ async def admin_stats(cb: CallbackQuery, container: AppContainer, is_admin: bool
             await uow.session.scalar(
                 select(func.coalesce(func.sum(Transaction.amount_minor), 0)).where(
                     Transaction.status == TransactionStatus.COMPLETED,
-                    Transaction.type.in_(
-                        [TransactionType.SUBSCRIPTION_PAYMENT, TransactionType.DEPOSIT]
+                    # Only external money: a balance purchase (gateway_type NULL) was
+                    # already counted as revenue when the deposit came in.
+                    or_(
+                        Transaction.type == TransactionType.DEPOSIT,
+                        and_(
+                            Transaction.type == TransactionType.SUBSCRIPTION_PAYMENT,
+                            Transaction.gateway_type.is_not(None),
+                        ),
                     ),
                     Transaction.created_at >= day_start,
                 )
@@ -118,8 +122,7 @@ async def admin_stats(cb: CallbackQuery, container: AppContainer, is_admin: bool
     kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="‹ Назад", callback_data="admin:menu")]]
     )
-    if cb.message is not None:
-        await cb.message.edit_text(text, reply_markup=kb, parse_mode="HTML")  # type: ignore[union-attr]
+    await show_screen(cb, text, kb)
     await cb.answer()
 
 
@@ -139,12 +142,7 @@ async def admin_settings(cb: CallbackQuery, container: AppContainer, is_admin: b
         for k, label in _TOGGLES
     ]
     rows.append([InlineKeyboardButton(text="‹ Назад", callback_data="admin:menu")])
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            "⚙️ <b>Быстрые настройки</b>",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-            parse_mode="HTML",
-        )
+    await show_screen(cb, "⚙️ <b>Быстрые настройки</b>", InlineKeyboardMarkup(inline_keyboard=rows))
     await cb.answer()
 
 
@@ -179,8 +177,7 @@ async def admin_brand(cb: CallbackQuery, container: AppContainer, is_admin: bool
     kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="‹ Назад", callback_data="admin:menu")]]
     )
-    if cb.message is not None:
-        await cb.message.edit_text(text, reply_markup=kb, parse_mode="HTML")  # type: ignore[union-attr]
+    await show_screen(cb, text, kb)
     await cb.answer()
 
 

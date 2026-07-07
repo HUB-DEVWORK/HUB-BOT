@@ -16,6 +16,7 @@ from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
 from src.application.dto.pricing import PurchaseRequest
 from src.bot.gate import ensure_channel
 from src.bot.keyboards import simple_keyboard
+from src.bot.screen import show_screen
 from src.core.enums import Currency, PurchaseType, TransactionStatus, TransactionType
 from src.core.exceptions import (
     DomainError,
@@ -57,8 +58,7 @@ async def show_plans(cb: CallbackQuery, container: AppContainer, db_user: User) 
         traffic = f"{(p.traffic_limit_bytes or 0) / GIB:.0f} ГБ" if p.traffic_limit_bytes else "∞"
         rows.append((f"{p.name} · {traffic} · от {fmt_money(cheapest)}", f"plan:{p.id}"))
     rows.append(("‹ Меню", "nav:root"))
-    if cb.message is not None:
-        await cb.message.edit_text("Выбери тариф:", reply_markup=simple_keyboard(rows))  # type: ignore[union-attr]
+    await show_screen(cb, "Выбери тариф:", simple_keyboard(rows), parse_mode=None)
     await cb.answer()
 
 
@@ -85,12 +85,11 @@ async def show_durations(cb: CallbackQuery, container: AppContainer, db_user: Us
         months = round(d.days / 30) or 1
         rows.append((f"{months} мес · {fmt_money(rub)}", f"dur:{plan.id}:{d.days}"))
     rows.append(("‹ Назад", "act:buy:0"))
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            f"<b>{plan.name}</b>\n{plan.description or ''}\n\nВыбери срок:",
-            reply_markup=simple_keyboard(rows),
-            parse_mode="HTML",
-        )
+    await show_screen(
+        cb,
+        f"<b>{plan.name}</b>\n{plan.description or ''}\n\nВыбери срок:",
+        simple_keyboard(rows),
+    )
     await cb.answer()
 
 
@@ -126,12 +125,11 @@ async def choose_payment(cb: CallbackQuery, container: AppContainer, db_user: Us
         rows.append((f"💳 {label}", f"pay:{plan_id}:{days}:{gtype}"))
     rows.append(("‹ Назад", f"plan:{plan_id}"))
     discount = f" (−{quote.discount_pct}%)" if quote.discount_pct else ""
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            f"К оплате: <b>{fmt_money(price)}</b>{discount}\n\nСпособ оплаты:",
-            reply_markup=simple_keyboard(rows),
-            parse_mode="HTML",
-        )
+    await show_screen(
+        cb,
+        f"К оплате: <b>{fmt_money(price)}</b>{discount}\n\nСпособ оплаты:",
+        simple_keyboard(rows),
+    )
     await cb.answer()
 
 
@@ -190,6 +188,12 @@ async def pay(cb: CallbackQuery, container: AppContainer, db_user: User) -> None
         await uow.commit()
         payment_id = str(txn.payment_id)
         amount_minor = quote.final.amount_minor
+        is_free = quote.is_free
+
+    if is_free:
+        # 100% discount: start() already fulfilled the purchase — no invoice to send.
+        await _show_activated(cb, container, req.user_id)
+        return
 
     stars = max(1, math.ceil(amount_minor / max(1, stars_rate)))
     if cb.message is not None:
@@ -231,6 +235,12 @@ async def _pay_with_gateway(
         except DomainError as exc:
             await cb.answer(str(exc), show_alert=True)
             return
+        if quote.is_free:
+            # start() fulfilled the free purchase (panel user already created) — commit
+            # NOW; a zero-amount provider invoice would fail and roll the grant back.
+            await uow.commit()
+            await _show_activated(cb, container, req.user_id)
+            return
         title = str((txn.plan_snapshot or {}).get("name") or "VPN")
         gateway = container.gateway_factory.create(gtype, settings)
         try:
@@ -265,13 +275,35 @@ async def _pay_with_gateway(
             [InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")],
         ]
     )
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            "Счёт создан — оплати по кнопке ниже.\n"
-            "Подписка активируется автоматически сразу после оплаты ⚡",
-            reply_markup=markup,
-        )
+    await show_screen(
+        cb,
+        "Счёт создан — оплати по кнопке ниже.\n"
+        "Подписка активируется автоматически сразу после оплаты ⚡",
+        markup,
+        parse_mode=None,
+    )
     await cb.answer()
+
+
+async def _show_activated(cb: CallbackQuery, container: AppContainer, user_id: int) -> None:
+    """Success screen after an already-committed fulfilment (free path / balance)."""
+    async with container.uow() as uow:
+        user = await uow.users.get(user_id)
+        sub = (
+            await uow.subscriptions.get(user.current_subscription_id)
+            if user and user.current_subscription_id
+            else None
+        )
+        url = sub.subscription_url if sub else None
+    text = "✅ <b>Подписка активирована!</b>"
+    if url:
+        text += f"\n\nСсылка подписки:\n<code>{url}</code>"
+    await show_screen(
+        cb,
+        text,
+        simple_keyboard([("👤 Моя подписка", "act:subscription:0"), ("‹ Меню", "nav:root")]),
+    )
+    await cb.answer("Готово!")
 
 
 async def _pay_with_balance(
@@ -294,26 +326,8 @@ async def _pay_with_balance(
             await cb.answer(str(exc), show_alert=True)
             return
         await uow.commit()
-        user = await uow.users.get(req.user_id)
-        sub = (
-            await uow.subscriptions.get(user.current_subscription_id)
-            if user and user.current_subscription_id
-            else None
-        )
-        url = sub.subscription_url if sub else None
 
-    text = "✅ <b>Подписка активирована!</b>"
-    if url:
-        text += f"\n\nСсылка подписки:\n<code>{url}</code>"
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            text,
-            reply_markup=simple_keyboard(
-                [("👤 Моя подписка", "act:subscription:0"), ("‹ Меню", "nav:root")]
-            ),
-            parse_mode="HTML",
-        )
-    await cb.answer("Готово!")
+    await _show_activated(cb, container, req.user_id)
 
 
 # --- balance top-up (Telegram Stars deposit) -----------------------------------
@@ -332,11 +346,12 @@ async def topup_menu(cb: CallbackQuery, container: AppContainer, db_user: User) 
         stars = max(1, math.ceil(minor / max(1, stars_rate)))
         rows.append((f"{fmt_money(minor)} · {stars} ★", f"topup:{minor}"))
     rows.append(("‹ Назад", "act:balance:0"))
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            "Пополнение баланса через Telegram Stars.\nВыбери сумму:",
-            reply_markup=simple_keyboard(rows),
-        )
+    await show_screen(
+        cb,
+        "Пополнение баланса через Telegram Stars.\nВыбери сумму:",
+        simple_keyboard(rows),
+        parse_mode=None,
+    )
     await cb.answer()
 
 

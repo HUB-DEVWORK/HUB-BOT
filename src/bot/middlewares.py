@@ -76,7 +76,11 @@ class ContextMiddleware(BaseMiddleware):
             if isinstance(event, Message):
                 await event.answer(maintenance_text)
             elif isinstance(event, CallbackQuery):
-                await event.answer(maintenance_text, show_alert=True)
+                # callback alerts are capped at 200 chars — a longer admin text 400s
+                alert = maintenance_text
+                if len(alert) > 200:
+                    alert = alert[:197] + "…"
+                await event.answer(alert, show_alert=True)
             return None
 
         data["db_user"] = user

@@ -6,7 +6,7 @@ holds one :class:`AppContainer` so jobs share the same singletons (engine, panel
 
 from __future__ import annotations
 
-from taskiq import TaskiqEvents, TaskiqScheduler, TaskiqState
+from taskiq import SimpleRetryMiddleware, TaskiqEvents, TaskiqScheduler, TaskiqState
 from taskiq.schedule_sources import LabelScheduleSource
 from taskiq_redis import ListQueueBroker
 
@@ -15,7 +15,11 @@ from src.core.logging import configure_logging
 from src.infrastructure.di import AppContainer
 
 _settings = get_settings()
-broker = ListQueueBroker(_settings.redis.url)
+# ListQueueBroker acks on pickup — without retries a task that raises is simply lost.
+# Tasks opt in with `retry_on_error=True`; the payment reconciler covers longer outages.
+broker = ListQueueBroker(_settings.redis.url).with_middlewares(
+    SimpleRetryMiddleware(default_retry_count=5)
+)
 scheduler = TaskiqScheduler(broker, sources=[LabelScheduleSource(broker)])
 
 _container: AppContainer | None = None

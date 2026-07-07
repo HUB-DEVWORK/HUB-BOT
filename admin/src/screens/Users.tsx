@@ -136,7 +136,34 @@ export default function Users() {
       <div className="page-head">
         <h1 className="h1">{t.users}</h1>
         <div className="actions">
-          <button className="btn secondary" onClick={() => toast(t.exportCsv + " ✓")}>
+          <button
+            className="btn secondary"
+            onClick={() => {
+              void (async () => {
+                try {
+                  const data = await api.get<{ items: Row[] }>(
+                    `/api/admin/users?q=${encodeURIComponent(qDebounced)}&status=${filter}&limit=10000`,
+                  );
+                  const head = ["id", "telegram_id", "username", "first_name", "status", "balance_minor", "subscription", "created_at"];
+                  const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+                  const lines = [head.join(",")].concat(
+                    data.items.map((r) =>
+                      head.map((k) => cell((r as unknown as Record<string, unknown>)[k])).join(","),
+                    ),
+                  );
+                  const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+                  const a = document.createElement("a");
+                  a.href = URL.createObjectURL(blob);
+                  a.download = `users-${new Date().toISOString().slice(0, 10)}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(a.href);
+                  toast(t.exportCsv + " ✓");
+                } catch (e) {
+                  toast(String(e));
+                }
+              })();
+            }}
+          >
             {t.exportCsv}
           </button>
         </div>

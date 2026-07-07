@@ -8,6 +8,7 @@ restart. Secret values are Fernet-encrypted at rest and masked in listings.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 from src.core import config_registry as registry
@@ -26,9 +27,14 @@ class BotConfigError(DomainError):
 
 
 class BotConfigService:
+    # Web/bot/worker are separate processes: a same-process invalidate() cannot reach
+    # them, so the cache self-expires. 15s keeps "hot-reload" honest at negligible cost.
+    CACHE_TTL = 15.0
+
     def __init__(self, secret_box: SecretBox | None = None) -> None:
         self._box = secret_box
         self._cache: dict[str, Any] | None = None
+        self._cache_at = 0.0
 
     # --- reads ---------------------------------------------------------------
 
@@ -101,6 +107,8 @@ class BotConfigService:
     # --- internals -------------------------------------------------------------
 
     async def _effective(self, uow: UnitOfWork) -> dict[str, Any]:
+        if self._cache is not None and time.monotonic() - self._cache_at > self.CACHE_TTL:
+            self._cache = None
         if self._cache is None:
             overrides = await uow.bot_config.as_dict()
             merged: dict[str, Any] = {}
@@ -116,6 +124,7 @@ class BotConfigService:
                 else:
                     merged[spec.key] = spec.default
             self._cache = merged
+            self._cache_at = time.monotonic()
         return self._cache
 
 

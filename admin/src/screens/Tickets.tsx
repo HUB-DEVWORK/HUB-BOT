@@ -112,7 +112,7 @@ export default function Tickets() {
         <div className="card">
           <div className="row" style={{ justifyContent: "space-between" }}>
             <span className="caps">01 · {t.sepBot}</span>
-            <Toggle on={mode === "bot"} onChange={() => void setMode("bot")} />
+            <Toggle on={mode === "bot"} onChange={() => void setMode(mode === "bot" ? "tickets" : "bot")} />
           </div>
           <input
             className="input mono"
@@ -126,7 +126,7 @@ export default function Tickets() {
         <div className="card">
           <div className="row" style={{ justifyContent: "space-between" }}>
             <span className="caps">02 · {t.redirectAcc}</span>
-            <Toggle on={mode === "redirect"} onChange={() => void setMode("redirect")} />
+            <Toggle on={mode === "redirect"} onChange={() => void setMode(mode === "redirect" ? "tickets" : "redirect")} />
           </div>
           <input
             className="input"
@@ -139,7 +139,7 @@ export default function Tickets() {
         <div className="card">
           <div className="row" style={{ justifyContent: "space-between" }}>
             <span className="caps">03 · {t.miniappChat}</span>
-            <Toggle on={mode === "miniapp"} onChange={() => void setMode("miniapp")} />
+            <Toggle on={mode === "miniapp"} onChange={() => void setMode(mode === "miniapp" ? "tickets" : "miniapp")} />
           </div>
           <div className="dim" style={{ fontSize: 12, marginTop: 12 }}>
             Тикеты в мини-аппе + этот раздел

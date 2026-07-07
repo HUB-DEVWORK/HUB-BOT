@@ -26,7 +26,17 @@ _STATUS_FILTERS: dict[str, tuple[TransactionStatus, ...]] = {
     "refund": (TransactionStatus.REFUNDED,),
 }
 
-_REVENUE_TYPES = (TransactionType.DEPOSIT, TransactionType.SUBSCRIPTION_PAYMENT)
+# External money only — see dashboard.py; balance purchases must not double-count.
+_EXTERNAL_MONEY = or_(
+    Transaction.type == TransactionType.DEPOSIT,
+    (Transaction.type == TransactionType.SUBSCRIPTION_PAYMENT)
+    & Transaction.gateway_type.is_not(None),
+)
+
+
+def _like_escape(q: str) -> str:
+    """Escape LIKE wildcards in user input so «%» doesn't match everything."""
+    return q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _tx_stmt(status: str, q: str) -> Select[Any]:
@@ -38,7 +48,7 @@ def _tx_stmt(status: str, q: str) -> Select[Any]:
     if status in _STATUS_FILTERS:
         stmt = stmt.where(Transaction.status.in_(_STATUS_FILTERS[status]))
     if q:
-        needle = f"%{q.lstrip('@').lower()}%"
+        needle = f"%{_like_escape(q.lstrip('@').lower())}%"
         stmt = stmt.where(
             or_(
                 func.lower(func.coalesce(User.username, "")).like(needle),
@@ -104,7 +114,7 @@ async def payment_stats(
                 )
                 .where(
                     Transaction.status == TransactionStatus.COMPLETED,
-                    Transaction.type.in_(_REVENUE_TYPES),
+                    _EXTERNAL_MONEY,
                     Transaction.completed_at >= start,
                     Transaction.completed_at < end,
                     Transaction.is_test.is_(False),

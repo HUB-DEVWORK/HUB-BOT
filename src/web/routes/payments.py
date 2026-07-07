@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.application.common.payments import WebhookRequest
-from src.core.enums import PaymentGatewayType
+from src.core.enums import PaymentGatewayType, TransactionStatus
 from src.core.exceptions import GatewayNotConfigured, NotFound, WebhookVerificationError
 from src.infrastructure.di import AppContainer
 from src.infrastructure.payments.crypto import decrypt_gateway_settings
@@ -60,6 +60,10 @@ async def payment_webhook(
             txn = await uow.transactions.get_by_external(result.external_id, gt)
         payment_id = txn.payment_id if txn else None
     if payment_id is None:
+        # A verified but irrelevant update (e.g. CryptoBot invoice_expired without our
+        # payload) carries no ids on purpose — acknowledge it so the provider stops retrying.
+        if result.status is TransactionStatus.PENDING:
+            return {"accepted": True, "ignored": True}
         raise HTTPException(status_code=404, detail="payment not found")
 
     # Enqueue and return fast — the worker fulfils idempotently.

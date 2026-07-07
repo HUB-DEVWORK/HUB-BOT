@@ -6,7 +6,7 @@ exact ruble price. ``payload`` carries our payment_id.
 
 Webhook: header ``crypto-pay-api-signature`` = HMAC-SHA256(body, key=sha256(token)).
 Proxies may rewrite the body, so we fall back to compact re-serialization (both
-ensure_ascii variants) exactly like bedolaga's battle-tested implementation.
+ensure_ascii variants) — battle-tested against real proxy behaviour.
 
 Settings row keys: ``api_token`` (Fernet-encrypted at rest), optional ``asset``.
 """
@@ -45,9 +45,8 @@ class CryptobotGateway(BasePaymentGateway):
 
     @property
     def capabilities(self) -> GatewayCapabilities:
-        return GatewayCapabilities(
-            currencies=frozenset({Currency.RUB, Currency.USDT}), needs_http_webhook=True
-        )
+        # RUB only: we always issue fiat-denominated invoices (currency_type=fiat).
+        return GatewayCapabilities(currencies=frozenset({Currency.RUB}), needs_http_webhook=True)
 
     def _token(self) -> str:
         token = str(self.settings.get("api_token") or "")
@@ -126,6 +125,38 @@ class CryptobotGateway(BasePaymentGateway):
                 payment_id = None
         return WebhookResult(
             status=TransactionStatus.COMPLETED,
+            payment_id=payment_id,
+            external_id=str(invoice.get("invoice_id") or "") or None,
+        )
+
+    async def fetch_status(self, external_id: str) -> WebhookResult | None:
+        try:
+            async with httpx.AsyncClient(timeout=20) as http:
+                res = await http.get(
+                    f"{API}/getInvoices",
+                    params={"invoice_ids": external_id},
+                    headers={"Crypto-Pay-API-Token": self._token()},
+                )
+        except httpx.HTTPError:
+            return None
+        data = res.json() if res.status_code == 200 else {}
+        if not data.get("ok"):
+            return None
+        items = (data.get("result") or {}).get("items") or []
+        if not items:
+            return None
+        invoice = items[0]
+        status = str(invoice.get("status") or "")
+        if status not in ("paid", "expired"):
+            return None  # still active — nothing to reconcile yet
+        payment_id: UUID | None = None
+        if invoice.get("payload"):
+            try:
+                payment_id = UUID(str(invoice["payload"]))
+            except ValueError:
+                payment_id = None
+        return WebhookResult(
+            status=TransactionStatus.COMPLETED if status == "paid" else TransactionStatus.CANCELED,
             payment_id=payment_id,
             external_id=str(invoice.get("invoice_id") or "") or None,
         )

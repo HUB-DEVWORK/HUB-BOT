@@ -12,7 +12,7 @@ from src.infrastructure.taskiq.broker import broker, get_container
 log = get_logger(__name__)
 
 
-@broker.task
+@broker.task(retry_on_error=True, max_retries=5)
 async def process_payment(payment_id: str, status: str) -> bool:
     """Complete a transaction from a verified webhook (idempotent CAS + fulfilment).
 
@@ -60,6 +60,66 @@ async def _notify_paid(container: object, payment_id: UUID) -> None:
             text = "✅ Оплата получена."
         telegram_id = user.telegram_id
     await c.notifier.notify_user(telegram_id, text)
+
+
+@broker.task(schedule=[{"cron": "*/5 * * * *"}])
+async def reconcile_pending_payments() -> int:
+    """Recover paid-but-stuck gateway transactions by polling the provider.
+
+    Covers both real-world failure modes of webhook delivery: the webhook never
+    arrived (proxy/CDN ate it, wrong URL) and the fulfilment crashed after we had
+    already answered 200 (panel outage). Polling is idempotent — PaymentService
+    CAS-guards the transition, so a race with a late webhook is harmless.
+    """
+    import datetime as dt
+
+    from src.infrastructure.payments.crypto import decrypt_gateway_settings
+
+    container = get_container()
+    now = dt.datetime.now(dt.UTC)
+    recovered = 0
+    async with container.uow() as uow:
+        stuck = await uow.transactions.list_stuck_pending(
+            older_than=now - dt.timedelta(minutes=3),
+            newer_than=now - dt.timedelta(hours=24),
+        )
+        rows = {g.type: g for g in await uow.payment_gateways.list() if g.is_active}
+    for txn in stuck:
+        gtype = txn.gateway_type
+        if gtype is None:  # filtered by the query, but keep mypy honest
+            continue
+        row = rows.get(gtype)
+        if row is None or gtype not in container.gateway_factory.supported():
+            continue
+        gateway = container.gateway_factory.create(
+            gtype, decrypt_gateway_settings(container.secret_box, dict(row.settings))
+        )
+        try:
+            result = await gateway.fetch_status(str(txn.external_id))
+        except Exception as exc:
+            log.warning("reconcile poll failed", payment_id=str(txn.payment_id), error=str(exc))
+            continue
+        if result is None or result.status is TransactionStatus.PENDING:
+            continue
+        try:
+            async with container.uow() as uow:
+                moved = await container.payments.process(
+                    uow, payment_id=txn.payment_id, status=result.status
+                )
+                await uow.commit()
+        except Exception as exc:
+            log.warning("reconcile process failed", payment_id=str(txn.payment_id), error=str(exc))
+            continue
+        if moved:
+            recovered += 1
+            log.info(
+                "payment reconciled",
+                payment_id=str(txn.payment_id),
+                status=result.status.value,
+            )
+            if result.status is TransactionStatus.COMPLETED:
+                await _notify_paid(container, txn.payment_id)
+    return recovered
 
 
 @broker.task

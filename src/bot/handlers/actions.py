@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import contextlib
+from html import escape as hesc
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from src.application.dto.pricing import PurchaseRequest
 from src.application.services.connection import CLIENT_LABELS, build_deep_links
 from src.bot.gate import ensure_channel
 from src.bot.keyboards import menu_keyboard, simple_keyboard, url_keyboard, webapp_button
 from src.bot.menu_render import send_main_menu
+from src.bot.screen import show_screen
 from src.core.enums import Currency, PurchaseType, TransactionStatus, TransactionType
 from src.core.exceptions import RemnawaveError
 from src.core.logging import get_logger
@@ -35,7 +38,12 @@ def fmt_money(minor: int) -> str:
 
 
 @router.callback_query(F.data == "nav:root")
-async def nav_root(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
+async def nav_root(
+    cb: CallbackQuery, container: AppContainer, db_user: User, state: FSMContext
+) -> None:
+    # The menu button must abort any pending form (promocode/ticket input) — otherwise the
+    # stale FSM state silently eats the user's next message.
+    await state.clear()
     await send_main_menu(cb, container, db_user)
 
 
@@ -59,23 +67,25 @@ async def nav_screen(cb: CallbackQuery, container: AppContainer, db_user: User) 
         node = parent
     text = node.payload or node.label
     markup = menu_keyboard(nodes, node.id, miniapp_url=miniapp_url or None, with_back=True)
-    if cb.message is not None:
-        if node.image_path:
-            # Screens with an image: send a fresh photo message (can't edit text->photo).
-            from pathlib import Path
+    msg = cb.message if isinstance(cb.message, Message) else None
+    if msg is not None and node.image_path:
+        # Screens with an image: send a fresh photo message (can't edit text->photo).
+        from pathlib import Path
 
-            from aiogram.types import FSInputFile
+        from aiogram.types import FSInputFile
 
-            if Path(node.image_path).is_file():
-                await cb.message.answer_photo(
-                    FSInputFile(node.image_path), caption=text, reply_markup=markup
-                )
-                with contextlib.suppress(Exception):
-                    await cb.message.delete()  # type: ignore[union-attr]
-                await cb.answer()
-                return
-        with contextlib.suppress(Exception):  # unchanged content
-            await cb.message.edit_text(text, reply_markup=markup)  # type: ignore[union-attr]
+        if Path(node.image_path).is_file():
+            await msg.answer_photo(
+                # Telegram caps photo captions at 1024 chars (text screens allow 4096).
+                FSInputFile(node.image_path),
+                caption=text[:1024],
+                reply_markup=markup,
+            )
+            with contextlib.suppress(Exception):
+                await msg.delete()
+            await cb.answer()
+            return
+    await show_screen(cb, text, markup, parse_mode=None)
     await cb.answer()
 
 
@@ -106,7 +116,7 @@ async def act_subscription(cb: CallbackQuery, container: AppContainer, db_user: 
         traffic = f"{sub.traffic_used_bytes / GIB:.1f} / " + (
             f"{sub.traffic_limit_bytes / GIB:.0f} ГБ" if sub.traffic_limit_bytes else "∞"
         )
-        plan_name = (sub.plan_snapshot or {}).get("name", "—")
+        plan_name = hesc(str((sub.plan_snapshot or {}).get("name", "—")))
         text = f"<b>Твоя подписка</b>\n\nТариф: {plan_name}{days_left}\nТрафик: {traffic}"
         if not hide_link and sub.subscription_url:
             text += f"\n\nСсылка подписки:\n<code>{sub.subscription_url}</code>"
@@ -127,8 +137,7 @@ async def act_subscription(cb: CallbackQuery, container: AppContainer, db_user: 
             kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
         kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
         markup = InlineKeyboardMarkup(inline_keyboard=kb)
-    if cb.message is not None:
-        await cb.message.edit_text(text, reply_markup=markup, parse_mode="HTML")  # type: ignore[union-attr]
+    await show_screen(cb, text, markup)
     await cb.answer()
 
 
@@ -164,7 +173,7 @@ async def act_cabinet(cb: CallbackQuery, container: AppContainer, db_user: User)
         invited = await uow.users.count(referred_by_id=db_user.id)
         miniapp_url = str(await container.bot_config.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "")
 
-    name = db_user.first_name or db_user.username or "друг"
+    name = hesc(db_user.first_name or db_user.username or "друг")
     lines = [
         "<b>👤 Личный кабинет</b>",
         "",
@@ -200,12 +209,7 @@ async def act_cabinet(cb: CallbackQuery, container: AppContainer, db_user: User)
     if miniapp_url.startswith("https://"):
         kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
     kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            "\n".join(lines),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb),
-            parse_mode="HTML",
-        )
+    await show_screen(cb, "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb))
     await cb.answer()
 
 
@@ -236,10 +240,7 @@ async def act_connect(cb: CallbackQuery, container: AppContainer, db_user: User)
         kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
     kb.append([InlineKeyboardButton(text="👤 Моя подписка", callback_data="act:subscription:0")])
     kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML"
-        )
+    await show_screen(cb, text, InlineKeyboardMarkup(inline_keyboard=kb))
     await cb.answer()
 
 
@@ -274,10 +275,7 @@ async def act_history(cb: CallbackQuery, container: AppContainer, db_user: User)
             for t in txns[:10]
         ]
         text = "<b>История операций</b>\n\n" + "\n".join(lines)
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            text, reply_markup=simple_keyboard([("‹ Меню", "nav:root")]), parse_mode="HTML"
-        )
+    await show_screen(cb, text, simple_keyboard([("‹ Меню", "nav:root")]))
     await cb.answer()
 
 
@@ -297,8 +295,7 @@ async def act_balance(cb: CallbackQuery, container: AppContainer, db_user: User)
             ("‹ Меню", "nav:root"),
         ]
     )
-    if cb.message is not None:
-        await cb.message.edit_text(text, reply_markup=markup, parse_mode="HTML")  # type: ignore[union-attr]
+    await show_screen(cb, text, markup)
     await cb.answer()
 
 
@@ -327,8 +324,7 @@ async def act_referral(cb: CallbackQuery, container: AppContainer, db_user: User
             [InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")],
         ]
     )
-    if cb.message is not None:
-        await cb.message.edit_text(text, reply_markup=markup, parse_mode="HTML")  # type: ignore[union-attr]
+    await show_screen(cb, text, markup)
     await cb.answer()
 
 
@@ -341,7 +337,8 @@ async def act_trial(cb: CallbackQuery, container: AppContainer, db_user: User) -
         if not bool(await cfg.value(uow, "TRIAL_ENABLED")):
             await cb.answer("Пробный период недоступен", show_alert=True)
             return
-        user = await uow.users.get(db_user.id)
+        # FOR UPDATE: double-tap on the trial button must not grant twice.
+        user = await uow.users.lock_for_update(db_user.id)
         if user is None or not user.is_trial_available:
             await cb.answer("Пробный период уже использован", show_alert=True)
             return
@@ -349,7 +346,9 @@ async def act_trial(cb: CallbackQuery, container: AppContainer, db_user: User) -
         traffic_gb = int(await cfg.value(uow, "TRIAL_TRAFFIC_GB"))
         devices = int(await cfg.value(uow, "TRIAL_DEVICE_LIMIT"))
 
-        plan = await uow.plans.find_one(is_trial=True)
+        plan = await uow.plans.find_one(is_trial=True) or await uow.plans.find_one(name="Trial")
+        if plan is not None and not plan.is_trial:
+            plan.is_trial = True
         if plan is None:
             plan = Plan(
                 public_code="trial",
@@ -381,14 +380,11 @@ async def act_trial(cb: CallbackQuery, container: AppContainer, db_user: User) -
     text = f"🎁 <b>Пробный период активирован: {days} дн.</b>"
     if url:
         text += f"\n\nСсылка подписки:\n<code>{url}</code>"
-    if cb.message is not None:
-        await cb.message.edit_text(  # type: ignore[union-attr]
-            text,
-            reply_markup=simple_keyboard(
-                [("👤 Моя подписка", "act:subscription:0"), ("‹ Меню", "nav:root")]
-            ),
-            parse_mode="HTML",
-        )
+    await show_screen(
+        cb,
+        text,
+        simple_keyboard([("👤 Моя подписка", "act:subscription:0"), ("‹ Меню", "nav:root")]),
+    )
     await cb.answer("Готово!")
 
 
@@ -399,13 +395,12 @@ async def act_support(cb: CallbackQuery, container: AppContainer, db_user: User)
         mode = str(await cfg.value(uow, "SUPPORT_MODE"))
         redirect = str(await cfg.value(uow, "SUPPORT_REDIRECT_USERNAME") or "")
     if mode == "redirect" and redirect:
-        if cb.message is not None:
-            await cb.message.edit_text(  # type: ignore[union-attr]
-                "Напиши нам — ответим быстро:",
-                reply_markup=url_keyboard(
-                    [("💬 Написать", f"https://t.me/{redirect.lstrip('@')}")]
-                ),
-            )
+        await show_screen(
+            cb,
+            "Напиши нам — ответим быстро:",
+            url_keyboard([("💬 Написать", f"https://t.me/{redirect.lstrip('@')}")]),
+            parse_mode=None,
+        )
         await cb.answer()
         return
     # tickets mode: hand off to the tickets FSM
@@ -438,8 +433,7 @@ async def act_proxy(cb: CallbackQuery, container: AppContainer, db_user: User) -
             [InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")],
         ]
     )
-    if cb.message is not None:
-        await cb.message.edit_text(text, reply_markup=markup, parse_mode="HTML")  # type: ignore[union-attr]
+    await show_screen(cb, text, markup)
     await cb.answer()
 
 

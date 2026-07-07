@@ -27,6 +27,12 @@ from src.web.routes.admin.deps import AdminIdentity, require_admin
 
 router = APIRouter(prefix="/users")
 
+
+def _like_escape(q: str) -> str:
+    """Escape LIKE wildcards in user input so «%» doesn't match everything."""
+    return q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 _SUB_FILTERS: dict[str, tuple[SubscriptionStatus, ...]] = {
     "active": (SubscriptionStatus.ACTIVE, SubscriptionStatus.LIMITED),
     "trial": (SubscriptionStatus.TRIAL,),
@@ -48,7 +54,7 @@ def _list_stmt(status_filter: str, q: str) -> Select[Any]:
             Subscription.status.in_(_SUB_FILTERS[status_filter]),
         )
     if q:
-        needle = f"%{q.lstrip('@').lower()}%"
+        needle = f"%{_like_escape(q.lstrip('@').lower())}%"
         clauses: list[ColumnElement[bool]] = [
             func.lower(func.coalesce(User.username, "")).like(needle),
             func.lower(func.coalesce(User.first_name, "")).like(needle),
@@ -145,7 +151,7 @@ async def user_detail(
             if user.current_subscription_id
             else None
         )
-        txs = await uow.transactions.list(user_id=user_id, limit=10)
+        txs = await uow.transactions.list_recent(user_id, limit=10)
         invited = await uow.users.count(referred_by_id=user_id)
         earnings = await uow.referral_earnings.list(user_id=user_id, limit=1000)
 

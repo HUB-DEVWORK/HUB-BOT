@@ -3,7 +3,7 @@
 Create: POST /v3/payments with Basic(shop_id, secret_key) and an Idempotence-Key equal
 to our ``payment_id`` — retries can never double-charge. Webhook carries no signature,
 so we verify by REFETCHING the payment from the YooKassa API and trusting only that
-response (stronger than IP allowlists behind proxies; bedolaga-compatible behaviour).
+response (stronger than IP allowlists behind proxies).
 
 Settings row keys: ``shop_id``, ``secret_key`` (Fernet-encrypted at rest),
 optional ``return_url``.
@@ -92,20 +92,8 @@ class YookassaGateway(BasePaymentGateway):
             kind=PaymentResultKind.REDIRECT, external_id=str(data["id"]), redirect_url=url
         )
 
-    async def handle_webhook(self, request: WebhookRequest) -> WebhookResult:
-        body = self.parse_json(request.body)
-        obj = body.get("object") or {}
-        external_id = str(obj.get("id") or "")
-        if not external_id:
-            raise WebhookVerificationError("YooKassa: no payment id in webhook")
-
-        # The webhook is unsigned: refetch the payment and trust ONLY the API response.
-        async with httpx.AsyncClient(timeout=20) as http:
-            res = await http.get(f"{API}/payments/{external_id}", auth=self._auth())
-        if res.status_code != 200:
-            raise WebhookVerificationError(f"YooKassa: payment refetch failed {res.status_code}")
-        data = res.json()
-
+    @staticmethod
+    def _map_payment(data: dict[str, Any]) -> WebhookResult:
         status = _STATUS_MAP.get(str(data.get("status")), TransactionStatus.PENDING)
         payment_id: UUID | None = None
         meta_pid = (data.get("metadata") or {}).get("payment_id")
@@ -119,5 +107,36 @@ class YookassaGateway(BasePaymentGateway):
         if raw_amount:
             amount = Money(int(Decimal(str(raw_amount)) * 100), Currency.RUB)
         return WebhookResult(
-            status=status, payment_id=payment_id, external_id=external_id, amount=amount
+            status=status,
+            payment_id=payment_id,
+            external_id=str(data.get("id") or "") or None,
+            amount=amount,
         )
+
+    async def handle_webhook(self, request: WebhookRequest) -> WebhookResult:
+        body = self.parse_json(request.body)
+        obj = body.get("object") or {}
+        external_id = str(obj.get("id") or "")
+        if not external_id:
+            raise WebhookVerificationError("YooKassa: no payment id in webhook")
+
+        # The webhook is unsigned: refetch the payment and trust ONLY the API response.
+        try:
+            async with httpx.AsyncClient(timeout=20) as http:
+                res = await http.get(f"{API}/payments/{external_id}", auth=self._auth())
+        except httpx.HTTPError as exc:
+            # Non-2xx makes YooKassa resend the webhook later — no payment is lost.
+            raise WebhookVerificationError(f"YooKassa: payment refetch failed: {exc}") from exc
+        if res.status_code != 200:
+            raise WebhookVerificationError(f"YooKassa: payment refetch failed {res.status_code}")
+        return self._map_payment(res.json())
+
+    async def fetch_status(self, external_id: str) -> WebhookResult | None:
+        try:
+            async with httpx.AsyncClient(timeout=20) as http:
+                res = await http.get(f"{API}/payments/{external_id}", auth=self._auth())
+        except httpx.HTTPError:
+            return None
+        if res.status_code != 200:
+            return None
+        return self._map_payment(res.json())

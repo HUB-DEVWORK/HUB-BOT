@@ -93,9 +93,8 @@ class PurchaseService:
         user = await uow.users.get(req.user_id)
         if user is None:
             raise PurchaseError(f"user {req.user_id} not found")
-        if user.balance_minor < quote.final.amount_minor:
+        if not await uow.users.debit_balance_guarded(user, quote.final.amount_minor):
             raise InsufficientBalance("insufficient balance")
-        await uow.users.increment_balance(user, -quote.final.amount_minor)
         moved = await uow.transactions.transition_status(
             txn.payment_id, TransactionStatus.COMPLETED, (TransactionStatus.PENDING,)
         )

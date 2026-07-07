@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from src.core.enums import TicketAuthor, TicketStatus
 from src.core.logging import get_logger
+from src.infrastructure.database.base import utcnow
 from src.infrastructure.database.models.ticket import TicketMessage
 from src.infrastructure.di import AppContainer
 from src.web.deps import get_container
@@ -29,23 +30,36 @@ _CHANNEL_KEYS = ("SUPPORT_MODE", "SUPPORT_REDIRECT_USERNAME", "SUPPORT_BOT_TOKEN
 
 @router.get("/tickets")
 async def list_tickets(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
+    from sqlalchemy import func, select
+
+    from src.infrastructure.database.models.ticket import Ticket, TicketMessage
+    from src.infrastructure.database.models.user import User
+
     async with container.uow() as uow:
-        tickets = await uow.tickets.recent(100)
-        rows = []
-        for t in tickets:
-            user = await uow.users.get(t.user_id)
-            count = await uow.ticket_messages.count(ticket_id=t.id)
-            rows.append(
-                {
-                    "id": t.id,
-                    "user_id": t.user_id,
-                    "username": user.username if user else None,
-                    "subject": t.subject,
-                    "status": t.status.value,
-                    "messages": count,
-                    "updated_at": iso(t.updated_at),
-                }
-            )
+        counts = (
+            select(TicketMessage.ticket_id, func.count().label("cnt"))
+            .group_by(TicketMessage.ticket_id)
+            .subquery()
+        )
+        stmt = (
+            select(Ticket, User.username, func.coalesce(counts.c.cnt, 0))
+            .join(User, User.id == Ticket.user_id)
+            .outerjoin(counts, counts.c.ticket_id == Ticket.id)
+            .order_by(Ticket.updated_at.desc())
+            .limit(100)
+        )
+        rows = [
+            {
+                "id": t.id,
+                "user_id": t.user_id,
+                "username": username,
+                "subject": t.subject,
+                "status": t.status.value,
+                "messages": int(cnt),
+                "updated_at": iso(t.updated_at),
+            }
+            for t, username, cnt in (await uow.session.execute(stmt)).all()
+        ]
         open_count = await uow.tickets.open_count()
     return {"items": rows, "open_count": open_count}
 
@@ -138,6 +152,7 @@ async def set_ticket_status(
         if t is None:
             raise HTTPException(404, "ticket not found")
         t.status = body.status
+        t.closed_at = utcnow() if body.status is TicketStatus.CLOSED else None
         await audit(uow, identity, "ticket.status", f"ticket:{ticket_id}", status=body.status.value)
         await uow.commit()
     return OkOut()

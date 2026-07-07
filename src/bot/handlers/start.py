@@ -38,10 +38,11 @@ async def _attribute(container: AppContainer, db_user: User, param: str, *, crea
             return
         if param.startswith("ref_"):
             if user.referred_by_id is None and created:
-                referrer = await uow.users.get_by_referral_code(param.removeprefix("ref_"))
-                if referrer is not None and referrer.id != user.id:
-                    user.referred_by_id = referrer.id
-                    log.info("referral attributed", user=user.id, referrer=referrer.id)
+                # bind() creates the Referral row the commission engine reads
+                # (reward_on_topup) — setting referred_by_id alone pays nobody.
+                referral = await container.referrals.bind(uow, user, param.removeprefix("ref_"))
+                if referral is not None:
+                    log.info("referral attributed", user=user.id, referrer=referral.referrer_id)
         elif user.campaign_id is None:
             campaign = await uow.campaigns.find_one(start_param=param, is_active=True)
             if campaign is not None:

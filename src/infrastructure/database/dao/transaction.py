@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from collections.abc import Iterable
 from typing import Any, cast
@@ -24,6 +25,34 @@ class TransactionDAO(BaseDAO[Transaction]):
         self, external_id: str, gateway_type: PaymentGatewayType
     ) -> Transaction | None:
         return await self.find_one(external_id=external_id, gateway_type=gateway_type)
+
+    async def list_recent(self, user_id: int, limit: int = 20) -> list[Transaction]:
+        """Latest transactions first — LIMIT without ORDER BY returns arbitrary rows."""
+        stmt = (
+            select(Transaction)
+            .where(Transaction.user_id == user_id)
+            .order_by(Transaction.id.desc())
+            .limit(limit)
+        )
+        return list((await self.session.scalars(stmt)).all())
+
+    async def list_stuck_pending(
+        self, *, older_than: dt.datetime, newer_than: dt.datetime, limit: int = 50
+    ) -> list[Transaction]:
+        """PENDING gateway transactions old enough to suspect a lost webhook/fulfilment."""
+        stmt = (
+            select(Transaction)
+            .where(
+                Transaction.status == TransactionStatus.PENDING,
+                Transaction.gateway_type.is_not(None),
+                Transaction.external_id.is_not(None),
+                Transaction.created_at < older_than,
+                Transaction.created_at > newer_than,
+            )
+            .order_by(Transaction.created_at)
+            .limit(limit)
+        )
+        return list((await self.session.scalars(stmt)).all())
 
     async def lock_for_update(self, payment_id: uuid.UUID) -> Transaction | None:
         """Row-lock a transaction for the duration of the transaction (gotcha #6).
