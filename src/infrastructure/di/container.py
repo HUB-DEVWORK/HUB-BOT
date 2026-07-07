@@ -32,6 +32,7 @@ from src.infrastructure.redis.client import create_redis
 from src.infrastructure.remnawave.client import RemnawaveHttpClient
 from src.infrastructure.remnawave.connection import build_profile
 from src.infrastructure.remnawave.webhook import WebhookVerifier
+from src.infrastructure.services.mailer import Mailer
 from src.infrastructure.services.notification import LogNotifier, TelegramNotifier
 from src.infrastructure.services.postback import wire_postback_events
 from src.infrastructure.services.reports import wire_report_events
@@ -85,6 +86,18 @@ class AppContainer:
     @classmethod
     def from_env(cls) -> AppContainer:
         return cls(get_settings())
+
+    async def build_mailer(self) -> Mailer:
+        """SMTP mailer from hot-reload config (built per call so key changes apply)."""
+        async with self.uow() as uow:
+            cfg = self.bot_config
+            return Mailer(
+                host=str(await cfg.value(uow, "SMTP_HOST") or ""),
+                port=int(await cfg.value(uow, "SMTP_PORT") or 587),
+                user=str(await cfg.value(uow, "SMTP_USER") or ""),
+                password=str(await cfg.value(uow, "SMTP_PASSWORD") or ""),
+                from_addr=str(await cfg.value(uow, "SMTP_FROM") or ""),
+            )
 
     def uow(self) -> UnitOfWork:
         """A fresh unit of work. Use as ``async with container.uow() as uow: ...``."""

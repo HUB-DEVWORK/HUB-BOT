@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from sqlalchemy import CursorResult, select, update
+from sqlalchemy import CursorResult, func, select, update
 
 from src.infrastructure.database.dao.base import BaseDAO
 from src.infrastructure.database.models.user import User
@@ -15,6 +15,15 @@ class UserDAO(BaseDAO[User]):
 
     async def get_by_telegram_id(self, telegram_id: int) -> User | None:
         return await self.find_one(telegram_id=telegram_id)
+
+    async def find_by_verify_token(self, token: str) -> User | None:
+        """Locate a pending-verification user by the token stashed in notification_settings."""
+        stmt = select(User).where(User.notification_settings["verify_token"].astext == token)
+        return (await self.session.scalars(stmt)).first()
+
+    async def get_by_email(self, email: str) -> User | None:
+        stmt = select(User).where(func.lower(User.email) == email.strip().lower())
+        return (await self.session.scalars(stmt)).first()
 
     async def get_by_referral_code(self, code: str) -> User | None:
         return await self.find_one(referral_code=code)

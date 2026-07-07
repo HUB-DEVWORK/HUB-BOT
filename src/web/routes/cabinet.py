@@ -54,6 +54,15 @@ def _proxy_link(raw: str) -> str:
 
 async def cabinet_user(request: Request, container: AppContainer = Depends(get_container)) -> User:
     auth = request.headers.get("Authorization", "")
+    # Web-cabinet users authenticate with a Bearer access JWT (email/OAuth login),
+    # everyone else with Telegram Mini App initData. Same endpoints serve both.
+    if auth.startswith("Bearer "):
+        from src.web.routes.cabinet_auth import web_user_from_bearer
+
+        web_user = await web_user_from_bearer(request, container)
+        if web_user is None:
+            raise HTTPException(401, "bad token")
+        return web_user
     if not auth.startswith("tma "):
         raise HTTPException(401, "unauthorized")
     data = validate_init_data(auth.removeprefix("tma "), container.settings.bot.token)

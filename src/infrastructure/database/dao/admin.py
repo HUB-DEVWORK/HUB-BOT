@@ -11,6 +11,7 @@ from src.infrastructure.database.dao.base import BaseDAO
 from src.infrastructure.database.models.audit_log import AuditLog
 from src.infrastructure.database.models.bot_config import BotConfigValue
 from src.infrastructure.database.models.broadcast import Broadcast
+from src.infrastructure.database.models.cabinet_token import CabinetRefreshToken
 from src.infrastructure.database.models.campaign import Campaign
 from src.infrastructure.database.models.constructor import ConstructorPeriod, TrafficPack
 from src.infrastructure.database.models.holiday import Holiday
@@ -140,6 +141,10 @@ class ReportTopicDAO(BaseDAO[ReportTopic]):
 
 class WithdrawalDAO(BaseDAO[WithdrawalRequest]):
     model = WithdrawalRequest
+
+
+class CabinetRefreshTokenDAO(BaseDAO[CabinetRefreshToken]):
+    model = CabinetRefreshToken
 
 
 class ServerNodeDAO(BaseDAO[ServerNode]):

@@ -21,6 +21,7 @@ from src.infrastructure.database.dao.admin import (
     AuditLogDAO,
     BotConfigValueDAO,
     BroadcastDAO,
+    CabinetRefreshTokenDAO,
     CampaignDAO,
     ConstructorPeriodDAO,
     HolidayDAO,
@@ -87,6 +88,7 @@ class UnitOfWork:
         self.ticket_messages = TicketMessageDAO(session)
         self.report_topics = ReportTopicDAO(session)
         self.withdrawals = WithdrawalDAO(session)
+        self.cabinet_tokens = CabinetRefreshTokenDAO(session)
         self.server_nodes = ServerNodeDAO(session)
         self.audit = AuditLogDAO(session)
         self.constructor_periods = ConstructorPeriodDAO(session)

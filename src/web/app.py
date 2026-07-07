@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from src.core.config import get_settings
 from src.core.logging import configure_logging
 from src.infrastructure.di import AppContainer
-from src.web.routes import admin, cabinet, health, panel, payments
+from src.web.routes import admin, cabinet, cabinet_auth, health, panel, payments
 from src.web.routes.admin.auth import bootstrap_admin
 
 # Built admin SPA (admin/dist) — mounted when present (dev runs vite instead).
@@ -57,6 +57,7 @@ def create_app() -> FastAPI:
     app.include_router(panel.router)
     app.include_router(admin.router)
     app.include_router(cabinet.router)
+    app.include_router(cabinet_auth.router)
     if _ADMIN_DIST.is_dir():
         app.mount("/admin", StaticFiles(directory=_ADMIN_DIST, html=True), name="admin-spa")
     if _MINIAPP_DIR.is_dir():

@@ -8,6 +8,7 @@ from src.infrastructure.database.base import Base
 from src.infrastructure.database.models.audit_log import AuditLog
 from src.infrastructure.database.models.bot_config import BotConfigValue
 from src.infrastructure.database.models.broadcast import Broadcast
+from src.infrastructure.database.models.cabinet_token import CabinetRefreshToken
 from src.infrastructure.database.models.campaign import Campaign
 from src.infrastructure.database.models.constructor import ConstructorPeriod, TrafficPack
 from src.infrastructure.database.models.holiday import Holiday
@@ -35,6 +36,7 @@ __all__ = [
     "Base",
     "BotConfigValue",
     "Broadcast",
+    "CabinetRefreshToken",
     "Campaign",
     "ConstructorPeriod",
     "Holiday",
