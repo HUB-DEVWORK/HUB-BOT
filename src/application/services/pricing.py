@@ -6,12 +6,14 @@ one-shot purchase discount -> cap at 100%. A zero/100%-off result is a free purc
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
 from src.application.dto.pricing import PriceQuote, PurchaseRequest
 from src.core.constants import MAX_DISCOUNT_PERCENT
+from src.core.enums import PurchaseType, TransactionStatus, TransactionType
 from src.core.exceptions import PurchaseError
 from src.core.money import Money
 from src.infrastructure.database.models.plan import Plan, PlanDuration, PlanPrice
@@ -24,6 +26,8 @@ if TYPE_CHECKING:
 
 class PricingService:
     async def quote(self, uow: UnitOfWork, req: PurchaseRequest) -> PriceQuote:
+        if req.purchase_type is PurchaseType.TRAFFIC_TOPUP:
+            return await self._topup_quote(uow, req)
         if req.constructor_period_id is not None:
             # Constructor mode: price = period + traffic pack. The hidden service plan is
             # intentionally inactive, so the plan-catalogue checks below don't apply.
@@ -48,12 +52,74 @@ class PricingService:
         discount_pct = min(MAX_DISCOUNT_PERCENT, promo_pct + personal + purchase)
         final = base_total.apply_discount(discount_pct)
 
+        if req.purchase_type is PurchaseType.CHANGE and req.subscription_id is not None:
+            # Plan switch: unused days of the current period become a price credit,
+            # valued at what the user ACTUALLY paid (frozen txn amount), not list price.
+            credit = await self._change_credit(uow, req.subscription_id)
+            credit = min(credit, final.amount_minor)
+            if credit > 0:
+                components["change_credit"] = -credit
+                final = Money(final.amount_minor - credit, req.currency)
+
         return PriceQuote(
             base=base_total,
             discount_pct=discount_pct,
             final=final,
             components=components,
         )
+
+    async def _topup_quote(self, uow: UnitOfWork, req: PurchaseRequest) -> PriceQuote:
+        """Traffic top-up: the pack price with the user's discounts applied."""
+        pack = (
+            await uow.traffic_packs.get(req.traffic_pack_id)
+            if req.traffic_pack_id is not None
+            else None
+        )
+        if pack is None or not pack.is_active or pack.gb <= 0:
+            raise PurchaseError("traffic pack not found or inactive")
+        user = await uow.users.get(req.user_id)
+        personal = user.personal_discount_pct if user else 0
+        purchase = user.purchase_discount_pct if user else 0
+        discount_pct = min(MAX_DISCOUNT_PERCENT, personal + purchase)
+        base = Money(pack.price_minor, req.currency)
+        return PriceQuote(
+            base=base,
+            discount_pct=discount_pct,
+            final=base.apply_discount(discount_pct),
+            components={"pack": pack.price_minor},
+        )
+
+    async def _change_credit(self, uow: UnitOfWork, subscription_id: int) -> int:
+        """Remaining value of the current period in minor units (0 when unknown).
+
+        remaining_days x (paid_amount / paid_days) from the LAST completed subscription
+        payment that provisioned this subscription. Trials/imports without a matching
+        payment yield no credit.
+        """
+        sub = await uow.subscriptions.get(subscription_id)
+        if sub is None or sub.expire_at is None or sub.is_trial:
+            return 0
+        now = dt.datetime.now(dt.UTC)
+        remaining = (sub.expire_at - now).total_seconds() / 86400
+        if remaining <= 0:
+            return 0
+        txns = await uow.transactions.list_recent(sub.user_id, limit=50)
+        for txn in txns:
+            pricing = txn.pricing or {}
+            linked = pricing.get("subscription_id") == subscription_id or (
+                # historical/imported payments predate the subscription_id link
+                pricing.get("subscription_id") is None and pricing.get("plan_id") == sub.plan_id
+            )
+            if (
+                txn.type is TransactionType.SUBSCRIPTION_PAYMENT
+                and txn.status is TransactionStatus.COMPLETED
+                and txn.amount_minor > 0
+                and linked
+            ):
+                paid_days = int(pricing.get("duration_days") or 0)
+                if paid_days > 0:
+                    return int(txn.amount_minor * min(remaining, paid_days) / paid_days)
+        return 0
 
     async def resolve_constructor(
         self, uow: UnitOfWork, req: PurchaseRequest

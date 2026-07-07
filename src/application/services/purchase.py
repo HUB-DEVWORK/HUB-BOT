@@ -56,6 +56,10 @@ class PurchaseService:
         if req.constructor_period_id is not None:
             gb = (req.traffic_limit_bytes or 0) // BYTES_PER_GB
             snapshot["name"] = f"{plan.name} · {gb} ГБ" if gb else f"{plan.name} · ∞"
+        if req.purchase_type is PurchaseType.TRAFFIC_TOPUP and req.traffic_pack_id is not None:
+            pack = await uow.traffic_packs.get(req.traffic_pack_id)
+            if pack is not None:
+                snapshot["name"] = f"+{pack.gb} ГБ трафика"
 
         txn = Transaction(
             user_id=req.user_id,
@@ -130,9 +134,11 @@ class PurchaseService:
     async def resolve_purchase_type(
         self, uow: UnitOfWork, user_id: int, plan_id: int
     ) -> tuple[PurchaseType, int | None]:
-        """RENEW when the user's current subscription is on this plan and still usable, else NEW.
+        """Same plan + usable sub -> RENEW; different plan + usable sub -> CHANGE; else NEW.
 
-        Shared by the bot and the mini-app so both surfaces detect renewals identically.
+        Shared by the bot and the mini-app so both surfaces detect the flow identically.
+        CHANGE keeps the panel user (same short_id/uuid) and prorates the unused days
+        into a credit — see PricingService.
         """
         user = await uow.users.get(user_id)
         sub = (
@@ -140,8 +146,11 @@ class PurchaseService:
             if user is not None and user.current_subscription_id
             else None
         )
-        if sub is not None and sub.plan_id == plan_id and sub.status.is_usable:
-            return PurchaseType.RENEW, sub.id
+        if sub is not None and sub.status.is_usable:
+            if sub.plan_id == plan_id:
+                return PurchaseType.RENEW, sub.id
+            if sub.plan_id is not None:  # constructor subs change via the constructor flow
+                return PurchaseType.CHANGE, sub.id
         return PurchaseType.NEW, None
 
     async def checkout_from_balance(
@@ -197,6 +206,9 @@ class PurchaseService:
         subscription = await self._provision(uow, user=user, plan=plan, req=req)
         self._subscriptions.apply_purchase_discount_reset(user, req.purchase_type)
         await uow.flush()  # populate subscription.id
+        # Link the payment to the subscription it provisioned — the plan-change credit
+        # (PricingService._change_credit) needs this to value the unused remainder.
+        txn.pricing = {**(txn.pricing or {}), "subscription_id": subscription.id}
 
         await self._events.publish(
             SubscriptionPurchased(
@@ -229,7 +241,24 @@ class PurchaseService:
             return await self._subscriptions.renew(
                 uow, sub, days=req.duration_days, telegram_id=user.telegram_id
             )
-        # CHANGE: not implemented yet — fail loud rather than double-provision.
+        if req.purchase_type is PurchaseType.CHANGE:
+            if req.subscription_id is None:
+                raise PurchaseError("CHANGE requires subscription_id")
+            sub = await uow.subscriptions.get(req.subscription_id)
+            if sub is None or sub.user_id != user.id:
+                raise PurchaseError(f"subscription {req.subscription_id} not found for change")
+            return await self._subscriptions.change(uow, sub, user=user, plan=plan, req=req)
+        if req.purchase_type is PurchaseType.TRAFFIC_TOPUP:
+            if req.subscription_id is None or req.traffic_pack_id is None:
+                raise PurchaseError("traffic top-up requires subscription_id and traffic_pack_id")
+            sub = await uow.subscriptions.get(req.subscription_id)
+            pack = await uow.traffic_packs.get(req.traffic_pack_id)
+            if sub is None or sub.user_id != user.id or pack is None:
+                raise PurchaseError("subscription or traffic pack not found")
+            if sub.traffic_limit_bytes <= 0:
+                raise PurchaseError("subscription is already unlimited")
+            sub.traffic_limit_bytes += pack.gb * BYTES_PER_GB
+            return await self._subscriptions.push_limits(uow, sub, telegram_id=user.telegram_id)
         raise PurchaseError(f"purchase_type {req.purchase_type.value} is not supported yet")
 
     @staticmethod

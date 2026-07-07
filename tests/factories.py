@@ -28,8 +28,12 @@ async def make_plan(
     currency: Currency = Currency.RUB,
     days: int = 30,
     code: str = "base",
+    public_code: str | None = None,
+    name: str | None = None,
+    **plan_fields: object,
 ) -> tuple[Plan, PlanDuration]:
-    plan = Plan(public_code=code, name=f"Plan {code}")
+    code = public_code or code
+    plan = Plan(public_code=code, name=name or f"Plan {code}", **plan_fields)  # type: ignore[arg-type]
     await uow.plans.add(plan)
     duration = PlanDuration(plan_id=plan.id, days=days)
     uow.session.add(duration)

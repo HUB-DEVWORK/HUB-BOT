@@ -9,6 +9,7 @@ PaymentService.process (the same idempotent path webhooks use).
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from aiogram import F, Router
@@ -134,8 +135,10 @@ async def _payment_methods(
 @router.callback_query(F.data.startswith("dur:"))
 async def choose_payment(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
     _, plan_id, days = (cb.data or "dur:0:0").split(":")
+    ptype, sub_id = await _resolve_purchase_type(container, db_user, int(plan_id))
     async with container.uow() as uow:
         req = _purchase_request(int(plan_id), int(days), db_user)
+        req = replace(req, purchase_type=ptype, subscription_id=sub_id)
         try:
             quote = await container.pricing.quote(uow, req)
         except DomainError as exc:
@@ -148,6 +151,9 @@ async def choose_payment(cb: CallbackQuery, container: AppContainer, db_user: Us
         rows.append(("🎟 У меня промокод", "act:promocode"))
     rows.append(("‹ Назад", f"plan:{plan_id}"))
     discount = f" (−{quote.discount_pct}%)" if quote.discount_pct else ""
+    credit = -quote.components.get("change_credit", 0)
+    if credit > 0:
+        discount += f"\nЗачтён остаток текущего тарифа: −{fmt_money(credit)}"
     await show_screen(
         cb,
         f"К оплате: <b>{fmt_money(price)}</b>{discount}\n\nСпособ оплаты:",
@@ -314,6 +320,9 @@ async def constructor_payment(cb: CallbackQuery, container: AppContainer, db_use
     rows = [(label, f"cpay:{period_id}:{pack_id}:{code}") for label, code in methods]
     rows.append(("‹ Назад", f"cper:{period_id}"))
     discount = f" (−{quote.discount_pct}%)" if quote.discount_pct else ""
+    credit = -quote.components.get("change_credit", 0)
+    if credit > 0:
+        discount += f"\nЗачтён остаток текущего тарифа: −{fmt_money(credit)}"
     summary = f"{_period_label(req.duration_days)} · " + (f"{traffic_gb} ГБ" if traffic_gb else "∞")
     await show_screen(
         cb,
@@ -458,6 +467,103 @@ async def _pay_with_balance(
         await uow.commit()
 
     await _show_activated(cb, container, req.user_id)
+
+
+@router.callback_query(F.data == "traffic:menu")
+async def traffic_menu(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
+    """Buy extra gigabytes for the current (limited) subscription."""
+    async with container.uow() as uow:
+        sub = (
+            await uow.subscriptions.get(db_user.current_subscription_id)
+            if db_user.current_subscription_id
+            else None
+        )
+        packs = [p for p in await uow.traffic_packs.list() if p.is_active and p.gb > 0]
+    if sub is None or not sub.status.is_usable:
+        await cb.answer("Сначала оформи подписку", show_alert=True)
+        return
+    if sub.traffic_limit_bytes <= 0:
+        await cb.answer("У тебя безлимитный трафик 🎉", show_alert=True)
+        return
+    if not packs:
+        await cb.answer("Пакеты трафика не настроены", show_alert=True)
+        return
+    rows = [
+        (f"+{p.gb} ГБ · {fmt_money(p.price_minor)}", f"tpack:{p.id}")
+        for p in sorted(packs, key=lambda p: p.order_index)
+    ]
+    rows.append(("‹ Назад", "act:subscription:0"))
+    await show_screen(
+        cb,
+        "➕ <b>Докупить трафик</b>\n\nГигабайты добавятся к лимиту текущей подписки сразу "
+        "после оплаты, срок не меняется.",
+        simple_keyboard(rows),
+    )
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("tpack:"))
+async def traffic_pack_pay(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
+    pack_id = int((cb.data or "tpack:0").split(":")[1])
+    async with container.uow() as uow:
+        pack = await uow.traffic_packs.get(pack_id)
+        sub = (
+            await uow.subscriptions.get(db_user.current_subscription_id)
+            if db_user.current_subscription_id
+            else None
+        )
+        balance_enabled = bool(await container.bot_config.value(uow, "BALANCE_ENABLED"))
+        stars_rate = int(await container.bot_config.value(uow, "STARS_RATE_RUB"))
+        online_gateways = [
+            (g.type.value, g.display_name or g.type.value)
+            for g in await uow.payment_gateways.list()
+            if g.is_active
+            and g.type in container.gateway_factory.supported()
+            and g.type.value not in ("manual", "telegram_stars")
+        ]
+    if pack is None or sub is None or sub.plan_id is None:
+        await cb.answer("Пакет недоступен", show_alert=True)
+        return
+    price = pack.price_minor
+    stars = max(1, math.ceil(price / max(1, stars_rate)))
+    rows = []
+    if balance_enabled:
+        ok = "✅" if db_user.balance_minor >= price else "❌"
+        rows.append((f"{ok} С баланса ({fmt_money(db_user.balance_minor)})", f"tpay:{pack_id}:bal"))
+    rows.append((f"⭐ Telegram Stars · {stars} ★", f"tpay:{pack_id}:stars"))
+    for gtype, label in online_gateways:
+        rows.append((f"💳 {label}", f"tpay:{pack_id}:{gtype}"))
+    rows.append(("‹ Назад", "traffic:menu"))
+    await show_screen(
+        cb,
+        f"+{pack.gb} ГБ · К оплате: <b>{fmt_money(price)}</b>\n\nСпособ оплаты:",
+        simple_keyboard(rows),
+    )
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("tpay:"))
+async def traffic_pay(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
+    _, pack_id_s, method = (cb.data or "tpay:0:bal").split(":")
+    async with container.uow() as uow:
+        sub = (
+            await uow.subscriptions.get(db_user.current_subscription_id)
+            if db_user.current_subscription_id
+            else None
+        )
+    if sub is None or sub.plan_id is None:
+        await cb.answer("Нет активной подписки", show_alert=True)
+        return
+    req = PurchaseRequest(
+        user_id=db_user.id,
+        plan_id=sub.plan_id,
+        duration_days=0,
+        currency=Currency.RUB,
+        purchase_type=PurchaseType.TRAFFIC_TOPUP,
+        subscription_id=sub.id,
+        traffic_pack_id=int(pack_id_s),
+    )
+    await _start_payment(cb, container, req, method)
 
 
 # --- balance top-up (Telegram Stars deposit) -----------------------------------

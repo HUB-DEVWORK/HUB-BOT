@@ -127,6 +127,70 @@ class SubscriptionService:
         await self._remnawave.apply(subscription.remnawave_uuid, spec)
         return subscription
 
+    async def change(
+        self,
+        uow: UnitOfWork,
+        subscription: Subscription,
+        *,
+        user: User,
+        plan: Plan,
+        req: PurchaseRequest,
+    ) -> Subscription:
+        """Switch the subscription to another plan: same panel user, new period from now.
+
+        The unused remainder of the old period has already been monetized as a price
+        credit (PricingService), so the new period simply starts at purchase time.
+        Panel-first like every other write.
+        """
+        if subscription.remnawave_uuid is None:
+            raise PurchaseError("cannot change a subscription with no panel user")
+        subscription.plan_id = plan.id
+        subscription.plan_snapshot = _plan_snapshot(plan)
+        subscription.is_trial = False
+        subscription.status = SubscriptionStatus.ACTIVE
+        subscription.traffic_limit_bytes = (
+            req.traffic_limit_bytes
+            if req.traffic_limit_bytes is not None
+            else (plan.traffic_limit_bytes or 0)
+        )
+        subscription.device_limit = (
+            req.device_limit if req.device_limit is not None else plan.device_limit
+        )
+        if req.internal_squads:
+            subscription.internal_squads = list(req.internal_squads)
+        elif plan.internal_squads:
+            subscription.internal_squads = list(plan.internal_squads)
+        subscription.expire_at = dt.datetime.now(dt.UTC) + dt.timedelta(days=req.duration_days)
+        spec = self._remnawave.build_spec(
+            short_id=subscription.short_id,
+            telegram_id=user.telegram_id,
+            expire_at=subscription.expire_at,
+            traffic_limit_bytes=subscription.traffic_limit_bytes,
+            device_limit=subscription.device_limit,
+            internal_squads=tuple(subscription.internal_squads or ()),
+            external_squad=subscription.external_squad,
+        )
+        await self._remnawave.apply(subscription.remnawave_uuid, spec)
+        return subscription
+
+    async def push_limits(
+        self, uow: UnitOfWork, subscription: Subscription, *, telegram_id: int | None = None
+    ) -> Subscription:
+        """Push the subscription's current limits to the panel without touching expiry."""
+        if subscription.remnawave_uuid is None:
+            raise PurchaseError("subscription has no panel user")
+        spec = self._remnawave.build_spec(
+            short_id=subscription.short_id,
+            telegram_id=telegram_id,
+            expire_at=subscription.expire_at or dt.datetime.now(dt.UTC),
+            traffic_limit_bytes=subscription.traffic_limit_bytes,
+            device_limit=subscription.device_limit,
+            internal_squads=tuple(subscription.internal_squads or ()),
+            external_squad=subscription.external_squad,
+        )
+        await self._remnawave.apply(subscription.remnawave_uuid, spec)
+        return subscription
+
     @staticmethod
     def apply_purchase_discount_reset(user: User, purchase_type: PurchaseType) -> None:
         """One-shot ``purchase_discount`` is consumed on any paid purchase (gotcha #14)."""

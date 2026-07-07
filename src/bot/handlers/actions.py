@@ -126,6 +126,10 @@ async def act_subscription(cb: CallbackQuery, container: AppContainer, db_user: 
                 InlineKeyboardButton(text="🔄 Продлить", callback_data=f"plan:{sub.plan_id or 0}"),
                 InlineKeyboardButton(text="📱 Устройства", callback_data="act:devices:0"),
             ],
+            [
+                InlineKeyboardButton(text="🔀 Сменить тариф", callback_data="act:buy:0"),
+                InlineKeyboardButton(text="➕ Трафик", callback_data="traffic:menu"),
+            ],
         ]
         if autopay_global:
             mark = "✅" if sub.autopay_enabled else "❌"

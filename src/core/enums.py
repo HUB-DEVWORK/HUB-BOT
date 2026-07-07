@@ -121,6 +121,7 @@ class PurchaseType(StrEnum):
     NEW = "new"
     RENEW = "renew"
     CHANGE = "change"
+    TRAFFIC_TOPUP = "traffic_topup"
 
 
 class TransactionType(StrEnum):
