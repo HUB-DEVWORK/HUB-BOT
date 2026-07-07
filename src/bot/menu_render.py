@@ -34,25 +34,34 @@ async def send_main_menu(
         node_status_on = bool(await cfg.value(uow, "NODE_STATUS_ENABLED"))
         button_color = str(await cfg.value(uow, "BUTTON_COLOR_DEFAULT") or "") or None
 
+    # Smart buttons appended to ANY menu — seeded, custom or fallback — so switching to a
+    # constructor menu never loses them. Skipped when the tree already has that action.
+    tree_actions = {n.payload for n in nodes if n.kind.value == "action"}
+    has_miniapp_node = any(n.kind.value == "miniapp" for n in nodes)
+    extras: list[tuple[str, str]] = []
+    if trial_enabled and db_user.is_trial_available and "trial" not in tree_actions:
+        extras.append(("🎁 Попробовать бесплатно", "act:trial:0"))
+    if proxy_on and "proxy" not in tree_actions:
+        extras.append(("🔌 MTProto-прокси", "act:proxy:0"))
+    if node_status_on and "nodes" not in tree_actions:
+        extras.append(("🌍 Статус серверов", "act:nodes:0"))
+    if db_user.role.is_staff:
+        extras.append(("🛠 Админка", "admin:menu"))
+
     if nodes:
         markup = menu_keyboard(
             nodes, None, miniapp_url=miniapp_url or None, default_color=button_color
         )
     else:
-        buttons = list(_DEFAULT_BUTTONS)
-        buttons.insert(0, ("👤 Личный кабинет", "act:cabinet:0"))
-        if trial_enabled and db_user.is_trial_available:
-            buttons.insert(1, ("🎁 Попробовать бесплатно", "act:trial:0"))
-        if proxy_on:
-            buttons.append(("🔌 MTProto-прокси", "act:proxy:0"))
-        if node_status_on:
-            buttons.append(("🌍 Статус серверов", "act:nodes:0"))
-        if db_user.role.is_staff:
-            buttons.append(("🛠 Админка", "admin:menu"))
-        markup = simple_keyboard(buttons, default_color=button_color)
-        # Mini-app integration: a prominent WebApp button when the mini-app URL is configured.
-        if miniapp_url.startswith("https://"):
-            markup.inline_keyboard.insert(0, [webapp_button("📱 Открыть приложение", miniapp_url)])
+        markup = simple_keyboard(list(_DEFAULT_BUTTONS), default_color=button_color)
+
+    if extras:
+        markup.inline_keyboard.extend(
+            simple_keyboard(extras, default_color=button_color).inline_keyboard
+        )
+    # Prominent mini-app CTA on top, unless the owner already placed a mini-app button.
+    if miniapp_url.startswith("https://") and not has_miniapp_node:
+        markup.inline_keyboard.insert(0, [webapp_button("📱 Открыть приложение", miniapp_url)])
 
     if isinstance(target, CallbackQuery):
         if target.message is not None:

@@ -19,6 +19,7 @@ from src.core.logging import configure_logging
 from src.infrastructure.di import AppContainer
 from src.web.routes import admin, cabinet, cabinet_auth, health, panel, payments
 from src.web.routes.admin.auth import bootstrap_admin
+from src.web.routes.admin.menu import bootstrap_menu
 
 # Built admin SPA (admin/dist) — mounted when present (dev runs vite instead).
 _ADMIN_DIST = Path(__file__).resolve().parents[2] / "admin" / "dist"
@@ -35,6 +36,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     container = AppContainer(settings)
     app.state.container = container
     await bootstrap_admin(container)
+    await bootstrap_menu(container)
     try:
         yield
     finally:

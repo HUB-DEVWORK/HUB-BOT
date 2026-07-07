@@ -66,8 +66,9 @@ class DefaultButton:
 # Conditional buttons (trial, proxy, node status, admin) are added by the renderer at
 # runtime rather than seeded, so they appear only when actually applicable.
 DEFAULT_MENU: tuple[DefaultButton, ...] = (
+    DefaultButton("👤 Личный кабинет", "cabinet"),
     DefaultButton("🛒 Купить VPN", "buy", "#2ecc71"),
-    DefaultButton("👤 Моя подписка", "subscription"),
+    DefaultButton("🔑 Моя подписка", "subscription"),
     DefaultButton("🔌 Подключить", "connect", "#3498db"),
     DefaultButton("💰 Баланс", "balance"),
     DefaultButton("📊 История", "history"),

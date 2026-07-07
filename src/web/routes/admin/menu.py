@@ -62,6 +62,35 @@ def _serialize(nodes: list[MenuNode]) -> list[dict[str, Any]]:
     ]
 
 
+def _default_menu_rows() -> list[MenuNode]:
+    """DEFAULT_MENU as fresh top-level ACTION nodes — shared by reset + first-boot seed."""
+    return [
+        MenuNode(
+            parent_id=None,
+            order_index=i,
+            label=b.label,
+            kind=MenuNodeKind.ACTION,
+            payload=b.action,
+            color=b.color,
+        )
+        for i, b in enumerate(DEFAULT_MENU)
+    ]
+
+
+async def bootstrap_menu(container: AppContainer) -> None:
+    """Seed the default menu on first boot so the bot ships with real, editable buttons.
+
+    Called from the app lifespan. No-op once any menu exists — never overwrites the
+    owner's constructor, so it is safe to run on every start.
+    """
+    async with container.uow() as uow:
+        if await uow.menu_nodes.count() > 0:
+            return
+        for row in _default_menu_rows():
+            await uow.menu_nodes.add(row)
+        await uow.commit()
+
+
 @router.get("")
 async def get_menu(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
     async with container.uow() as uow:
@@ -151,17 +180,8 @@ async def reset_default(
     """Replace the menu with the built-in default — a real, editable starting menu."""
     async with container.uow() as uow:
         await uow.menu_nodes.delete_by()
-        for order, btn in enumerate(DEFAULT_MENU):
-            await uow.menu_nodes.add(
-                MenuNode(
-                    parent_id=None,
-                    order_index=order,
-                    label=btn.label,
-                    kind=MenuNodeKind.ACTION,
-                    payload=btn.action,
-                    color=btn.color,
-                )
-            )
+        for row in _default_menu_rows():
+            await uow.menu_nodes.add(row)
         await audit(uow, identity, "menu.reset_default", None, count=len(DEFAULT_MENU))
         await uow.commit()
         nodes = list(await uow.menu_nodes.tree())

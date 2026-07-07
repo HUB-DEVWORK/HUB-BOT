@@ -261,6 +261,23 @@ async def test_menu_reset_default_seeds_editable_menu(
     assert any("Купить" in n["label"] for n in got)
 
 
+async def test_bootstrap_menu_seeds_once(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    from src.bot.default_menu import DEFAULT_MENU
+    from src.web.routes.admin.menu import bootstrap_menu
+
+    _, container = client
+    async with container.uow() as uow:
+        assert await uow.menu_nodes.count() == 0  # fresh DB: empty menu
+    await bootstrap_menu(container)  # first boot -> seeds the default
+    async with container.uow() as uow:
+        assert await uow.menu_nodes.count() == len(DEFAULT_MENU)
+    await bootstrap_menu(container)  # idempotent: never overwrites an existing menu
+    async with container.uow() as uow:
+        assert await uow.menu_nodes.count() == len(DEFAULT_MENU)
+
+
 # --- users actions ------------------------------------------------------------------
 
 
