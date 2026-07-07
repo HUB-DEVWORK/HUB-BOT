@@ -49,29 +49,29 @@ async def test_unknown_key_rejected(uow: UnitOfWork, service: BotConfigService) 
 
 async def test_secret_encrypted_and_masked(uow: UnitOfWork, service: BotConfigService) -> None:
     async with uow:
-        await service.set_values(uow, {"NALOGO_PASSWORD": "hunter2"})
+        await service.set_values(uow, {"NALOGO_TOKEN": "hunter2"})
         await uow.commit()
     async with uow:
         # at rest: fernet token, not plaintext
-        row = await uow.bot_config.find_one(key="NALOGO_PASSWORD")
+        row = await uow.bot_config.find_one(key="NALOGO_TOKEN")
         assert row is not None
         assert row.value != "hunter2"
         assert str(row.value).startswith("gAAAA")
         # effective value decrypts
-        assert await service.value(uow, "NALOGO_PASSWORD") == "hunter2"
+        assert await service.value(uow, "NALOGO_TOKEN") == "hunter2"
         # listing masks it
         rows = await service.listing(uow)
-        secret_row = next(r for r in rows if r["key"] == "NALOGO_PASSWORD")
+        secret_row = next(r for r in rows if r["key"] == "NALOGO_TOKEN")
         assert secret_row["value"] == _MASK
 
 
 async def test_masked_roundtrip_is_noop(uow: UnitOfWork, service: BotConfigService) -> None:
     async with uow:
-        await service.set_values(uow, {"NALOGO_PASSWORD": "hunter2"})
+        await service.set_values(uow, {"NALOGO_TOKEN": "hunter2"})
         # UI echoes the mask back on save-all: must NOT overwrite the secret
-        written = await service.set_values(uow, {"NALOGO_PASSWORD": _MASK})
+        written = await service.set_values(uow, {"NALOGO_TOKEN": _MASK})
         assert written == []
-        assert await service.value(uow, "NALOGO_PASSWORD") == "hunter2"
+        assert await service.value(uow, "NALOGO_TOKEN") == "hunter2"
 
 
 async def test_reset_restores_default(uow: UnitOfWork, service: BotConfigService) -> None:

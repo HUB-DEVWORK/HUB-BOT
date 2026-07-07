@@ -13,6 +13,7 @@ Conventions:
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -210,16 +211,6 @@ REGISTRY: tuple[ParamSpec, ...] = (
     ),
     _p("TRIAL_DEVICE_LIMIT", C.SUBSCRIPTIONS, INT, 1, "Устройств на триале", "Trial devices"),
     _p(
-        "TRIAL_ADD_REMAINING_DAYS_TO_PAID",
-        C.SUBSCRIPTIONS,
-        BOOL,
-        False,
-        "Перенос остатка триала",
-        "Carry trial remainder",
-        "Остаток триальных дней прибавляется к первой оплате",
-        "Remaining trial days add to first paid period",
-    ),
-    _p(
         "DEFAULT_DEVICE_LIMIT", C.SUBSCRIPTIONS, INT, 3, "Устройств по умолчанию", "Default devices"
     ),
     _p(
@@ -318,16 +309,6 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Для расчёта чистой прибыли в разделе Платежи",
         "Feeds net-profit math",
     ),
-    _p(
-        "RECEIPTS_ENABLED",
-        C.PAYMENTS,
-        BOOL,
-        False,
-        "Чеки самозанятого (NaloGO)",
-        "Self-employed receipts (NaloGO)",
-    ),
-    _p("NALOGO_INN", C.PAYMENTS, SECRET, "", "ИНН NaloGO", "NaloGO INN"),
-    _p("NALOGO_PASSWORD", C.PAYMENTS, SECRET, "", "Пароль NaloGO", "NaloGO password"),
     _p(
         "STARS_RATE_RUB",
         C.PAYMENTS,
@@ -627,7 +608,6 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Share of each referral top-up",
     ),
     _p("REFERRAL_SECOND_LEVEL_PERCENT", C.REFERRAL, INT, 0, "Процент 2-го уровня", "2nd level %"),
-    _p("REFERRAL_MIN_WITHDRAWAL", C.REFERRAL, INT, 100000, "Мин. вывод (коп.)", "Min withdrawal"),
     # --- SECURITY ----------------------------------------------------------------
     _p(
         "BLACKLIST_CHECK_ENABLED",
@@ -845,6 +825,13 @@ REGISTRY: tuple[ParamSpec, ...] = (
 )
 
 _BY_KEY: dict[str, ParamSpec] = {p.key: p for p in REGISTRY}
+
+# Keys are the registry's public API and must be unique. A duplicate silently shadows the
+# earlier ParamSpec (its type/default/secret flag reach the cabinet instead), so fail loudly
+# at import — this is what the duplicate-key guard prevents from regressing.
+if len(_BY_KEY) != len(REGISTRY):
+    _dupes = sorted(k for k, n in Counter(p.key for p in REGISTRY).items() if n > 1)
+    raise RuntimeError(f"duplicate config-registry keys: {_dupes}")
 
 # Display order of categories on the settings screen (mirrors the design).
 CATEGORY_ORDER: tuple[ConfigCategory, ...] = (

@@ -183,17 +183,17 @@ async def test_settings_patch_and_search(
     res = await http.patch(
         "/api/admin/settings",
         headers=auth,
-        json={"changes": {"TRIAL_DURATION_DAYS": 9, "NALOGO_PASSWORD": "sss"}},
+        json={"changes": {"TRIAL_DURATION_DAYS": 9, "NALOGO_TOKEN": "sss"}},
     )
     assert res.status_code == 200
-    assert set(res.json()["applied"]) == {"TRIAL_DURATION_DAYS", "NALOGO_PASSWORD"}
+    assert set(res.json()["applied"]) == {"TRIAL_DURATION_DAYS", "NALOGO_TOKEN"}
 
     res = await http.get("/api/admin/settings", headers=auth, params={"q": "TRIAL_DURATION"})
     row = res.json()["params"][0]
     assert row["value"] == 9
     assert row["is_overridden"] is True
 
-    res = await http.get("/api/admin/settings", headers=auth, params={"q": "NALOGO_PASSWORD"})
+    res = await http.get("/api/admin/settings", headers=auth, params={"q": "NALOGO_TOKEN"})
     assert res.json()["params"][0]["value"] == "••••••••"
 
     res = await http.patch("/api/admin/settings", headers=auth, json={"changes": {"BOGUS_KEY": 1}})
