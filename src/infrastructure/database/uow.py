@@ -27,6 +27,7 @@ from src.infrastructure.database.dao.admin import (
     HolidayDAO,
     MenuNodeDAO,
     MiniappConfigDAO,
+    ReminderStepDAO,
     ReportTopicDAO,
     ServerNodeDAO,
     SmartReminderDAO,
@@ -81,6 +82,7 @@ class UnitOfWork:
         self.miniapp = MiniappConfigDAO(session)
         self.broadcasts = BroadcastDAO(session)
         self.smart_reminder = SmartReminderDAO(session)
+        self.reminders = ReminderStepDAO(session)
         self.holidays = HolidayDAO(session)
         self.winback_steps = WinbackStepDAO(session)
         self.campaigns = CampaignDAO(session)

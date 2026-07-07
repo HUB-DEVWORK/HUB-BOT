@@ -278,6 +278,52 @@ async def test_bootstrap_menu_seeds_once(
         assert await uow.menu_nodes.count() == len(DEFAULT_MENU)
 
 
+# --- expiry reminders --------------------------------------------------------------
+
+
+async def test_reminders_crud(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    http, _ = client
+    auth = await _login(http)
+    res = await http.post(
+        "/api/admin/reminders",
+        headers=auth,
+        json={"hours_before": 6, "text": "истекает через {time}", "button_enabled": True},
+    )
+    assert res.status_code == 200, res.text
+    rid = res.json()["id"]
+    # duplicate offset -> 409
+    assert (
+        await http.post("/api/admin/reminders", headers=auth, json={"hours_before": 6, "text": "x"})
+    ).status_code == 409
+    # list is ordered furthest-out first
+    await http.post("/api/admin/reminders", headers=auth, json={"hours_before": 1, "text": "y"})
+    listed = (await http.get("/api/admin/reminders", headers=auth)).json()["items"]
+    hours = [i["hours_before"] for i in listed]
+    assert hours == sorted(hours, reverse=True) and 6 in hours and 1 in hours
+    # patch + delete
+    res = await http.patch(f"/api/admin/reminders/{rid}", headers=auth, json={"enabled": False})
+    assert res.status_code == 200 and res.json()["enabled"] is False
+    assert (await http.delete(f"/api/admin/reminders/{rid}", headers=auth)).status_code == 200
+
+
+async def test_bootstrap_reminders_seeds_once(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    from src.web.routes.admin.reminders import DEFAULT_STEPS, bootstrap_reminders
+
+    _, container = client
+    async with container.uow() as uow:
+        assert await uow.reminders.count() == 0
+    await bootstrap_reminders(container)
+    async with container.uow() as uow:
+        assert await uow.reminders.count() == len(DEFAULT_STEPS)
+    await bootstrap_reminders(container)  # idempotent
+    async with container.uow() as uow:
+        assert await uow.reminders.count() == len(DEFAULT_STEPS)
+
+
 # --- users actions ------------------------------------------------------------------
 
 

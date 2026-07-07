@@ -448,7 +448,24 @@ def _time_matches(target_hhmm: str, now: dt.datetime, window_minutes: int = 5) -
     return target <= now < target + dt.timedelta(minutes=window_minutes)
 
 
-@broker.task(schedule=[{"cron": "*/5 * * * *"}])
+def _human_hours(hours: int) -> str:
+    """Russian noun for the {time} placeholder: '24 часа' / '1 час' / '12 часов'."""
+    if hours <= 0:
+        return "момент"
+    if 11 <= hours % 100 <= 14:
+        word = "часов"
+    elif hours % 10 == 1:
+        word = "час"
+    elif 2 <= hours % 10 <= 4:
+        word = "часа"
+    else:
+        word = "часов"
+    return f"{hours} {word}"
+
+
+# Superseded by the hour-based send_expiry_reminders (ReminderStep ladder). Left un-scheduled
+# for backward compatibility; the day-based smart_reminder screen no longer fires on its own.
+@broker.task
 async def send_smart_reminders() -> int:
     """Renewal reminders: users whose subscription expires in N days (config days CSV).
 
@@ -523,6 +540,94 @@ async def send_smart_reminders() -> int:
     finally:
         await bot.session.close()
     log.info("smart reminders sent", count=sent)
+    return sent
+
+
+@broker.task(schedule=[{"cron": "*/5 * * * *"}])
+async def send_expiry_reminders() -> int:
+    """Hour-based expiry reminders (screen 08): for each enabled ReminderStep, message
+    subscribers whose expiry enters the step window, once per subscription per step.
+
+    Runs every 5 min; a 15-min look-back window plus per-(step, sub-expiry) Redis SETNX
+    means a step never misses or double-fires. ``hours_before == 0`` fires just after expiry.
+    Text placeholders: {hours} {time} {plan}.
+    """
+    from aiogram import Bot
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+    from sqlalchemy import select
+
+    from src.core.enums import SubscriptionStatus
+    from src.infrastructure.database.models.subscription import Subscription
+    from src.infrastructure.database.models.user import User
+
+    container = get_container()
+    now = dt.datetime.now(dt.UTC)
+    lookback = dt.timedelta(minutes=15)
+    live = [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL]
+    at_expiry = [*live, SubscriptionStatus.LIMITED, SubscriptionStatus.EXPIRED]
+
+    # (hours_before, text, button_enabled, telegram_id, expire_ts, plan_name)
+    targets: list[tuple[int, str, bool, int, int, str]] = []
+    async with container.uow() as uow:
+        steps = [s for s in await uow.reminders.ordered() if s.enabled]
+        miniapp_url = str(await container.bot_config.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "")
+        await uow.commit()
+        for step in steps:
+            boundary = now + dt.timedelta(hours=step.hours_before)
+            rows = (
+                await uow.session.execute(
+                    select(User.telegram_id, Subscription.expire_at, Subscription.plan_snapshot)
+                    .join(Subscription, Subscription.id == User.current_subscription_id)
+                    .where(
+                        User.telegram_id.is_not(None),
+                        Subscription.status.in_(live if step.hours_before > 0 else at_expiry),
+                        Subscription.expire_at > boundary - lookback,
+                        Subscription.expire_at <= boundary,
+                    )
+                )
+            ).all()
+            for tg, exp, snap in rows:
+                targets.append(
+                    (
+                        step.hours_before,
+                        step.text,
+                        step.button_enabled,
+                        int(tg),
+                        int(exp.timestamp()),
+                        str((snap or {}).get("name") or ""),
+                    )
+                )
+
+    if not targets:
+        return 0
+    sent = 0
+    bot = Bot(token=container.settings.bot.token)
+    try:
+        for hours, text, button, tg_id, exp_ts, plan in targets:
+            if not await container.redis.set(
+                f"exprem:{hours}:{tg_id}:{exp_ts}", "1", nx=True, ex=604800
+            ):
+                continue  # already sent this step for this expiry
+            body = (
+                text.replace("{hours}", str(hours))
+                .replace("{time}", _human_hours(hours))
+                .replace("{plan}", plan)
+            )
+            markup = None
+            if button and miniapp_url.startswith("https://"):
+                markup = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="Продлить", web_app=WebAppInfo(url=miniapp_url))]
+                    ]
+                )
+            try:
+                await bot.send_message(tg_id, body, reply_markup=markup)
+                sent += 1
+            except Exception:
+                pass
+    finally:
+        await bot.session.close()
+    log.info("expiry reminders sent", count=sent)
     return sent
 
 

@@ -17,6 +17,7 @@ from src.infrastructure.database.models.constructor import ConstructorPeriod, Tr
 from src.infrastructure.database.models.holiday import Holiday
 from src.infrastructure.database.models.menu_node import MenuNode
 from src.infrastructure.database.models.miniapp_config import MiniappConfig
+from src.infrastructure.database.models.reminder_step import ReminderStep
 from src.infrastructure.database.models.report_topic import ReportTopic
 from src.infrastructure.database.models.server_node import ServerNode
 from src.infrastructure.database.models.smart_reminder import SmartReminder
@@ -110,6 +111,17 @@ class WinbackStepDAO(BaseDAO[WinbackStep]):
 
     async def ordered(self) -> Sequence[WinbackStep]:
         result = await self.session.scalars(select(WinbackStep).order_by(WinbackStep.offset_days))
+        return result.all()
+
+
+class ReminderStepDAO(BaseDAO[ReminderStep]):
+    model = ReminderStep
+
+    async def ordered(self) -> Sequence[ReminderStep]:
+        """Furthest-out first: 24 h → 12 h → 1 h → 0 h (at expiry)."""
+        result = await self.session.scalars(
+            select(ReminderStep).order_by(ReminderStep.hours_before.desc())
+        )
         return result.all()
 
 
