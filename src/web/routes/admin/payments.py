@@ -506,9 +506,6 @@ class ProviderIn(BaseModel):
     settings: dict[str, str] | None = None
 
 
-_SECRET_HINTS = ("key", "secret", "token", "password")
-
-
 @router.post("/providers")
 async def upsert_provider(
     body: ProviderIn,
@@ -532,13 +529,14 @@ async def upsert_provider(
                 "enabled_forms": [f for f in body.enabled_forms if f in allowed]
             }
         if body.settings:
+            from src.infrastructure.payments.crypto import is_secret_key
+
             merged = dict(gw.settings)
             for k, v in body.settings.items():
                 if v == "":
                     merged.pop(k, None)
                     continue
-                is_secret = any(h in k.lower() for h in _SECRET_HINTS)
-                if is_secret and container.secret_box is not None:
+                if is_secret_key(k) and container.secret_box is not None:
                     merged[k] = container.secret_box.encrypt(v)
                 else:
                     merged[k] = v

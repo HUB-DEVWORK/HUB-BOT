@@ -28,32 +28,29 @@ class SecretBox:
             raise ConfigError("gateway secret failed to decrypt (wrong crypt key?)") from exc
 
 
-# Keys that hold provider secrets inside payment_gateways.settings.
-GATEWAY_SECRET_KEYS = {
-    "secret",
-    "secret_key",
-    "api_key",
-    "api_token",
-    "token",
-    "password",
-    "shop_secret",
-    "api_secret",
-    "secret1",
-    "secret2",
-}
+# A gateway settings field holds a secret when its name hints at one. The SAME predicate
+# ENCRYPTS (admin write path) and DECRYPTS (here), so the two can never disagree. The old
+# code encrypted any *key/secret/token/password*-named field on save but decrypted only a
+# fixed subset on read, leaving fields like ``webhook_secret`` / ``private_key`` / ``secret_id``
+# encrypted forever — which silently broke webhook signature verification on those gateways.
+_SECRET_HINTS = ("key", "secret", "token", "password")
+
+
+def is_secret_key(name: str) -> bool:
+    """True when a payment-gateway settings field name denotes a secret to encrypt at rest."""
+    lowered = name.lower()
+    return any(hint in lowered for hint in _SECRET_HINTS)
 
 
 def decrypt_gateway_settings(
     box: SecretBox | None, settings: dict[str, object]
 ) -> dict[str, object]:
-    """Decrypt secret-looking values; tolerate plaintext (dev seeds)."""
+    """Decrypt every secret-looking value; tolerate plaintext (dev seeds)."""
     if box is None:
         return dict(settings)
     out = dict(settings)
-    for key in GATEWAY_SECRET_KEYS & out.keys():
-        value = out[key]
-        if isinstance(value, str) and value:
-            # Tolerate plaintext values (dev seeds).
-            with contextlib.suppress(ConfigError):
+    for key, value in list(out.items()):
+        if is_secret_key(key) and isinstance(value, str) and value:
+            with contextlib.suppress(ConfigError):  # plaintext dev seeds pass through
                 out[key] = box.decrypt(value)
     return out
