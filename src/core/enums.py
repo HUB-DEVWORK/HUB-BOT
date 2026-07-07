@@ -173,6 +173,7 @@ class PaymentGatewayType(StrEnum):
     LAVA = "lava"
     KASSA_AI = "kassa_ai"
     RIOPAY = "riopay"
+    ANTILOPAY = "antilopay"
     SEVERPAY = "severpay"
     PAYPEAR = "paypear"
     AURAPAY = "aurapay"

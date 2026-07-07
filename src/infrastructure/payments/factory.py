@@ -11,6 +11,8 @@ from typing import Any
 from src.core.enums import PaymentGatewayType
 from src.core.exceptions import GatewayNotConfigured
 from src.infrastructure.payments.base import BasePaymentGateway
+from src.infrastructure.payments.gateways.antilopay import AntilopayGateway
+from src.infrastructure.payments.gateways.aurapay import AurapayGateway
 from src.infrastructure.payments.gateways.cloudpayments import CloudpaymentsGateway
 from src.infrastructure.payments.gateways.cryptobot import CryptobotGateway
 from src.infrastructure.payments.gateways.cryptomus import CryptomusGateway
@@ -22,8 +24,10 @@ from src.infrastructure.payments.gateways.manual import ManualGateway
 from src.infrastructure.payments.gateways.mulenpay import MulenpayGateway
 from src.infrastructure.payments.gateways.paypalych import PaypalychGateway
 from src.infrastructure.payments.gateways.platega import PlategaGateway
+from src.infrastructure.payments.gateways.riopay import RiopayGateway
 from src.infrastructure.payments.gateways.robokassa import RobokassaGateway
 from src.infrastructure.payments.gateways.rollypay import RollypayGateway
+from src.infrastructure.payments.gateways.severpay import SeverpayGateway
 from src.infrastructure.payments.gateways.telegram_stars import TelegramStarsGateway
 from src.infrastructure.payments.gateways.wata import WataGateway
 from src.infrastructure.payments.gateways.yookassa import YookassaGateway
@@ -48,6 +52,10 @@ _REGISTRY: dict[PaymentGatewayType, type[BasePaymentGateway]] = {
     PaymentGatewayType.MULENPAY: MulenpayGateway,
     PaymentGatewayType.KASSA_AI: KassaAiGateway,
     PaymentGatewayType.ROLLYPAY: RollypayGateway,
+    PaymentGatewayType.RIOPAY: RiopayGateway,
+    PaymentGatewayType.SEVERPAY: SeverpayGateway,
+    PaymentGatewayType.AURAPAY: AurapayGateway,
+    PaymentGatewayType.ANTILOPAY: AntilopayGateway,
 }
 
 

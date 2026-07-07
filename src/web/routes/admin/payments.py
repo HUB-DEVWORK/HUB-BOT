@@ -290,15 +290,15 @@ PROVIDER_META: dict[PaymentGatewayType, dict[str, Any]] = {
     PaymentGatewayType.RIOPAY: {
         "title": "RioPay",
         "methods": "карта, СБП",
-        "fields": ["api_key"],
-        "ready": False,
+        "fields": ["api_token", "webhook_secret"],
+        "ready": True,
         "emoji": "🏦",
     },
     PaymentGatewayType.SEVERPAY: {
         "title": "SeverPay",
         "methods": "карта, СБП",
-        "fields": ["api_key", "shop_id"],
-        "ready": False,
+        "fields": ["token", "mid"],
+        "ready": True,
         "emoji": "🏦",
     },
     PaymentGatewayType.PAYPEAR: {
@@ -311,8 +311,15 @@ PROVIDER_META: dict[PaymentGatewayType, dict[str, Any]] = {
     PaymentGatewayType.AURAPAY: {
         "title": "AuraPay",
         "methods": "карта, СБП",
-        "fields": ["api_key", "merchant_id"],
-        "ready": False,
+        "fields": ["api_key", "shop_id", "webhook_secret", "service"],
+        "ready": True,
+        "emoji": "🏦",
+    },
+    PaymentGatewayType.ANTILOPAY: {
+        "title": "Antilopay",
+        "methods": "СБП, карта, SberPay",
+        "fields": ["secret_id", "project_id", "private_key", "public_key", "prefer_method"],
+        "ready": True,
         "emoji": "🏦",
     },
     PaymentGatewayType.OVERPAY: {
@@ -345,6 +352,7 @@ PROVIDER_EXTRAS: dict[PaymentGatewayType, dict[str, Any]] = {
     PaymentGatewayType.LAVA: {"forms": ["card", "sbp"], "brand": "#FF4D00"},
     PaymentGatewayType.KASSA_AI: {"forms": ["card", "sbp"], "brand": "#00BFA5"},
     PaymentGatewayType.RIOPAY: {"forms": ["card", "sbp"], "brand": "#E91E63"},
+    PaymentGatewayType.ANTILOPAY: {"forms": ["card", "sbp", "sberpay"], "brand": "#00B341"},
     PaymentGatewayType.SEVERPAY: {"forms": ["card", "sbp"], "brand": "#3F51B5"},
     PaymentGatewayType.PAYPEAR: {"forms": ["card", "sbp"], "brand": "#8BC34A"},
     PaymentGatewayType.AURAPAY: {"forms": ["card", "sbp"], "brand": "#FF9800"},
