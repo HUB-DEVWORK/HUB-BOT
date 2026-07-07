@@ -9,6 +9,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 from aiogram.types import User as TgUser
 
+from src.application.events import UserRegistered
 from src.application.services.ids import generate_referral_code
 from src.core.enums import Locale, Role, UserStatus
 from src.infrastructure.database.models.user import User
@@ -64,6 +65,12 @@ class ContextMiddleware(BaseMiddleware):
             admin_ids = self._admin_ids(str(await cfg.value(uow, "ADMIN_IDS")))
             maintenance_text = str(await cfg.value(uow, "MAINTENANCE_MESSAGE"))
             await uow.commit()
+
+        if created:
+            # Instant "registrations" report + future side-effects (bus is best-effort).
+            await self.container.event_bus.publish(
+                UserRegistered(user_id=user.id, telegram_id=tg.id)
+            )
 
         is_admin = (
             tg.id in admin_ids

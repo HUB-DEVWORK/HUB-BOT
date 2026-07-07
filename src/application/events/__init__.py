@@ -32,6 +32,15 @@ class PaymentCompleted(DomainEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class TicketOpened(DomainEvent):
+    ticket_id: int = 0
+    user_id: int = 0
+    telegram_id: int | None = None
+    username: str | None = None
+    subject: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class TrialGranted(DomainEvent):
     user_id: int = 0
     subscription_id: int = 0

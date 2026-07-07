@@ -465,8 +465,8 @@ async def scheduled_backup() -> None:
 async def run_backup() -> str | None:
     """Dump the Postgres DB to an encrypted zip in ./backups (pg_dump + pyzipper).
 
-    Returns the archive path, or None when pg_dump is unavailable/failed. Sending the
-    archive to the report group happens in the reports job, not here.
+    Returns the archive path, or None when pg_dump is unavailable/failed. When the
+    «backups» report topic is enabled, the archive is delivered into the report group.
     """
     import asyncio
     from pathlib import Path
@@ -503,7 +503,141 @@ async def run_backup() -> str | None:
     dump_path.unlink(missing_ok=True)
     prune_old_backups(backups, keep)
     log.info("run_backup done", path=str(out))
+
+    from src.infrastructure.services.reports import send_topic_report
+
+    await send_topic_report(container, "backups", f"💾 Бэкап БД · {stamp}", document=out)
     return str(out)
+
+
+_WEEKDAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+_WEEKDAYS |= {"пн": 0, "вт": 1, "ср": 2, "чт": 3, "пт": 4, "сб": 5, "вс": 6}  # noqa: RUF001
+
+
+def _parse_weekly_schedule(raw: str) -> tuple[int | None, str]:
+    """'Mon 10:00' → (0, '10:00'); bare 'HH:MM' → (None, 'HH:MM') = any day."""
+    parts = raw.strip().split()
+    if len(parts) == 2 and parts[0].lower()[:3] in _WEEKDAYS:
+        return _WEEKDAYS[parts[0].lower()[:3]], parts[1]
+    return None, parts[-1] if parts else ""
+
+
+async def _summary_text(container: AppContainer, title: str, *, hours: int) -> str:
+    """KPI block over the trailing window. Revenue definition mirrors the dashboard:
+    external money only — balance-funded purchases are internal transfers."""
+    from sqlalchemy import func, select
+
+    from src.core.enums import SubscriptionStatus
+    from src.infrastructure.database.models.subscription import Subscription
+    from src.infrastructure.database.models.ticket import Ticket
+    from src.infrastructure.database.models.transaction import Transaction
+    from src.infrastructure.database.models.user import User
+    from src.infrastructure.services.reports import fmt_amount
+    from src.web.routes.admin.dashboard import _EXTERNAL_MONEY
+
+    start = dt.datetime.now(dt.UTC) - dt.timedelta(hours=hours)
+    paid = (
+        Transaction.status == TransactionStatus.COMPLETED,
+        _EXTERNAL_MONEY,
+        Transaction.completed_at >= start,
+        Transaction.is_test.is_(False),
+    )
+    async with container.uow() as uow:
+        s = uow.session
+        new_users = int(
+            await s.scalar(select(func.count()).select_from(User).where(User.created_at >= start))
+            or 0
+        )
+        trials = int(
+            await s.scalar(
+                select(func.count())
+                .select_from(Subscription)
+                .where(Subscription.is_trial.is_(True), Subscription.created_at >= start)
+            )
+            or 0
+        )
+        payments = int(
+            await s.scalar(select(func.count()).select_from(Transaction).where(*paid)) or 0
+        )
+        revenue = int(
+            await s.scalar(
+                select(func.coalesce(func.sum(Transaction.amount_minor), 0)).where(*paid)
+            )
+            or 0
+        )
+        active = int(
+            await s.scalar(
+                select(func.count())
+                .select_from(Subscription)
+                .where(
+                    Subscription.status.in_(
+                        [
+                            SubscriptionStatus.ACTIVE,
+                            SubscriptionStatus.TRIAL,
+                            SubscriptionStatus.LIMITED,
+                        ]
+                    )
+                )
+            )
+            or 0
+        )
+        tickets = int(
+            await s.scalar(
+                select(func.count()).select_from(Ticket).where(Ticket.created_at >= start)
+            )
+            or 0
+        )
+    return (
+        f"<b>{title}</b>\n\n"
+        f"👥 Новых пользователей: <b>{new_users}</b>\n"
+        f"🧪 Триалов выдано: <b>{trials}</b>\n"
+        f"💳 Платежей: <b>{payments}</b> на <b>{fmt_amount(revenue)}</b>\n"
+        f"📦 Активных подписок: <b>{active}</b>\n"
+        f"🎫 Тикетов открыто: <b>{tickets}</b>"
+    )
+
+
+@broker.task(schedule=[{"cron": "*/5 * * * *"}])
+async def send_periodic_reports() -> int:
+    """Daily/weekly summaries into the report group topics (screen 14).
+
+    Runs every 5 minutes; an enabled topic fires when MSK time enters its schedule
+    window ("21:00" / "Mon 10:00" from report_topics.schedule), once per period
+    (Redis SETNX dedup). Instant topics are event-driven — see services/reports.py.
+    """
+    from src.infrastructure.services.reports import send_topic_report
+
+    container = get_container()
+    now_msk = _msk_now()
+    async with container.uow() as uow:
+        topics = {t.code: (t.enabled, t.schedule) for t in await uow.report_topics.list()}
+
+    sent = 0
+    enabled, schedule = topics.get("daily_report", (False, None))
+    if (
+        enabled
+        and _time_matches(schedule or "21:00", now_msk)
+        and await container.redis.set(f"report:daily:{now_msk:%Y%m%d}", "1", nx=True, ex=86400)
+    ):
+        text = await _summary_text(container, f"📊 Отчёт за сутки · {now_msk:%d.%m.%Y}", hours=24)
+        if await send_topic_report(container, "daily_report", text):
+            sent += 1
+
+    enabled, schedule = topics.get("weekly_report", (False, None))
+    if enabled:
+        day, hhmm = _parse_weekly_schedule(schedule or "Mon 10:00")
+        if (day is None or now_msk.weekday() == day) and _time_matches(hhmm, now_msk):
+            iso = now_msk.isocalendar()
+            key = f"report:weekly:{iso.year}{iso.week:02d}"
+            if await container.redis.set(key, "1", nx=True, ex=86400 * 8):
+                text = await _summary_text(
+                    container, f"📈 Отчёт за неделю · {now_msk:%d.%m.%Y}", hours=24 * 7
+                )
+                if await send_topic_report(container, "weekly_report", text):
+                    sent += 1
+    if sent:
+        log.info("periodic reports sent", count=sent)
+    return sent
 
 
 @broker.task

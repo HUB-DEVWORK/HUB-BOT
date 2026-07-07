@@ -15,6 +15,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
+from src.application.events import TicketOpened
 from src.bot.keyboards import simple_keyboard
 from src.bot.screen import show_screen
 from src.core.enums import TicketAuthor, TicketStatus
@@ -85,6 +86,16 @@ async def user_message(
     if created:
         await message.answer(
             f"🆗 Тикет <b>#{ticket_id}</b> создан — ответим здесь.", parse_mode="HTML"
+        )
+        # Instant "tickets" report topic (screen 14) listens on the bus.
+        await container.event_bus.publish(
+            TicketOpened(
+                ticket_id=ticket_id,
+                user_id=db_user.id,
+                telegram_id=db_user.telegram_id,
+                username=db_user.username,
+                subject=text[:64],
+            )
         )
     else:
         await message.answer("Добавил к тикету ✍️")

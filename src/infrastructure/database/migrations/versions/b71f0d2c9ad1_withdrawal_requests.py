@@ -31,17 +31,25 @@ def upgrade() -> None:
         sa.Column("details", sa.String(length=256), nullable=False),
         sa.Column(
             "status",
-            sa.Enum("PENDING", "PAID", "REJECTED", name="withdrawalstatus", native_enum=False, length=16),
+            sa.Enum(
+                "PENDING", "PAID", "REJECTED", name="withdrawalstatus", native_enum=False, length=16
+            ),
             nullable=False,
             server_default="PENDING",
         ),
         sa.Column("admin_comment", sa.String(length=256), nullable=True),
         sa.Column("processed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
     )
     op.create_index("ix_withdrawal_requests_user_id", "withdrawal_requests", ["user_id"])

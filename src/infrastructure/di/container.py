@@ -31,6 +31,7 @@ from src.infrastructure.remnawave.client import RemnawaveHttpClient
 from src.infrastructure.remnawave.connection import build_profile
 from src.infrastructure.remnawave.webhook import WebhookVerifier
 from src.infrastructure.services.notification import LogNotifier, TelegramNotifier
+from src.infrastructure.services.reports import wire_report_events
 
 
 class AppContainer:
@@ -71,6 +72,7 @@ class AppContainer:
         self.panel_sync = PanelSyncService(self.remnawave_client)
 
         # Screen 14: instant report topics (payments/tickets/registrations) listen on the bus.
+        wire_report_events(self)
 
     @classmethod
     def from_env(cls) -> AppContainer:

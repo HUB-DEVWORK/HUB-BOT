@@ -106,7 +106,7 @@ async def process_withdrawal(
             text = (
                 f"↩️ Заявка на вывод #{withdrawal_id} отклонена, {amount / 100:.2f} ₽ "
                 f"возвращены на баланс."
-                + (f"\nКомментарий: {body.comment}" if body.comment else "")
+                + (f"\nКомментарий: {body.comment}" if body.comment else "")  # noqa: RUF001
             )
         await container.notifier.notify_user(telegram_id, text)
     return OkOut()
