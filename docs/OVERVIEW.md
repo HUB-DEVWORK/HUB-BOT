@@ -51,7 +51,8 @@ BOT/
 │   │   ├── common/               Protocol'ы (контракты: панель, платежи, события, нотификатор)
 │   │   ├── services/             PricingService, PurchaseService, PaymentService,
 │   │   │                         SubscriptionService, ReferralService, PromoService,
-│   │   │                         RemnawaveService, PanelSyncService, BotConfigService
+│   │   │                         RemnawaveService, PanelSyncService, BotConfigService,
+│   │   │                         ShopbotImportService (миграция с remnawave-shopbot)
 │   │   ├── dto/  events/         объекты передачи + доменные события
 │   ├── infrastructure/           адаптеры
 │   │   ├── database/             models/ (29 моделей) · dao/ · uow.py · migrations/
@@ -62,12 +63,13 @@ BOT/
 │   ├── bot/                      ← ТЕЛЕГРАМ-БОТ
 │   │   ├── main.py               точка входа (long polling)
 │   │   ├── middlewares.py        ContextMiddleware (юзер + контейнер + maintenance)
-│   │   ├── keyboards.py  menu_render.py   клавиатуры + рендер меню
-│   │   └── handlers/             start · purchase · promo · tickets · actions
+│   │   ├── keyboards.py  menu_render.py  screen.py   клавиатуры + рендер + edit-or-send
+│   │   └── handlers/             start · purchase · promo · withdraw · tickets · actions
 │   └── web/                      ← FastAPI
 │       ├── app.py                сборка приложения + монтирование /admin, /app
 │       └── routes/
-│           ├── admin/            15 роутеров под /api/admin (JWT-auth)
+│           ├── admin/            17 роутеров под /api/admin (JWT-auth), в т.ч.
+│           │                     migration.py (импорт shopbot) · withdrawals.py (выводы)
 │           ├── cabinet.py        /api/cabinet (initData-auth) — для мини-аппы
 │           ├── panel.py          /webhook/panel — вебхук Remnawave
 │           ├── payments.py       /api/v1/payments/{gateway} — вебхук платежей
@@ -77,7 +79,7 @@ BOT/
 ├── miniapp/                      ← МИНИ-АППА
 │   ├── app/                      served на /app (3 таба × 8 тем, зовёт cabinet API)  ← актуальная
 │   └── templates/ shared/ mock/  ← СТАРОЕ/orphaned (не монтируется, чистить)
-├── scripts/                      smoke.py · check_panel.py · mock_panel.py · seed_demo.py · deploy.sh
+├── scripts/                      install.sh · update.sh · deploy.sh · smoke.py · mock_panel.py · seed_demo.py
 ├── docs/                         context/ (домен) · adr/ (решения) · deploy-test-server.md · OVERVIEW.md
 ├── tests/                        unit + integration (69 тестов, зелёные)
 ├── .claude/                      settings.json + skills/ (add-payment-gateway, add-db-model)
@@ -91,11 +93,14 @@ BOT/
 ## 4. По поверхностям — что готово
 
 ### 🤖 Бот (`src/bot/`)
-Готово: `/start` + диплинк-атрибуция, меню (конструктор из админки + дефолт), **триал**,
-**покупка** (NEW/RENEW), оплата **балансом**, **Telegram Stars** и **онлайн-шлюзами** (редирект-счёт), **пополнение баланса** (Stars),
-**промокод**, **рефералка с реальным начислением**, **тикеты**, «моя подписка», уведомления.
-Оплата картой/крипта — *fast-follow* (нужны ключи мерчанта). Смена тарифа (CHANGE), выбор языка —
-пока нет.
+Готово: `/start` + диплинк-атрибуция (`ref_`/кампании/**`gift_<код>`** — активация подарка),
+меню (конструктор из админки + дефолт), **триал**, **покупка** (NEW/RENEW; каталог тарифов ИЛИ
+конструктор период+пакет по SALES_MODE), оплата **балансом**, **Telegram Stars** и
+**онлайн-шлюзами** (редирект-счёт, авто-выдача по вебхуку), **пополнение баланса** (Stars),
+**промокод** (в т.ч. с экрана оплаты; мгновенные награды: баланс/скидка/дни/подписка),
+**рефералка** (комиссия с пополнений + «+N дней обоим» + **вывод заработка** карта/USDT/TON),
+**устройства HWID** (список + отвязка), **тикеты**, «моя подписка», уведомления.
+Смена тарифа (CHANGE), выбор языка — пока нет.
 
 ### 📱 Мини-аппа (`miniapp/app/`)
 3 таба (Главная/Подключение/Аккаунт), 8 тем, RU/EN. Зовёт `/api/cabinet/*` с `Authorization: tma
@@ -105,15 +110,19 @@ BOT/
 ### 🛠 Админка (`admin/` + `src/web/routes/admin/`)
 JWT-логин (`ADMIN__USERNAME`/`ADMIN__PASSWORD`). 15 экранов на реальном API: Dashboard, Users,
 Тарифы, Promos, Конструктор меню, Miniapp (темы), Рассылки, Smart-напоминания, Кампании, Платежи,
-Тикеты, Серверы, Настройки, Maintenance. Почти всё рабочее; заглушки: тест платёжек (нет карты/крипты),
-host-действия maintenance, импорт из других ботов.
+Тикеты, Серверы, Настройки, Maintenance. Реализованы: **миграция с remnawave-shopbot**
+(users.db → probe → импорт), **выводы рефералки** (Платежи → Выводы), **масс-генерация gift-кодов**
+(CSV с диплинками). Заглушки: host-действия maintenance; импорт из Postgres-ботов — только probe.
 
 ### ⚙️ Cabinet API (`src/web/routes/cabinet.py`)
-`/api/cabinet/*` для мини-аппы: me, plans, purchase (баланс + Stars + онлайн-шлюзы), promocode, trial, referral,
-connection (deep-links happ/v2raytun/hiddify/streisand). Готово.
+`/api/cabinet/*` для мини-аппы: me, plans, constructor, purchase (баланс + Stars + онлайн-шлюзы),
+promocode, trial, referral, connection (deep-links happ/v2raytun/hiddify/streisand),
+devices (список/отвязка HWID). Готово.
 
 ### ⏰ Фоновые задачи (`src/infrastructure/taskiq/tasks.py`)
-`process_payment` (обработка оплат по вебхуку + уведомление), `sync_panel_nodes` (каждые 15 мин),
+`process_payment` (оплата по вебхуку + уведомление, с ретраями), `reconcile_pending_payments`
+(каждые 5 мин поллит шлюзы по зависшим PENDING — страховка от потерянных вебхуков),
+`sync_panel_nodes` (каждые 15 мин),
 `send_smart_reminders` / `send_holiday_promos` (по расписанию MSK), `run_backup` (pg_dump),
 `send_broadcast`. Нужен `BOT__TOKEN` для рассылок.
 
@@ -188,7 +197,8 @@ ssh root@94.183.238.41 'journalctl -u vpnshop-bot -f'    # логи бота
 3. Смена тарифа (`PurchaseType.CHANGE`) — не реализована (падает явно).
 4. Язык/i18n в боте — RU-хардкод; `Translator` загружен, но не используется.
 5. `miniapp/templates/` — устаревший неиспользуемый вариант, удалить.
-6. Admin: host-действия maintenance (update/restart) — заглушки; импорт из других ботов — только probe.
+6. Admin: host-действия maintenance (update/restart) — заглушки; импорт из shopbot реализован,
+   из Postgres-ботов — только probe.
 7. CI собирает только Python (не SPA) — добавить `tsc && vite build`.
 
 ---

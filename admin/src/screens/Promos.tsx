@@ -60,6 +60,32 @@ export default function Promos() {
     queryFn: () => api.get<Referral>("/api/admin/referral"),
   });
 
+  async function bulkGifts() {
+    const countRaw = window.prompt(t.bulkCountQ, "50");
+    if (!countRaw) return;
+    const daysRaw = window.prompt(t.bulkDaysQ, "7");
+    if (!daysRaw) return;
+    const count = Math.max(1, Math.min(1000, parseInt(countRaw, 10) || 0));
+    const days = Math.max(1, parseInt(daysRaw, 10) || 0);
+    try {
+      const r = await api.post<{ count: number; items: { code: string; gift_link: string | null }[] }>(
+        "/api/admin/promocodes/bulk",
+        { count, reward_type: "days", reward_value: days, prefix: "GIFT" },
+      );
+      const lines = ["code,gift_link"].concat(r.items.map((i) => `${i.code},${i.gift_link ?? ""}`));
+      const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `gift-codes-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      void qc.invalidateQueries({ queryKey: ["promos"] });
+      toast(`${t.bulkDone}: ${r.count}`);
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  }
+
   async function create() {
     try {
       await api.post("/api/admin/promocodes", {
@@ -107,6 +133,9 @@ export default function Promos() {
           </div>
         </div>
         <div className="actions">
+          <button className="btn secondary" onClick={() => void bulkGifts()}>
+            {t.bulkGifts}
+          </button>
           <button className="btn primary" onClick={() => setModal(true)}>
             {t.createPromo}
           </button>

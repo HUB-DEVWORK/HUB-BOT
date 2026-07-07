@@ -71,4 +71,9 @@ async def apply_code(
             await message.answer(f"❌ {exc}")
             return
         await uow.commit()
-    await message.answer(f"✅ Промокод применён. {_REWARD_TEXT.get(reward, '')}".strip())
+    from src.bot.keyboards import simple_keyboard as _kb
+
+    await message.answer(
+        f"✅ Промокод применён. {_REWARD_TEXT.get(reward, '')}".strip(),
+        reply_markup=_kb([("🛒 К покупке", "act:buy:0"), ("‹ Меню", "nav:root")]),
+    )

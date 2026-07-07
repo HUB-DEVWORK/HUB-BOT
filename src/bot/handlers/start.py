@@ -25,9 +25,35 @@ async def cmd_start(
     db_user_created: bool,
 ) -> None:
     param = (command.args or "").strip()
-    if param:
+    gift_note: str | None = None
+    if param.startswith("gift_"):
+        gift_note = await _claim_gift(container, db_user, param.removeprefix("gift_"))
+    elif param:
         await _attribute(container, db_user, param, created=db_user_created)
+    if gift_note:
+        await message.answer(gift_note, parse_mode="HTML")
     await send_main_menu(message, container, db_user)
+
+
+async def _claim_gift(container: AppContainer, db_user: User, code: str) -> str:
+    """t.me/<bot>?start=gift_<CODE> — apply the promocode right from the deep-link.
+
+    Reuses the promocode engine wholesale: per-user unique activation, limits,
+    expiry, and instant rewards (balance / days / subscription / discount).
+    """
+    from src.application.services.promo import PromoError
+
+    async with container.uow() as uow:
+        user = await uow.users.get(db_user.id)
+        if user is None:
+            return "Ошибка, попробуй ещё раз."
+        try:
+            reward = await container.promo.apply(uow, user, code.strip().upper())
+        except PromoError as exc:
+            return f"🎁 Не получилось активировать подарок: {exc}"
+        await uow.commit()
+    log.info("gift claimed", user=db_user.id, code=code[:16], reward=reward.value)
+    return "🎁 <b>Подарок активирован!</b> Загляни в «Личный кабинет»."
 
 
 async def _attribute(container: AppContainer, db_user: User, param: str, *, created: bool) -> None:

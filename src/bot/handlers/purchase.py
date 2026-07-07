@@ -144,6 +144,8 @@ async def choose_payment(cb: CallbackQuery, container: AppContainer, db_user: Us
         methods = await _payment_methods(uow, container, db_user, quote.final.amount_minor)
     price = quote.final.amount_minor
     rows = [(label, f"pay:{plan_id}:{days}:{code}") for label, code in methods]
+    if not quote.discount_pct:
+        rows.append(("🎟 У меня промокод", "act:promocode"))
     rows.append(("‹ Назад", f"plan:{plan_id}"))
     discount = f" (−{quote.discount_pct}%)" if quote.discount_pct else ""
     await show_screen(

@@ -104,6 +104,58 @@ async def create_promocode(
         return {"ok": True, "id": promo.id, "code": code}
 
 
+class BulkIn(BaseModel):
+    count: int = Field(..., ge=1, le=1000)
+    reward_type: str = Field("days")
+    reward_value: int = Field(0, ge=0)
+    prefix: str = Field("GIFT", max_length=16)
+    expires_at: dt.datetime | None = None
+
+
+@router.post("/promocodes/bulk")
+async def bulk_promocodes(
+    body: BulkIn,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, Any]:
+    """Mass-generate one-shot gift codes; each row carries a t.me deep-link.
+
+    max_activations is fixed at 1 — a gift is single-claim by definition; reusable
+    campaign codes are created one-by-one with an explicit limit instead.
+    """
+    if body.reward_type not in _UI_REWARDS:
+        raise HTTPException(400, f"reward_type must be one of {sorted(_UI_REWARDS)}")
+    prefix = "".join(ch for ch in body.prefix.upper() if ch.isalnum())[:16]
+    async with container.uow() as uow:
+        bot_username = str(await container.bot_config.value(uow, "BOT_USERNAME") or "")
+        codes: list[str] = []
+        for _ in range(body.count):
+            for _attempt in range(5):
+                code = f"{prefix}-{_gen_code(8)}" if prefix else _gen_code(10)
+                if await uow.promocodes.find_one(code=code) is None:
+                    break
+            else:
+                continue  # astronomically unlikely: 5 collisions in a row
+            await uow.promocodes.add(
+                Promocode(
+                    code=code,
+                    reward_type=_UI_REWARDS[body.reward_type],
+                    reward_value=body.reward_value,
+                    max_activations=1,
+                    expires_at=body.expires_at,
+                )
+            )
+            codes.append(code)
+        await audit(uow, identity, "promo.bulk", None, count=len(codes))
+        await uow.commit()
+    link = f"https://t.me/{bot_username}?start=gift_" if bot_username else ""
+    return {
+        "ok": True,
+        "count": len(codes),
+        "items": [{"code": c, "gift_link": f"{link}{c}" if link else None} for c in codes],
+    }
+
+
 class PromoPatch(BaseModel):
     is_active: bool | None = None
     max_activations: int | None = None

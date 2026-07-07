@@ -47,6 +47,12 @@ user has never bought/trialed.
     "personal_discount_pct": 10,   // users.personal_discount_pct
     "is_trial_available": false    // users.is_trial_available
   },
+  "app": {                         // (fragment) bot-config driven UI hints
+    "balance_enabled": true,       // hide the balance chip when false
+    "payment_methods": [           // active online gateways -> extra pay chips
+      { "id": "yookassa", "label": "Карта / СБП" }
+    ]
+  },
   "subscription": {
     "status": "active",            // SubscriptionStatus: trial|active|limited|expired|disabled|pending|none
     "is_trial": false,
@@ -143,9 +149,24 @@ Creates a `Transaction(PENDING)` with frozen `plan_snapshot`+`pricing` and retur
 `payment_url` is `null` for balance/free-path (cap 100%) purchases (already fulfilled or fulfilled
 on the returned invoice).
 
+Actual response shapes by method:
+
 ```jsonc
-{ "ok": true, "payment_url": "https://pay.gateway/inv/abc", "transaction_id": "uuid", "message": null }
+{ "ok": true, "paid_with": "balance" }                          // balance or 100%-free path
+{ "ok": true, "invoice_link": "https://t.me/$abc" }             // stars -> openInvoice()
+{ "ok": true, "redirect_url": "https://yoomoney.ru/pay/..." }   // online gateway -> openLink()
 ```
+
+### `GET /api/cabinet/devices`
+
+HWID devices bound to the current subscription's panel user.
+
+```jsonc
+{ "items": [ { "hwid": "a1b2…", "platform": "iOS", "model": "iPhone 15", "created_at": "…" } ],
+  "device_limit": 5 }
+```
+
+### `DELETE /api/cabinet/devices/{hwid}`  → `{ "ok": true }`
 
 ### `POST /api/cabinet/subscription/reset-devices`  → `{ "ok": true }`
 
