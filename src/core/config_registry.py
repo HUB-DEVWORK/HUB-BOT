@@ -452,6 +452,16 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "+N days to both inviter and friend",
     ),
     _p(
+        "AUTO_MAINTENANCE_ENABLED",
+        C.SECURITY,
+        BOOL,
+        False,
+        "Авто-техрежим при падении панели",
+        "Auto-maintenance on panel outage",
+        "3 неудачных пинга панели подряд включают режим техработ; восстановление снимает его",
+        "3 consecutive failed panel pings enable maintenance; recovery lifts it",
+    ),
+    _p(
         "DEVICE_GUARD_ENABLED",
         C.SECURITY,
         BOOL,

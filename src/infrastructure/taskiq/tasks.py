@@ -178,6 +178,59 @@ async def panel_write_retry(subscription_id: int) -> None:
     log.info("panel_write_retry", subscription_id=subscription_id)
 
 
+@broker.task(schedule=[{"cron": "*/2 * * * *"}])
+async def panel_watchdog() -> str:
+    """Auto-maintenance: 3 failed panel pings in a row -> maintenance ON; recovery -> OFF.
+
+    Only the flag WE set is auto-lifted (Redis marker), so a manually enabled
+    maintenance mode is never touched.
+    """
+    container = get_container()
+    async with container.uow() as uow:
+        if not bool(await container.bot_config.value(uow, "AUTO_MAINTENANCE_ENABLED")):
+            return "off"
+
+    from src.infrastructure.services.reports import send_topic_report
+
+    fails_key, auto_key = "panelwd:fails", "panelwd:auto"
+    try:
+        await container.remnawave_client.get_version()
+        panel_ok = True
+    except Exception:
+        panel_ok = False
+
+    if panel_ok:
+        await container.redis.delete(fails_key)
+        if await container.redis.get(auto_key):
+            await container.redis.delete(auto_key)
+            async with container.uow() as uow:
+                await container.bot_config.set_values(uow, {"MAINTENANCE_MODE": False})
+                await uow.commit()
+            await send_topic_report(
+                container, "alerts", "✅ Панель снова отвечает — техрежим снят автоматически."
+            )
+            return "recovered"
+        return "ok"
+
+    fails = int(await container.redis.incr(fails_key))
+    await container.redis.expire(fails_key, 1800)
+    if fails != 3:  # alert exactly once, on the third consecutive failure
+        return f"fail#{fails}"
+    async with container.uow() as uow:
+        already_on = bool(await container.bot_config.value(uow, "MAINTENANCE_MODE"))
+        if not already_on:
+            await container.bot_config.set_values(uow, {"MAINTENANCE_MODE": True})
+            await uow.commit()
+            await container.redis.set(auto_key, "1", ex=86400)
+    await send_topic_report(
+        container,
+        "alerts",
+        "🚨 Панель Remnawave не отвечает 3 проверки подряд — "
+        + ("включён режим техработ." if not already_on else "техрежим уже был включён вручную."),
+    )
+    return "maintenance"
+
+
 @broker.task(schedule=[{"cron": "*/20 * * * *"}])
 async def device_guard_scan() -> int:
     """Sharing detection: unique online IPs per subscription vs the device limit.

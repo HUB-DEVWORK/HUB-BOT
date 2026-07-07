@@ -168,6 +168,8 @@ HWID devices bound to the current subscription's panel user.
 
 ### `DELETE /api/cabinet/devices/{hwid}`  → `{ "ok": true }`
 
+The «Кабинет» tab renders these as «Мои устройства» with one-tap unlink (skipped in mock mode).
+
 ### `POST /api/cabinet/subscription/reset-devices`  → `{ "ok": true }`
 
 ### (optional, later) `POST /api/cabinet/topup` — `{ "amount_minor": 50000, "gateway": "telegram_stars" }`

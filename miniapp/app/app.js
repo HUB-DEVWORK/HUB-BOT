@@ -24,6 +24,8 @@
     copied: "Скопировано", step3: "Нажми «Подключить» в приложении",
     step3sub: "Приложение импортирует конфиг и включит защиту",
     profile: "Профиль", subscription: "Подписка", devices: "Устройства",
+    myDevices: "Мои устройства",
+    deviceRemoved: "Устройство отвязано",
     history: "История платежей", promo: "Промокод", promoPh: "Введи код",
     apply: "Применить", promoOk: "Промокод применён", support: "Поддержка",
     balance: "Баланс", upTo: "до", noSub: "Сначала оформи подписку",
@@ -45,6 +47,8 @@
     step3: "Tap “Connect” in the app",
     step3sub: "The app imports the config and turns protection on",
     profile: "Profile", subscription: "Subscription", devices: "Devices",
+    myDevices: "My devices",
+    deviceRemoved: "Device unlinked",
     history: "Payment history", promo: "Promo code", promoPh: "Enter code",
     apply: "Apply", promoOk: "Promo applied", support: "Support",
     balance: "Balance", upTo: "up to", noSub: "Get a subscription first",
@@ -145,7 +149,7 @@
   }
 
   // ---------- state ----------
-  const state = { tab: "home", me: null, plans: null, constructor: null, referral: null, payments: null, connection: null, tariffSel: 0, planSel: 0, cPerSel: 0, cPackSel: 0, paySel: "stars" };
+  const state = { tab: "home", me: null, plans: null, constructor: null, referral: null, payments: null, connection: null, tariffSel: 0, planSel: 0, cPerSel: 0, cPackSel: 0, paySel: "stars", devices: undefined };
   let UI = {}; // admin overrides: {scale, sections, buttons:{key:{text,color}}}
 
   function btnText(key, fallback) {
@@ -472,6 +476,41 @@
         ]),
       ]),
     );
+    // HWID devices: list + one-tap unbind (loaded lazily per tab visit)
+    if (sub && sub.status && sub.status !== "none" && !mock) {
+      if (state.devices === undefined) {
+        state.devices = null;
+        api("GET", "/api/cabinet/devices")
+          .then((r) => { state.devices = r.items || []; render(); })
+          .catch(() => { state.devices = []; });
+      }
+      if (state.devices && state.devices.length) {
+        frag.push(
+          el("div", { class: "card fade" }, [
+            el("div", { class: "h-cap", text: T.myDevices }),
+            ...state.devices.map((d) =>
+              el("div", { class: "li" }, [
+                el("span", { class: "sub", text: [d.platform, d.model].filter(Boolean).join(" · ") || d.hwid.slice(0, 12) }),
+                el("button", {
+                  class: "btn ghost sm",
+                  text: "✕",
+                  onclick: async () => {
+                    try {
+                      await api("DELETE", `/api/cabinet/devices/${encodeURIComponent(d.hwid)}`);
+                      state.devices = null;
+                      toast(T.deviceRemoved);
+                      render();
+                    } catch (e) {
+                      toast(String(e.message || e));
+                    }
+                  },
+                }),
+              ]),
+            ),
+          ]),
+        );
+      }
+    }
     // promo
     const inp = el("input", { class: "inp", placeholder: T.promoPh, maxlength: 32 });
     frag.push(
