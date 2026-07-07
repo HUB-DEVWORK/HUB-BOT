@@ -38,3 +38,9 @@ async def show_screen(
     if msg is not None:
         with contextlib.suppress(Exception):  # old screen may already be gone
             await msg.delete()
+
+
+async def safe_answer(cb: CallbackQuery, text: str | None = None) -> None:
+    """Answer a callback that may already be answered (chained handlers)."""
+    with contextlib.suppress(Exception):
+        await cb.answer(text)

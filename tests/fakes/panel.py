@@ -6,6 +6,7 @@ import dataclasses
 import uuid
 
 from src.application.dto.panel import (
+    PanelDevice,
     PanelNode,
     PanelSquad,
     PanelUser,
@@ -21,6 +22,7 @@ class FakeRemnawaveClient:
         self._version = version
         self.users: dict[uuid.UUID, PanelUser] = {}
         self.deleted: list[uuid.UUID] = []
+        self.devices: dict[uuid.UUID, list[PanelDevice]] = {}
 
     async def get_version(self) -> PanelVersion:
         maj, minr, pat = self._version
@@ -78,6 +80,12 @@ class FakeRemnawaveClient:
         return rotated
 
     async def drop_connections(self, panel_uuid: uuid.UUID) -> None: ...
+
+    async def get_devices(self, panel_uuid: uuid.UUID) -> list[PanelDevice]:
+        return list(self.devices.get(panel_uuid, []))
+
+    async def delete_device(self, panel_uuid: uuid.UUID, hwid: str) -> None:
+        self.devices[panel_uuid] = [d for d in self.devices.get(panel_uuid, []) if d.hwid != hwid]
 
     async def get_internal_squads(self) -> list[PanelSquad]:
         return [PanelSquad(uuid=uuid.uuid4(), name="test-squad")]

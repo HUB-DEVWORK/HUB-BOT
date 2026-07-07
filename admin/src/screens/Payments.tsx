@@ -84,7 +84,7 @@ const ST_GLYPH: Record<string, string> = {
 export default function Payments() {
   const { t, toast } = useApp();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<"tx" | "providers">("tx");
+  const [tab, setTab] = useState<"tx" | "providers" | "wd">("tx");
   const [filter, setFilter] = useState<"all" | "ok" | "pending" | "failed" | "refund">("all");
   const [tax, setTax] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -102,6 +102,26 @@ export default function Payments() {
     queryKey: ["providers"],
     queryFn: () => api.get<{ items: Provider[] }>("/api/admin/providers"),
   });
+  type Wd = {
+    id: number; username: string | null; telegram_id: number | null; amount_minor: number;
+    method: string; details: string; status: string; admin_comment: string | null;
+    created_at: string; processed_at: string | null;
+  };
+  const withdrawals = useQuery({
+    queryKey: ["withdrawals"],
+    queryFn: () => api.get<{ items: Wd[]; pending_count: number }>("/api/admin/withdrawals"),
+  });
+
+  async function processWd(id: number, status: "paid" | "rejected") {
+    const comment = status === "rejected" ? window.prompt(t.wdRejectReason) ?? "" : null;
+    try {
+      await api.patch(`/api/admin/withdrawals/${id}`, { status, comment: comment || null });
+      void qc.invalidateQueries({ queryKey: ["withdrawals"] });
+      toast(t.saved);
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  }
 
   const s = stats.data;
 
@@ -145,6 +165,14 @@ export default function Payments() {
           options={[
             { id: "tx" as const, label: t.transactions },
             { id: "providers" as const, label: t.providers },
+            {
+              id: "wd" as const,
+              label:
+                t.withdrawals +
+                ((withdrawals.data?.pending_count ?? 0) > 0
+                  ? ` · ${withdrawals.data?.pending_count}`
+                  : ""),
+            },
           ]}
           onChange={setTab}
         />
@@ -407,6 +435,49 @@ export default function Payments() {
               )}
             </div>
           ))}
+        </div>
+      )}
+      {tab === "wd" && (
+        <div className="card">
+          <div className="caps" style={{ marginBottom: 12 }}>{t.withdrawals}</div>
+          {(withdrawals.data?.items ?? []).length === 0 && (
+            <div className="dim">{t.wdEmpty}</div>
+          )}
+          <div className="grid" style={{ gap: 8 }}>
+            {(withdrawals.data?.items ?? []).map((w) => (
+              <div
+                key={w.id}
+                className="row"
+                style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8, borderBottom: "1px solid var(--border2)", paddingBottom: 8 }}
+              >
+                <div style={{ minWidth: 220 }}>
+                  <b>#{w.id}</b> · {money(w.amount_minor)} · {w.method.toUpperCase()}
+                  <div className="dim mono" style={{ fontSize: 12 }}>
+                    @{w.username ?? w.telegram_id} · {w.details}
+                  </div>
+                  {w.admin_comment && (
+                    <div className="dim" style={{ fontSize: 12 }}>💬 {w.admin_comment}</div>
+                  )}
+                </div>
+                <div className="row" style={{ gap: 8 }}>
+                  {w.status === "pending" ? (
+                    <>
+                      <button className="btn primary" onClick={() => void processWd(w.id, "paid")}>
+                        {t.wdPaid}
+                      </button>
+                      <button className="btn secondary" onClick={() => void processWd(w.id, "rejected")}>
+                        {t.wdReject}
+                      </button>
+                    </>
+                  ) : (
+                    <span className={w.status === "paid" ? "ok" : "dim"}>
+                      {w.status === "paid" ? "✓ " + t.wdPaid : "↩ " + t.wdRejected}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </>

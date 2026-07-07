@@ -22,7 +22,7 @@ type TicketDetail = {
   user: { username: string | null };
   messages: { id: number; author: "user" | "admin"; text: string; at: string | null }[];
 };
-type Channels = { mode: string; redirect_username: string; bot_token_set: boolean };
+type Channels = { mode: string; redirect_username: string };
 
 const ST: Record<string, [string, string]> = {
   open: ["●", "on"],
@@ -36,7 +36,6 @@ export default function Tickets() {
   const [selId, setSelId] = useState<number | null>(null);
   const [reply, setReply] = useState("");
   const [redirect, setRedirect] = useState<string | null>(null);
-  const [botToken, setBotToken] = useState("");
 
   const channels = useQuery({
     queryKey: ["support-channels"],
@@ -78,9 +77,7 @@ export default function Tickets() {
       await api.patch("/api/admin/support-channels", {
         mode,
         redirect_username: redirect ?? ch?.redirect_username ?? "",
-        ...(botToken ? { bot_token: botToken } : {}),
       });
-      setBotToken("");
       void qc.invalidateQueries({ queryKey: ["support-channels"] });
       toast(t.saved);
     } catch (e) {
@@ -111,21 +108,7 @@ export default function Tickets() {
       <div className="kpis" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
         <div className="card">
           <div className="row" style={{ justifyContent: "space-between" }}>
-            <span className="caps">01 · {t.sepBot}</span>
-            <Toggle on={mode === "bot"} onChange={() => void setMode(mode === "bot" ? "tickets" : "bot")} />
-          </div>
-          <input
-            className="input mono"
-            style={{ width: "100%", marginTop: 10 }}
-            type="password"
-            placeholder={ch?.bot_token_set ? "••••••••" : "BOT TOKEN"}
-            value={botToken}
-            onChange={(e) => setBotToken(e.target.value)}
-          />
-        </div>
-        <div className="card">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <span className="caps">02 · {t.redirectAcc}</span>
+            <span className="caps">01 · {t.redirectAcc}</span>
             <Toggle on={mode === "redirect"} onChange={() => void setMode(mode === "redirect" ? "tickets" : "redirect")} />
           </div>
           <input
@@ -138,7 +121,7 @@ export default function Tickets() {
         </div>
         <div className="card">
           <div className="row" style={{ justifyContent: "space-between" }}>
-            <span className="caps">03 · {t.miniappChat}</span>
+            <span className="caps">02 · {t.miniappChat}</span>
             <Toggle on={mode === "miniapp"} onChange={() => void setMode(mode === "miniapp" ? "tickets" : "miniapp")} />
           </div>
           <div className="dim" style={{ fontSize: 12, marginTop: 12 }}>

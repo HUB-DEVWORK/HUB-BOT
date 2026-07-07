@@ -12,7 +12,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import and_, func, or_, select
 
-from src.bot.screen import show_screen
+from src.bot.screen import safe_answer, show_screen
 from src.core.enums import SubscriptionStatus, TransactionStatus, TransactionType
 from src.infrastructure.database.base import utcnow
 from src.infrastructure.database.models.subscription import Subscription
@@ -143,7 +143,7 @@ async def admin_settings(cb: CallbackQuery, container: AppContainer, is_admin: b
     ]
     rows.append([InlineKeyboardButton(text="‹ Назад", callback_data="admin:menu")])
     await show_screen(cb, "⚙️ <b>Быстрые настройки</b>", InlineKeyboardMarkup(inline_keyboard=rows))
-    await cb.answer()
+    await safe_answer(cb)  # admin_toggle chains here after answering
 
 
 @router.callback_query(F.data.startswith("admin:toggle:"))

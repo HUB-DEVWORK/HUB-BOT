@@ -25,7 +25,7 @@ log = get_logger(__name__)
 
 router = APIRouter()
 
-_CHANNEL_KEYS = ("SUPPORT_MODE", "SUPPORT_REDIRECT_USERNAME", "SUPPORT_BOT_TOKEN")
+_CHANNEL_KEYS = ("SUPPORT_MODE", "SUPPORT_REDIRECT_USERNAME")
 
 
 @router.get("/tickets")
@@ -164,18 +164,12 @@ async def get_support_channels(container: AppContainer = Depends(get_container))
         cfg = container.bot_config
         mode = await cfg.value(uow, "SUPPORT_MODE")
         redirect = await cfg.value(uow, "SUPPORT_REDIRECT_USERNAME")
-        bot_token = await cfg.value(uow, "SUPPORT_BOT_TOKEN")
-    return {
-        "mode": mode,
-        "redirect_username": redirect,
-        "bot_token_set": bool(bot_token),
-    }
+    return {"mode": mode, "redirect_username": redirect}
 
 
 class ChannelsIn(BaseModel):
-    mode: str | None = Field(None, pattern="^(tickets|redirect|bot|miniapp)$")
+    mode: str | None = Field(None, pattern="^(tickets|redirect|miniapp)$")
     redirect_username: str | None = Field(None, max_length=64)
-    bot_token: str | None = Field(None, max_length=128)
 
 
 @router.patch("/support-channels")
@@ -189,8 +183,6 @@ async def patch_support_channels(
         changes["SUPPORT_MODE"] = body.mode
     if body.redirect_username is not None:
         changes["SUPPORT_REDIRECT_USERNAME"] = body.redirect_username.lstrip("@")
-    if body.bot_token is not None:
-        changes["SUPPORT_BOT_TOKEN"] = body.bot_token
     if not changes:
         raise HTTPException(400, "no changes")
     async with container.uow() as uow:

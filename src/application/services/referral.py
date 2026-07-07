@@ -13,14 +13,23 @@ from src.infrastructure.database.models.transaction import Transaction
 from src.infrastructure.database.models.user import User
 
 if TYPE_CHECKING:
+    from src.application.services.bot_config import BotConfigService
+    from src.application.services.subscription import SubscriptionService
     from src.infrastructure.database.uow import UnitOfWork
 
 DEFAULT_COMMISSION_PERCENT = 25
 
 
 class ReferralService:
-    def __init__(self, event_bus: EventBus) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus,
+        subscriptions: SubscriptionService | None = None,
+        config: BotConfigService | None = None,
+    ) -> None:
         self._events = event_bus
+        self._subscriptions = subscriptions
+        self._config = config
 
     async def bind(self, uow: UnitOfWork, referred: User, referrer_code: str) -> Referral | None:
         """Bind ``referred`` to the owner of ``referrer_code`` (one referrer per user)."""
@@ -85,4 +94,42 @@ class ReferralService:
         await self._events.publish(
             ReferralRewardIssued(referrer_id=referrer.id, referred_id=payer.id, amount_minor=reward)
         )
+        await self._grant_signup_days(uow, referral_id=referral.id, referrer=referrer, payer=payer)
         return earning
+
+    async def _grant_signup_days(
+        self, uow: UnitOfWork, *, referral_id: int, referrer: User, payer: User
+    ) -> None:
+        """One-time «+N дней тебе и другу» when the referral first brings money in.
+
+        Soft-fails per party: a side without a usable subscription simply gets nothing
+        (consistent with the commission's soft-fail rule). Idempotent via a zero-amount
+        ledger row, so a retried webhook can't double-extend.
+        """
+        if self._subscriptions is None or self._config is None:
+            return
+        days = int(await self._config.value(uow, "REFERRAL_BONUS_DAYS") or 0)
+        if days <= 0:
+            return
+        already = await uow.referral_earnings.find_one(
+            referral_id=referral_id, reason="signup_days_bonus"
+        )
+        if already is not None:
+            return
+        for party in (referrer, payer):
+            sub = (
+                await uow.subscriptions.get(party.current_subscription_id)
+                if party.current_subscription_id
+                else None
+            )
+            if sub is not None and sub.status.is_usable:
+                await self._subscriptions.renew(uow, sub, days=days, telegram_id=party.telegram_id)
+        await uow.referral_earnings.add(
+            ReferralEarning(
+                user_id=referrer.id,
+                referral_id=referral_id,
+                amount_minor=0,
+                reason="signup_days_bonus",
+                is_issued=True,
+            )
+        )

@@ -14,7 +14,7 @@ from src.application.services.connection import CLIENT_LABELS, build_deep_links
 from src.bot.gate import ensure_channel
 from src.bot.keyboards import menu_keyboard, simple_keyboard, url_keyboard, webapp_button
 from src.bot.menu_render import send_main_menu
-from src.bot.screen import show_screen
+from src.bot.screen import safe_answer, show_screen
 from src.core.enums import Currency, PurchaseType, TransactionStatus, TransactionType
 from src.core.exceptions import RemnawaveError
 from src.core.logging import get_logger
@@ -122,7 +122,10 @@ async def act_subscription(cb: CallbackQuery, container: AppContainer, db_user: 
             text += f"\n\nСсылка подписки:\n<code>{sub.subscription_url}</code>"
         kb: list[list[InlineKeyboardButton]] = [
             [InlineKeyboardButton(text="🔌 Подключить", callback_data="act:connect:0")],
-            [InlineKeyboardButton(text="🔄 Продлить", callback_data=f"plan:{sub.plan_id or 0}")],
+            [
+                InlineKeyboardButton(text="🔄 Продлить", callback_data=f"plan:{sub.plan_id or 0}"),
+                InlineKeyboardButton(text="📱 Устройства", callback_data="act:devices:0"),
+            ],
         ]
         if autopay_global:
             mark = "✅" if sub.autopay_enabled else "❌"
@@ -138,7 +141,7 @@ async def act_subscription(cb: CallbackQuery, container: AppContainer, db_user: 
         kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
         markup = InlineKeyboardMarkup(inline_keyboard=kb)
     await show_screen(cb, text, markup)
-    await cb.answer()
+    await safe_answer(cb)  # autopay_toggle chains here after answering
 
 
 @router.callback_query(F.data == "autopay:toggle")
@@ -307,6 +310,7 @@ async def act_referral(cb: CallbackQuery, container: AppContainer, db_user: User
         bonus_days = int(await cfg.value(uow, "REFERRAL_BONUS_DAYS"))
         bot_username = str(await cfg.value(uow, "BOT_USERNAME") or "")
         invited = await uow.users.count(referred_by_id=db_user.id)
+        withdrawals_on = bool(await cfg.value(uow, "REFERRAL_WITHDRAWAL_ENABLED"))
     if not enabled:
         await cb.answer("Реферальная программа отключена", show_alert=True)
         return
@@ -318,12 +322,15 @@ async def act_referral(cb: CallbackQuery, container: AppContainer, db_user: User
     share = f"https://t.me/share/url?url={link}"
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-    markup = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📤 Поделиться", url=share)],
-            [InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")],
-        ]
-    )
+    kb_rows = [[InlineKeyboardButton(text="📤 Поделиться", url=share)]]
+    if withdrawals_on:
+        from src.bot.handlers.withdraw import available_minor
+
+        avail = await available_minor(container, db_user.id)
+        text += f"\nЗаработано и доступно к выводу: <b>{avail / 100:.2f} ₽</b>"
+        kb_rows.append([InlineKeyboardButton(text="💸 Вывести", callback_data="withdraw:start")])
+    kb_rows.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
+    markup = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await show_screen(cb, text, markup)
     await cb.answer()
 
@@ -407,6 +414,62 @@ async def act_support(cb: CallbackQuery, container: AppContainer, db_user: User)
     from src.bot.handlers.tickets import begin_ticket
 
     await begin_ticket(cb, container, db_user)
+
+
+@router.callback_query(F.data.startswith("act:devices"))
+async def act_devices(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
+    """HWID devices of the current subscription: list + one-tap unbind."""
+    async with container.uow() as uow:
+        sub = (
+            await uow.subscriptions.get(db_user.current_subscription_id)
+            if db_user.current_subscription_id
+            else None
+        )
+    if sub is None or not sub.status.is_usable or sub.remnawave_uuid is None:
+        await cb.answer("Сначала оформи подписку", show_alert=True)
+        return
+    try:
+        devices = await container.remnawave_client.get_devices(sub.remnawave_uuid)
+    except Exception:
+        await cb.answer("Панель временно недоступна, попробуй позже", show_alert=True)
+        return
+    limit = f" (лимит {sub.device_limit})" if sub.device_limit else ""
+    if not devices:
+        text = f"<b>📱 Устройства{limit}</b>\n\nПока ни одно устройство не подключалось."
+        kb = [[InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")]]
+    else:
+        lines = [f"<b>📱 Устройства{limit}</b>", "", "Нажми на устройство, чтобы отвязать:"]
+        kb = []
+        for d in devices[:10]:
+            label = " · ".join(x for x in (d.platform, d.device_model) if x) or d.hwid[:12]
+            kb.append(
+                [InlineKeyboardButton(text=f"❌ {label}", callback_data=f"devdel:{d.hwid[:48]}")]
+            )
+        text = "\n".join(lines)
+        kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
+    await show_screen(cb, text, InlineKeyboardMarkup(inline_keyboard=kb))
+    await safe_answer(cb)  # devdel chains here after answering
+
+
+@router.callback_query(F.data.startswith("devdel:"))
+async def devdel(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
+    hwid = (cb.data or "")[len("devdel:") :]
+    async with container.uow() as uow:
+        sub = (
+            await uow.subscriptions.get(db_user.current_subscription_id)
+            if db_user.current_subscription_id
+            else None
+        )
+    if sub is None or sub.remnawave_uuid is None or not hwid:
+        await cb.answer("Нет активной подписки", show_alert=True)
+        return
+    try:
+        await container.remnawave_client.delete_device(sub.remnawave_uuid, hwid)
+    except Exception:
+        await cb.answer("Не получилось — попробуй позже", show_alert=True)
+        return
+    await cb.answer("Устройство отвязано ✅")
+    await act_devices(cb, container, db_user)
 
 
 @router.callback_query(F.data.startswith("act:proxy"))

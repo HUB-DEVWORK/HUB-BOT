@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from src.application.dto.panel import (
+    PanelDevice,
     PanelNode,
     PanelSquad,
     PanelUser,
@@ -224,6 +225,32 @@ class RemnawaveHttpClient:
 
     async def drop_connections(self, panel_uuid: uuid.UUID) -> None:
         await self._action(panel_uuid, "drop-connections")
+
+    async def get_devices(self, panel_uuid: uuid.UUID) -> list[PanelDevice]:
+        """HWID devices of one panel user (GET /api/hwid/devices/{uuid})."""
+        data = await self._request("GET", f"/api/hwid/devices/{panel_uuid}")
+        raw = data.get("devices") if isinstance(data, dict) else data
+        devices: list[PanelDevice] = []
+        for item in raw or []:
+            if not isinstance(item, dict) or not item.get("hwid"):
+                continue
+            devices.append(
+                PanelDevice(
+                    hwid=str(item["hwid"]),
+                    platform=item.get("platform"),
+                    device_model=item.get("deviceModel") or item.get("model"),
+                    created_at=item.get("createdAt"),
+                )
+            )
+        return devices
+
+    async def delete_device(self, panel_uuid: uuid.UUID, hwid: str) -> None:
+        """Unbind one HWID (POST /api/hwid/devices/delete — panel-verified route)."""
+        await self._request(
+            "POST",
+            "/api/hwid/devices/delete",
+            json={"userUuid": str(panel_uuid), "hwid": hwid},
+        )
 
     async def get_internal_squads(self) -> list[PanelSquad]:
         data = await self._request("GET", _PATHS["internal_squads"])

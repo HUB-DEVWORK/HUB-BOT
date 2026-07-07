@@ -31,6 +31,7 @@ from src.infrastructure.remnawave.client import RemnawaveHttpClient
 from src.infrastructure.remnawave.connection import build_profile
 from src.infrastructure.remnawave.webhook import WebhookVerifier
 from src.infrastructure.services.notification import LogNotifier, TelegramNotifier
+from src.infrastructure.services.reports import wire_report_events
 
 
 class AppContainer:
@@ -60,13 +61,18 @@ class AppContainer:
         # --- services (stateless singletons) ------------------------------
         self.remnawave = RemnawaveService(self.remnawave_client)
         self.pricing = PricingService()
+        self.bot_config = BotConfigService(self.secret_box)
         self.subscriptions = SubscriptionService(self.remnawave)
         self.purchase = PurchaseService(self.pricing, self.subscriptions, self.event_bus)
-        self.referrals = ReferralService(self.event_bus)
+        self.referrals = ReferralService(
+            self.event_bus, subscriptions=self.subscriptions, config=self.bot_config
+        )
         self.payments = PaymentService(self.purchase, self.event_bus, self.referrals)
         self.promo = PromoService(self.subscriptions)
-        self.bot_config = BotConfigService(self.secret_box)
         self.panel_sync = PanelSyncService(self.remnawave_client)
+
+        # Screen 14: instant report topics (payments/tickets/registrations) listen on the bus.
+        wire_report_events(self)
 
     @classmethod
     def from_env(cls) -> AppContainer:

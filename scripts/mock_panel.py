@@ -165,6 +165,35 @@ async def user_action(uid: str, action: str, request: Request) -> dict[str, Any]
     return _user_payload(user)
 
 
+_DEVICES: dict[str, list[dict]] = {}
+
+
+@app.get("/api/hwid/devices/{uid}")
+def hwid_list(uid: str):
+    default = [
+        {
+            "hwid": "a1b2c3d4e5",
+            "platform": "iOS",
+            "deviceModel": "iPhone 15",
+            "createdAt": "2026-01-01T00:00:00Z",
+        },
+        {
+            "hwid": "f6g7h8i9j0",
+            "platform": "Android",
+            "deviceModel": "Pixel 8",
+            "createdAt": "2026-02-01T00:00:00Z",
+        },
+    ]
+    return {"response": {"devices": _DEVICES.setdefault(uid, list(default))}}
+
+
+@app.post("/api/hwid/devices/delete")
+def hwid_delete(body: dict):
+    uid, hwid = str(body.get("userUuid")), str(body.get("hwid"))
+    _DEVICES[uid] = [d for d in _DEVICES.get(uid, []) if d["hwid"] != hwid]
+    return {"response": {"ok": True}}
+
+
 @app.get("/api/internal-squads")
 async def internal_squads() -> dict[str, Any]:
     for squad in SQUADS:

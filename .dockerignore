@@ -18,3 +18,4 @@ tests
 *.md
 admin/node_modules
 admin/dist
+migration_inbox

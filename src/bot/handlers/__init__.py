@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from aiogram import Router
 
-from src.bot.handlers import actions, admin, promo, purchase, start, tickets
+from src.bot.handlers import actions, admin, promo, purchase, start, tickets, withdraw
 
 
 def build_router() -> Router:
@@ -12,6 +12,7 @@ def build_router() -> Router:
     root.include_router(start.router)
     root.include_router(admin.router)  # admin commands (/setlogo, …)
     root.include_router(promo.router)  # before tickets: state-gated code input wins
+    root.include_router(withdraw.router)  # ditto: withdrawal details input
     root.include_router(purchase.router)
     root.include_router(tickets.router)
     root.include_router(actions.router)  # last: nav + generic actions

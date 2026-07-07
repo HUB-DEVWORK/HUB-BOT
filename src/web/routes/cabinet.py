@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from src.application.common.payments import PaymentContext, PaymentResultKind
 from src.application.dto.pricing import PurchaseRequest
+from src.application.events import UserRegistered
 from src.application.services.connection import build_deep_links
 from src.application.services.ids import generate_referral_code
 from src.application.services.promo import PromoError
@@ -63,6 +64,7 @@ async def cabinet_user(request: Request, container: AppContainer = Depends(get_c
 
     async with container.uow() as uow:
         user = await uow.users.get_by_telegram_id(tg_id)
+        created = user is None
         if user is None:
             user = User(
                 telegram_id=tg_id,
@@ -74,6 +76,9 @@ async def cabinet_user(request: Request, container: AppContainer = Depends(get_c
             )
             await uow.users.add(user)
         await uow.commit()
+    if created:
+        # First contact came through the mini-app — same event the bot middleware emits.
+        await container.event_bus.publish(UserRegistered(user_id=user.id, telegram_id=tg_id))
     if user.status is UserStatus.BLOCKED:
         raise HTTPException(403, "blocked")
     return user
@@ -519,3 +524,55 @@ async def app_config(container: AppContainer = Depends(get_container)) -> dict[s
         "accent_color": miniapp.accent_color,
         "published_at": miniapp.published_at.isoformat() if miniapp.published_at else None,
     }
+
+
+@router.get("/devices")
+async def list_devices(
+    user: User = Depends(cabinet_user), container: AppContainer = Depends(get_container)
+) -> dict[str, Any]:
+    """HWID devices bound to the current subscription's panel user."""
+    async with container.uow() as uow:
+        sub = (
+            await uow.subscriptions.get(user.current_subscription_id)
+            if user.current_subscription_id
+            else None
+        )
+    if sub is None or sub.remnawave_uuid is None:
+        return {"items": [], "device_limit": None}
+    try:
+        devices = await container.remnawave_client.get_devices(sub.remnawave_uuid)
+    except Exception as exc:
+        raise HTTPException(502, "panel temporarily unavailable") from exc
+    return {
+        "items": [
+            {
+                "hwid": d.hwid,
+                "platform": d.platform,
+                "model": d.device_model,
+                "created_at": d.created_at,
+            }
+            for d in devices
+        ],
+        "device_limit": sub.device_limit,
+    }
+
+
+@router.delete("/devices/{hwid}")
+async def delete_device(
+    hwid: str,
+    user: User = Depends(cabinet_user),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, Any]:
+    async with container.uow() as uow:
+        sub = (
+            await uow.subscriptions.get(user.current_subscription_id)
+            if user.current_subscription_id
+            else None
+        )
+    if sub is None or sub.remnawave_uuid is None:
+        raise HTTPException(400, "no active subscription")
+    try:
+        await container.remnawave_client.delete_device(sub.remnawave_uuid, hwid[:64])
+    except Exception as exc:
+        raise HTTPException(502, "panel temporarily unavailable") from exc
+    return {"ok": True}

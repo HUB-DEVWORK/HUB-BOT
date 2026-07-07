@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { api } from "../api/client";
+import { api, getToken } from "../api/client";
 import { Field, Toggle } from "../components/ui";
 import { useApp } from "../state/app";
 
@@ -31,6 +31,10 @@ export default function Maintenance() {
   const qc = useQueryClient();
   const [dsn, setDsn] = useState("");
   const [migResult, setMigResult] = useState<string | null>(null);
+  const [sbFileId, setSbFileId] = useState<string | null>(null);
+  const [sbFileName, setSbFileName] = useState<string | null>(null);
+  const [sbResult, setSbResult] = useState<string | null>(null);
+  const [sbBusy, setSbBusy] = useState(false);
   const [groupId, setGroupId] = useState<string | null>(null);
 
   const topics = useQuery({
@@ -75,6 +79,68 @@ export default function Maintenance() {
       }
     } catch (e) {
       setMigResult(`✕ ${(e as Error).message}`);
+    }
+  }
+
+  async function sbUpload(file: File) {
+    setSbResult(null);
+    setSbBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/admin/migration/shopbot/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+        body: fd,
+      });
+      const j = (await res.json()) as { file_id?: string; detail?: string };
+      if (!res.ok || !j.file_id) throw new Error(j.detail ?? `HTTP ${res.status}`);
+      setSbFileId(j.file_id);
+      setSbFileName(file.name);
+      const probe = await api.post<{ ok: boolean; counts?: Record<string, number>; detail?: string }>(
+        "/api/admin/migration/shopbot/probe",
+        { file_id: j.file_id },
+      );
+      if (probe.ok && probe.counts) {
+        setSbResult(
+          `${t.sbFound}: ` +
+            Object.entries(probe.counts)
+              .map(([k, v]) => `${k} ${v}`)
+              .join(" · "),
+        );
+      } else {
+        setSbResult(`✕ ${probe.detail ?? "error"}`);
+        setSbFileId(null);
+      }
+    } catch (e) {
+      setSbResult(`✕ ${(e as Error).message}`);
+      setSbFileId(null);
+    } finally {
+      setSbBusy(false);
+    }
+  }
+
+  async function sbRun() {
+    if (!sbFileId) return;
+    if (!(await confirm(t.sbConfirm))) return;
+    setSbBusy(true);
+    setSbResult(t.sbRunning);
+    try {
+      const r = await api.post<Record<string, unknown>>("/api/admin/migration/shopbot/run", {
+        file_id: sbFileId,
+      });
+      const skipped = (r.skipped as string[] | undefined) ?? [];
+      setSbResult(
+        `✓ ${t.sbDone}: юзеры +${r.users_created} (обновлено ${r.users_updated}), ` +
+          `рефералы ${r.referrals_linked}, подписки ${r.subscriptions}, ` +
+          `платежи ${r.transactions}, промокоды ${r.promocodes}` +
+          (skipped.length ? ` · пропущено ${skipped.length}: ${skipped.slice(0, 3).join("; ")}…` : ""),
+      );
+      setSbFileId(null);
+    } catch (e) {
+      setSbResult(`✕ ${(e as Error).message}`);
+    } finally {
+      setSbBusy(false);
     }
   }
 
@@ -163,6 +229,31 @@ export default function Maintenance() {
             {t.migration}
           </div>
           <div className="grid" style={{ gap: 10 }}>
+            <div className="dim" style={{ fontSize: 12 }}>{t.sbHint}</div>
+            <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+              <label className="btn secondary" style={{ cursor: "pointer" }}>
+                {sbFileName ?? t.sbPick}
+                <input
+                  type="file"
+                  accept=".db,.sqlite,.sqlite3"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void sbUpload(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <button className="btn primary" disabled={!sbFileId || sbBusy} onClick={() => void sbRun()}>
+                {sbBusy ? "…" : t.startMigration}
+              </button>
+            </div>
+            {sbResult && (
+              <div className="mono muted" style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>
+                {sbResult}
+              </div>
+            )}
+            <div className="dim" style={{ fontSize: 12, marginTop: 8 }}>{t.sbOtherDsn}</div>
             <input
               className="input mono"
               placeholder="postgresql://user:pass@host:5432/oldbot"

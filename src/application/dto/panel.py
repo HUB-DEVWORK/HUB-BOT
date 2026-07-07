@@ -79,3 +79,13 @@ class ProvisionSpec:
     external_squad: str | None = None
     description: str | None = None
     extra: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class PanelDevice:
+    """One HWID device registered on a panel user."""
+
+    hwid: str
+    platform: str | None = None
+    device_model: str | None = None
+    created_at: str | None = None

@@ -287,3 +287,11 @@ class ConfigCategory(StrEnum):
     SECURITY = "sec"
     BACKUPS = "backup"
     INTERFACE = "ui"
+
+
+class WithdrawalStatus(StrEnum):
+    """Referral-earnings withdrawal request lifecycle."""
+
+    PENDING = "pending"
+    PAID = "paid"
+    REJECTED = "rejected"

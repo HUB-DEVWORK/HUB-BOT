@@ -20,6 +20,7 @@ from src.infrastructure.database.models.report_topic import ReportTopic
 from src.infrastructure.database.models.server_node import ServerNode
 from src.infrastructure.database.models.smart_reminder import SmartReminder
 from src.infrastructure.database.models.ticket import Ticket, TicketMessage
+from src.infrastructure.database.models.withdrawal import WithdrawalRequest
 
 
 class BotConfigValueDAO(BaseDAO[BotConfigValue]):
@@ -126,6 +127,10 @@ class TicketMessageDAO(BaseDAO[TicketMessage]):
 
 class ReportTopicDAO(BaseDAO[ReportTopic]):
     model = ReportTopic
+
+
+class WithdrawalDAO(BaseDAO[WithdrawalRequest]):
+    model = WithdrawalRequest
 
 
 class ServerNodeDAO(BaseDAO[ServerNode]):

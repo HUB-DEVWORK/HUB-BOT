@@ -32,6 +32,7 @@ from src.infrastructure.database.dao.admin import (
     TicketDAO,
     TicketMessageDAO,
     TrafficPackDAO,
+    WithdrawalDAO,
 )
 from src.infrastructure.database.dao.catalog import (
     PaymentGatewayDAO,
@@ -83,6 +84,7 @@ class UnitOfWork:
         self.tickets = TicketDAO(session)
         self.ticket_messages = TicketMessageDAO(session)
         self.report_topics = ReportTopicDAO(session)
+        self.withdrawals = WithdrawalDAO(session)
         self.server_nodes = ServerNodeDAO(session)
         self.audit = AuditLogDAO(session)
         self.constructor_periods = ConstructorPeriodDAO(session)

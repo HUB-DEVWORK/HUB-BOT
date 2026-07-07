@@ -16,6 +16,7 @@ from src.web.routes.admin import (
     dashboard,
     maintenance,
     menu,
+    migration,
     miniapp,
     payments,
     promos,
@@ -25,6 +26,7 @@ from src.web.routes.admin import (
     tickets,
     uploads,
     users,
+    withdrawals,
 )
 from src.web.routes.admin.deps import require_admin
 
@@ -46,5 +48,7 @@ _protected.include_router(settings.router)
 _protected.include_router(menu.router)
 _protected.include_router(miniapp.router)
 _protected.include_router(maintenance.router)
+_protected.include_router(migration.router)
+_protected.include_router(withdrawals.router)
 _protected.include_router(uploads.router)
 router.include_router(_protected)

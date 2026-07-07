@@ -9,7 +9,14 @@ from __future__ import annotations
 import uuid
 from typing import Protocol, runtime_checkable
 
-from src.application.dto.panel import PanelNode, PanelSquad, PanelUser, PanelVersion, ProvisionSpec
+from src.application.dto.panel import (
+    PanelDevice,
+    PanelNode,
+    PanelSquad,
+    PanelUser,
+    PanelVersion,
+    ProvisionSpec,
+)
 
 
 @runtime_checkable
@@ -37,6 +44,10 @@ class RemnawaveClient(Protocol):
     async def revoke_subscription(self, panel_uuid: uuid.UUID) -> PanelUser: ...
 
     async def drop_connections(self, panel_uuid: uuid.UUID) -> None: ...
+
+    async def get_devices(self, panel_uuid: uuid.UUID) -> list[PanelDevice]: ...
+
+    async def delete_device(self, panel_uuid: uuid.UUID, hwid: str) -> None: ...
 
     async def get_internal_squads(self) -> list[PanelSquad]: ...
 

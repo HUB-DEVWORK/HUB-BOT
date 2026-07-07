@@ -27,6 +27,7 @@ from src.infrastructure.database.models.subscription import Subscription
 from src.infrastructure.database.models.ticket import Ticket, TicketMessage
 from src.infrastructure.database.models.transaction import Transaction
 from src.infrastructure.database.models.user import User
+from src.infrastructure.database.models.withdrawal import WithdrawalRequest
 
 __all__ = [
     "AuditLog",
@@ -59,4 +60,5 @@ __all__ = [
     "Transaction",
     "User",
     "UserPromoGroup",
+    "WithdrawalRequest",
 ]
