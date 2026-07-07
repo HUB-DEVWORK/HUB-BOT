@@ -30,9 +30,24 @@
 | Деплой | Docker uv; web+worker+scheduler; polling **и** webhook |
 | Миграции | Alembic (async env, `transaction_per_migration`, seq-sync) |
 
+## Реализовано поверх базы (по состоянию на 2026-07)
+
+Таблица выше — исходный скоуп ядра. Что уже надстроено поверх него в проде:
+
+| Область | Что сделано |
+|---|---|
+| Платежи | **21 живой провайдер** за одним ABC (yookassa, cryptobot, cryptomus, heleket, platega, robokassa, yoomoney, wata, freekassa, paypalych, cloudpayments, lava, mulenpay, kassa_ai, rollypay, riopay, severpay, aurapay, antilopay + manual/stars). Ещё 3 (tribute/paypear/overpay) — заготовки |
+| Возвраты | `BasePaymentGateway.refund()`; API-рефанд у yookassa/cryptomus/heleket/cloudpayments, у прочих — record-only; CAS `COMPLETED→REFUNDED`, откат кошелька, опц. отзыв подписки, нотификация |
+| Веб-покупка без TG | email-регистрация/логин (scrypt + JWT HS256 на `APP__JWT_SECRET`, refresh 7д с ротацией), dual-auth кабинет (Bearer ∥ tma initData), гостевая покупка по email, OAuth Google/Yandex, доставка ссылки письмом, standalone SPA на `/web` |
+| Продажи | мультиканальный гейт (all/trial/buy), Redis smart-cart + автопокупка после пополнения, платный триал с переносом остатка дней |
+| Надёжность | `RemnawaveResyncService` (ночная сверка, лечение дрейфа, сироты→DISABLED), panel-watchdog авто-техрежим, device-guard scan |
+| Легальность | НалоGO-чеки (`NalogoClient`, lknpd income) |
+| Маркетинг | S2S-постбэки (`wire_postback_events`, макросы), статус нод юзеру, конверсия trial→paid |
+| Смена тарифа | `PurchaseType.CHANGE` с зачётом остатка дней + докупка трафика |
+
 ## Итог
 
 - **Скелет** — дисциплина и тестируемость: кольца, протоколы, mypy strict.
 - **Мясо** — баланс-кошелёк, промо-группы, мульти-тариф, рефералка с пополнений, бэкапы.
-- Геймификация, CMS, партнёрка, AML — **поверх** базы, позже. Ядро даёт для них швы
+- Геймификация, CMS, AML — **поверх** базы, позже. Ядро даёт для них швы
   (события, протоколы, RBAC, DI).

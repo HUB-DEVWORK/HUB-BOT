@@ -57,7 +57,7 @@ BOT/
 │   ├── infrastructure/           адаптеры
 │   │   ├── database/             models/ (29 моделей) · dao/ · uow.py · migrations/
 │   │   ├── remnawave/            клиент панели (auth/retry/mapping) + webhook-verifier
-│   │   ├── payments/             base ABC + factory + gateways/ (manual, stars, yookassa, cryptobot)
+│   │   ├── payments/             base ABC + factory + gateways/ (21 живых: manual, stars, yookassa, cryptobot, cryptomus, heleket, platega, robokassa, yoomoney, wata, freekassa, paypalych, cloudpayments, lava, mulenpay, kassa_ai, rollypay, riopay, severpay, aurapay, antilopay)
 │   │   ├── taskiq/               broker.py + tasks.py (фоновые задачи)
 │   │   ├── redis/  di/  services/  локи · AppContainer · notification/backup/health
 │   ├── bot/                      ← ТЕЛЕГРАМ-БОТ
@@ -194,13 +194,15 @@ ssh root@94.183.238.41 'journalctl -u vpnshop-bot -f'    # логи бота
 1. ~~Worker в цикле смертей~~ — **починено**: причиной был redis-py 8.x (рвёт простаивающий
    блокирующий BRPOP), а не нехватка RAM; закреплён пин `redis>=5.0,<8` в pyproject.
    1 GB RAM всё равно впритык — для боевого магазина лучше 2 GB.
-2. Платёжки: `manual`, `telegram_stars`, `yookassa`, `cryptobot`. Остальные (Cryptomus/…) — добавить при
-   наличии ключей мерчанта.
+2. ~~Платёжки: только manual/stars/yookassa/cryptobot~~ — **21 живой провайдер** за одним ABC
+   (список в дереве выше); включаются в кабинете при наличии ключей мерчанта. Ещё 3
+   (Tribute/PayPear/Overpay) — заготовки-заглушки без публичной спеки.
 4. Язык/i18n в боте — RU-хардкод; `Translator` загружен, но не используется.
 5. `miniapp/templates/` — устаревший неиспользуемый вариант, удалить.
 6. Admin: host-действия maintenance (update/restart) — заглушки; импорт из shopbot реализован,
    из Postgres-ботов — только probe.
-7. CI собирает только Python (не SPA) — добавить `tsc && vite build`.
+7. ~~CI собирает только Python (не SPA)~~ — **починено**: job `frontend` в ci.yml гоняет
+   `npm ci && npm run build` (tsc + vite) для admin-SPA.
 
 ---
 
