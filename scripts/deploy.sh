@@ -21,9 +21,18 @@ ssh "$HOST" "cd $APP_DIR \
   && ~/.local/bin/uv sync --frozen --no-dev >/dev/null \
   && .venv/bin/alembic upgrade head \
   && systemctl restart vpnshop-web vpnshop-worker vpnshop-scheduler vpnshop-bot vpnshop-mockpanel \
-  && sleep 4 \
   && systemctl --no-pager --no-legend list-units 'vpnshop-*' | awk '{print \$1, \$3, \$4}'"
 
-echo "==> health"
-curl -s -o /dev/null -w 'admin SPA: %{http_code}\n' https://testbot.tvss-911.com/admin/
+echo "==> health (uvicorn поднимается ~30с, ждём до 90с)"
+deadline=$((SECONDS + 90))
+while :; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' https://testbot.tvss-911.com/admin/ || true)
+  [ "$code" = "200" ] && break
+  if (( SECONDS >= deadline )); then
+    echo "admin SPA: $code — не поднялось за 90с" >&2
+    exit 1
+  fi
+  sleep 4
+done
+echo "admin SPA: $code"
 curl -s -o /dev/null -w 'miniapp:   %{http_code}\n' https://testbot.tvss-911.com/app/
