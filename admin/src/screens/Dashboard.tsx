@@ -15,6 +15,7 @@ type Dash = {
   total_users: number;
   new_users_24h: number;
   new_trials_24h: number;
+  trial_conversion: { used: number; converted: number; pct: number };
   online_now: number;
   revenue_14d: { date: string; amount_minor: number }[];
   events: { id: number; at: string | null; actor: string; action: string; entity: string | null }[];
@@ -132,6 +133,11 @@ export default function Dashboard() {
           note={d ? `${d.new_trials_24h} ${t.trials}` : "—"}
         />
         <Kpi label={t.online} value={d ? d.online_now : "…"} note="Remnawave" />
+        <Kpi
+          label={t.trialConversion}
+          value={d ? `${d.trial_conversion.pct}%` : "…"}
+          note={d ? `${d.trial_conversion.converted}/${d.trial_conversion.used}` : "—"}
+        />
       </div>
 
       <div className="cols">

@@ -66,6 +66,23 @@ async def dashboard(container: AppContainer = Depends(get_container)) -> dict[st
             or 0
         )
         total_users = await uow.users.count()
+        trial_used = int(
+            await uow.session.scalar(
+                select(func.count()).select_from(User).where(User.is_trial_available.is_(False))
+            )
+            or 0
+        )
+        trial_converted = int(
+            await uow.session.scalar(
+                select(func.count())
+                .select_from(User)
+                .where(
+                    User.is_trial_available.is_(False),
+                    User.has_had_paid_subscription.is_(True),
+                )
+            )
+            or 0
+        )
         new_24h = int(
             await uow.session.scalar(
                 select(func.count())
@@ -138,6 +155,11 @@ async def dashboard(container: AppContainer = Depends(get_container)) -> dict[st
         "total_users": total_users,
         "new_users_24h": new_24h,
         "new_trials_24h": new_trials_24h,
+        "trial_conversion": {
+            "used": trial_used,
+            "converted": trial_converted,
+            "pct": round(100 * trial_converted / trial_used, 1) if trial_used else 0.0,
+        },
         "online_now": online,
         "revenue_14d": series,
         "events": events,
