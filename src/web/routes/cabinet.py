@@ -167,10 +167,7 @@ async def me(
     }
 
 
-@router.get("/plans")
-async def plans(
-    user: User = Depends(cabinet_user), container: AppContainer = Depends(get_container)
-) -> dict[str, Any]:
+async def _plan_items(container: AppContainer) -> list[dict[str, Any]]:
     async with container.uow() as uow:
         rows = [p for p in await uow.plans.list_with_durations() if p.is_active and not p.is_trial]
         stars_rate = int(await container.bot_config.value(uow, "STARS_RATE_RUB"))
@@ -197,17 +194,35 @@ async def plans(
                 "description": p.description,
                 "traffic_limit_bytes": p.traffic_limit_bytes,
                 "device_limit": p.device_limit,
-                "is_current": bool(user.current_subscription_id and _is_current(user, p)),
                 "durations": durations,
             }
         )
-    return {"currency": "RUB", "items": items}
+    return items
 
 
-def _is_current(user: User, plan: Plan) -> bool:
-    # Lightweight check without extra queries: snapshot comparison happens client-side;
-    # here we only mark by plan id when the user has a live subscription on it.
-    return False  # refined by /me subscription.plan_id on the client
+@router.get("/plans")
+async def plans(
+    _: User = Depends(cabinet_user), container: AppContainer = Depends(get_container)
+) -> dict[str, Any]:
+    return {"currency": "RUB", "items": await _plan_items(container)}
+
+
+@router.get("/public/plans")
+async def public_plans(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
+    """Unauthenticated tariff + online-method list — the web/guest checkout needs it
+    before login. Gated by WEB_CABINET_ENABLED so it isn't exposed unless the web
+    storefront is on."""
+    async with container.uow() as uow:
+        if not bool(await container.bot_config.value(uow, "WEB_CABINET_ENABLED")):
+            raise HTTPException(403, "web cabinet is disabled")
+        methods = [
+            {"id": g.type.value, "label": g.display_name or g.type.value}
+            for g in await uow.payment_gateways.list()
+            if g.is_active
+            and g.type in container.gateway_factory.supported()
+            and g.type.value not in ("manual", "telegram_stars")
+        ]
+    return {"currency": "RUB", "items": await _plan_items(container), "payment_methods": methods}
 
 
 @router.get("/constructor")

@@ -154,7 +154,7 @@ function guestCard() {
   ]);
   const holder = el("div", {});
   card.append(holder);
-  loadPlans().then((plans) => {
+  loadPlans(false).then((plans) => {
     if (!plans.length) { holder.append(el("div", { class: "hint" }, "Тарифы ещё не настроены.")); return; }
     holder.append(planPicker(plans, async (planId, days, method) => {
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.value.trim())) return toast("Введите корректный e-mail");
@@ -172,9 +172,13 @@ function guestCard() {
 
 /* ---------- plan picker (shared by guest + cabinet) ---------- */
 
-async function loadPlans() {
-  try { return (await api("GET", `${C}/plans`)).items || []; }
-  catch { return []; }
+async function loadPlans(auth) {
+  const path = auth ? `${C}/plans` : `${C}/public/plans`;
+  try {
+    const d = await api("GET", path, null, auth);
+    if (!auth && d.payment_methods) window.__pm__ = d.payment_methods;  // guests need methods too
+    return d.items || [];
+  } catch { return []; }
 }
 
 function planPicker(plans, onPay, guest) {
@@ -247,7 +251,7 @@ async function cabinetView() {
     ]));
   }
 
-  const plans = await loadPlans();
+  const plans = await loadPlans(true);
   if (plans.length) {
     root.append(el("div", { class: "card" }, [
       el("h2", {}, usable ? "Продлить / сменить тариф" : "Купить подписку"),
