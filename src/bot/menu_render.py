@@ -6,21 +6,14 @@ import contextlib
 
 from aiogram.types import CallbackQuery, Message
 
+from src.bot.default_menu import DEFAULT_MENU
 from src.bot.keyboards import menu_keyboard, simple_keyboard, webapp_button
 from src.infrastructure.database.models.user import User
 from src.infrastructure.di import AppContainer
 
-# Built-in fallback menu until the admin constructs one (screen 05).
-_DEFAULT_BUTTONS: list[tuple[str, str]] = [
-    ("🛒 Купить VPN", "act:buy:0"),
-    ("👤 Моя подписка", "act:subscription:0"),
-    ("🔌 Подключить", "act:connect:0"),
-    ("💰 Баланс", "act:balance:0"),
-    ("📊 История", "act:history:0"),
-    ("🎟 Промокод", "act:promocode"),
-    ("🎁 Пригласить друга", "act:referral:0"),
-    ("🆘 Поддержка", "act:support:0"),
-]
+# Built-in fallback menu until the admin builds one (screen 05). Derived from the same
+# DEFAULT_MENU the "load default" constructor action seeds, so the two never drift.
+_DEFAULT_BUTTONS: list[tuple[str, str]] = [(b.label, f"act:{b.action}:0") for b in DEFAULT_MENU]
 
 
 async def send_main_menu(
@@ -38,9 +31,12 @@ async def send_main_menu(
             await cfg.value(uow, "MTPROTO_PROXY_URL")
         )
         node_status_on = bool(await cfg.value(uow, "NODE_STATUS_ENABLED"))
+        button_color = str(await cfg.value(uow, "BUTTON_COLOR_DEFAULT") or "") or None
 
     if nodes:
-        markup = menu_keyboard(nodes, None, miniapp_url=miniapp_url or None)
+        markup = menu_keyboard(
+            nodes, None, miniapp_url=miniapp_url or None, default_color=button_color
+        )
     else:
         buttons = list(_DEFAULT_BUTTONS)
         buttons.insert(0, ("👤 Личный кабинет", "act:cabinet:0"))
@@ -52,7 +48,7 @@ async def send_main_menu(
             buttons.append(("🌍 Статус серверов", "act:nodes:0"))
         if db_user.role.is_staff:
             buttons.append(("🛠 Админка", "admin:menu"))
-        markup = simple_keyboard(buttons)
+        markup = simple_keyboard(buttons, default_color=button_color)
         # Mini-app integration: a prominent WebApp button when the mini-app URL is configured.
         if miniapp_url.startswith("https://"):
             markup.inline_keyboard.insert(0, [webapp_button("📱 Открыть приложение", miniapp_url)])

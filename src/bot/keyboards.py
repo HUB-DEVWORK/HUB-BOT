@@ -31,9 +31,11 @@ def style_for_hex(color: str | None) -> str | None:
     return "primary"
 
 
-def _button(node: MenuNode, miniapp_url: str | None) -> InlineKeyboardButton:
+def _button(
+    node: MenuNode, miniapp_url: str | None, default_color: str | None = None
+) -> InlineKeyboardButton:
     kwargs: dict[str, object] = {"text": node.label}
-    style = style_for_hex(node.color)
+    style = style_for_hex(node.color or default_color)
     if style:
         kwargs["style"] = style
     if node.kind.value == "link" and node.payload:
@@ -57,9 +59,10 @@ def menu_keyboard(
     *,
     miniapp_url: str | None = None,
     with_back: bool = False,
+    default_color: str | None = None,
 ) -> InlineKeyboardMarkup:
     rows = [
-        [_button(n, miniapp_url)]
+        [_button(n, miniapp_url, default_color)]
         for n in sorted(
             (n for n in nodes if n.parent_id == parent_id and n.is_active),
             key=lambda n: n.order_index,
@@ -70,13 +73,17 @@ def menu_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def simple_keyboard(buttons: list[tuple[str, str]], columns: int = 1) -> InlineKeyboardMarkup:
-    """[(text, callback_data)] -> markup."""
+def simple_keyboard(
+    buttons: list[tuple[str, str]], columns: int = 1, *, default_color: str | None = None
+) -> InlineKeyboardMarkup:
+    """[(text, callback_data)] -> markup. ``default_color`` styles every button."""
+    style = style_for_hex(default_color)
+    extra: dict[str, object] = {"style": style} if style else {}
     rows: list[list[InlineKeyboardButton]] = []
     for i in range(0, len(buttons), columns):
         rows.append(
             [
-                InlineKeyboardButton(text=text, callback_data=cb)
+                InlineKeyboardButton(text=text, callback_data=cb, **extra)  # type: ignore[arg-type]
                 for text, cb in buttons[i : i + columns]
             ]
         )

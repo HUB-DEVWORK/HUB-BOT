@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from src.bot.default_menu import DEFAULT_MENU, MENU_ACTIONS
 from src.core.enums import MenuNodeKind
 from src.infrastructure.database.models.menu_node import MenuNode
 from src.infrastructure.di import AppContainer
@@ -121,6 +122,47 @@ async def save_menu(
                 raise HTTPException(400, "menu tree contains a cycle")
             pending = rest
         await audit(uow, identity, "menu.save", None, count=len(body.nodes))
+        await uow.commit()
+        nodes = list(await uow.menu_nodes.tree())
+    return {"ok": True, "nodes": _serialize(nodes)}
+
+
+@router.get("/actions")
+async def list_actions() -> dict[str, Any]:
+    """Catalogue of bot actions a button can point at — feeds the constructor's dropdown."""
+    return {
+        "actions": [
+            {
+                "code": a.code,
+                "label_ru": a.label_ru,
+                "label_en": a.label_en,
+                "needs_subscription": a.needs_subscription,
+            }
+            for a in MENU_ACTIONS
+        ]
+    }
+
+
+@router.post("/reset-default")
+async def reset_default(
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, Any]:
+    """Replace the menu with the built-in default — a real, editable starting menu."""
+    async with container.uow() as uow:
+        await uow.menu_nodes.delete_by()
+        for order, btn in enumerate(DEFAULT_MENU):
+            await uow.menu_nodes.add(
+                MenuNode(
+                    parent_id=None,
+                    order_index=order,
+                    label=btn.label,
+                    kind=MenuNodeKind.ACTION,
+                    payload=btn.action,
+                    color=btn.color,
+                )
+            )
+        await audit(uow, identity, "menu.reset_default", None, count=len(DEFAULT_MENU))
         await uow.commit()
         nodes = list(await uow.menu_nodes.tree())
     return {"ok": True, "nodes": _serialize(nodes)}

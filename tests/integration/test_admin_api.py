@@ -230,6 +230,37 @@ async def test_menu_save_and_cycle_guard(
     assert res.status_code == 400
 
 
+async def test_menu_actions_catalog(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    http, _ = client
+    auth = await _login(http)
+    assert (await http.get("/api/admin/bot-menu/actions")).status_code == 401  # protected
+    res = await http.get("/api/admin/bot-menu/actions", headers=auth)
+    assert res.status_code == 200
+    actions = res.json()["actions"]
+    codes = {a["code"] for a in actions}
+    assert {"buy", "connect", "support"} <= codes
+    buy = next(a for a in actions if a["code"] == "buy")
+    assert buy["label_ru"] and "needs_subscription" in buy
+
+
+async def test_menu_reset_default_seeds_editable_menu(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    http, _ = client
+    auth = await _login(http)
+    res = await http.post("/api/admin/bot-menu/reset-default", headers=auth)
+    assert res.status_code == 200, res.text
+    nodes = res.json()["nodes"]
+    assert len(nodes) >= 6
+    assert all(n["parent"] is None and n["kind"] == "action" for n in nodes)
+    # persisted + editable: a follow-up GET returns the same seeded tree
+    got = (await http.get("/api/admin/bot-menu", headers=auth)).json()["nodes"]
+    assert len(got) == len(nodes)
+    assert any("Купить" in n["label"] for n in got)
+
+
 # --- users actions ------------------------------------------------------------------
 
 
