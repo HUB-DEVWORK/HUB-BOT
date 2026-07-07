@@ -10,53 +10,91 @@
 #   4. wait for /health             (fail loudly with rollback instructions)
 set -euo pipefail
 
-say()  { printf "\033[1;32m==>\033[0m %s\n" "$*"; }
-fail() { printf "\033[1;31m ✗ %s\033[0m\n" "$*"; exit 1; }
+B=$'\033[1m'; DIM=$'\033[2m'; R=$'\033[0m'
+ORANGE=$'\033[38;5;208m'; GREEN=$'\033[1;32m'; RED=$'\033[1;31m'
+LINE="────────────────────────────────────────────────────────"
+
+hr()   { printf "%s%s%s\n" "$DIM" "$LINE" "$R"; }
+step() { printf "\n%s[%s/4]%s %s%s%s\n" "$ORANGE" "$1" "$R" "$B" "$2" "$R"; }
+ok()   { printf "  %s✔%s %s\n" "$GREEN" "$R" "$*"; }
+fail() { printf "\n  %s✗ %s%s\n" "$RED" "$*" "$R"; exit 1; }
+
+run_spin() { # run_spin "подпись" cmd...
+  local label=$1; shift
+  local log; log=$(mktemp /tmp/vpnhub-update.XXXXXX.log)
+  printf "  %s…%s %s " "$DIM" "$R" "$label"
+  if "$@" >"$log" 2>&1; then
+    printf "\r  %s✔%s %s%s\n" "$GREEN" "$R" "$label" "          "
+    rm -f "$log"
+  else
+    printf "\r  %s✗ %s — последние строки лога:%s\n" "$RED" "$label" "$R"
+    tail -n 25 "$log" | sed 's/^/    /'
+    printf "  %sполный лог: %s%s\n" "$DIM" "$log" "$R"
+    exit 1
+  fi
+}
 
 cd "$(dirname "$0")/.."
 COMPOSE="docker compose -f docker/compose.prod.yml"
 [ -f .env ] || fail ".env не найден — сначала установка: ./scripts/install.sh"
 
+printf "\n"; hr
+printf "   %sVPN%s%s-HUB%s %sBOT%s  %s· безопасное обновление%s\n" \
+  "$B" "$R" "$ORANGE$B" "$R" "$B" "$R" "$DIM" "$R"
+hr
+
 OLD_REV=$(git rev-parse --short HEAD)
 
 # --- 1. backup ----------------------------------------------------------------
+step 1 "Бэкап БД"
 mkdir -p backups
 STAMP=$(date +%Y%m%d-%H%M%S)
 BACKUP="backups/pre-update-$STAMP.sql.gz"
 DB_USER=$(grep '^DATABASE__USER=' .env | cut -d= -f2)
 DB_NAME=$(grep '^DATABASE__NAME=' .env | cut -d= -f2)
-say "Бэкап БД → $BACKUP"
 $COMPOSE exec -T postgres pg_dump -U "${DB_USER:-vpn}" "${DB_NAME:-vpn}" | gzip > "$BACKUP" \
   || fail "бэкап не снялся — обновление отменено (стек запущен? $COMPOSE ps)"
 [ -s "$BACKUP" ] || fail "бэкап пустой — обновление отменено"
+ok "снят: $BACKUP ($(du -h "$BACKUP" | cut -f1))"
 
 # --- 2. pull ------------------------------------------------------------------
-say "Забираю обновления (git pull --ff-only)…"
-git pull --ff-only || fail "git pull не прошёл — есть локальные правки? (git stash, затем повторить)"
+step 2 "Обновления из git"
+git pull --ff-only >/dev/null 2>&1 || fail "git pull не прошёл — есть локальные правки? (git stash, затем повторить)"
 NEW_REV=$(git rev-parse --short HEAD)
 if [ "$OLD_REV" = "$NEW_REV" ]; then
-  say "Уже последняя версия ($NEW_REV) — пересобираю на всякий случай"
+  ok "уже последняя версия ($NEW_REV) — пересобираю на всякий случай"
+else
+  ok "$OLD_REV → $NEW_REV"
+  git log --oneline "$OLD_REV..$NEW_REV" | head -8 | sed "s/^/    ${DIM}·${R} /"
 fi
 
 # --- 3. rebuild + restart -------------------------------------------------------
-say "Пересобираю и перезапускаю стек ($OLD_REV → $NEW_REV)…"
-$COMPOSE up -d --build
+step 3 "Пересборка и перезапуск"
+run_spin "docker compose build" $COMPOSE build
+run_spin "docker compose up -d" $COMPOSE up -d
 
 # --- 4. health-gate -------------------------------------------------------------
-say "Жду миграции и /health…"
+step 4 "Миграции и здоровье"
+printf "  %s…%s жду /health " "$DIM" "$R"
 for _ in $(seq 1 90); do
   if $COMPOSE exec -T web \
        python -c "import urllib.request as u; u.urlopen('http://localhost:8080/health', timeout=3)" \
        >/dev/null 2>&1; then
-    say "Готово! Обновлено до $NEW_REV, бэкап: $BACKUP"
+    printf "\n"
+    ok "живой"
+    printf "\n"; hr
+    printf "   %s🎉 Обновлено до %s%s  %s(бэкап: %s)%s\n" "$GREEN$B" "$NEW_REV" "$R" "$DIM" "$BACKUP" "$R"
+    hr
     exit 0
   fi
+  printf "."
   sleep 2
 done
+printf "\n"
 
-printf "\033[1;31m ✗ web не поднялся после обновления.\033[0m\n"
-echo
-echo "  Логи:   $COMPOSE logs --tail 100 web"
-echo "  Откат:  git checkout $OLD_REV && $COMPOSE up -d --build"
-echo "  БД:     gunzip -c $BACKUP | $COMPOSE exec -T postgres psql -U ${DB_USER:-vpn} ${DB_NAME:-vpn}"
+printf "\n  %s✗ web не поднялся после обновления.%s\n\n" "$RED" "$R"
+printf "   %sЛоги%s    $COMPOSE logs --tail 100 web\n" "$DIM" "$R"
+printf "   %sОткат%s   git checkout %s && $COMPOSE up -d --build\n" "$DIM" "$R" "$OLD_REV"
+printf "   %sБД%s      gunzip -c %s | $COMPOSE exec -T postgres psql -U %s %s\n" \
+  "$DIM" "$R" "$BACKUP" "${DB_USER:-vpn}" "${DB_NAME:-vpn}"
 exit 1
