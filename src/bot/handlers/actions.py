@@ -248,6 +248,8 @@ async def act_cabinet(cb: CallbackQuery, container: AppContainer, db_user: User)
         )
         invited = await uow.users.count(referred_by_id=db_user.id)
         miniapp_url = str(await container.bot_config.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "")
+        balance_on = bool(await container.bot_config.value(uow, "BALANCE_ENABLED"))
+        referral_on = bool(await container.bot_config.value(uow, "REFERRAL_ENABLED"))
 
     name = hesc(db_user.first_name or db_user.username or "друг")
     lines = [
@@ -289,19 +291,19 @@ async def act_cabinet(cb: CallbackQuery, container: AppContainer, db_user: User)
     # The cabinet is the account hub — everything about the user's account, and the one
     # place «Поддержка» lives (the main menu stays lean). «Подключить»/«Купить» are the
     # primary actions up in the main menu, so they're not duplicated here.
+    # A disabled feature must not show its button here — gate by the same flags the
+    # feature checks, so «отключил в настройках» actually hides it. The grid reflows.
+    entries: list[tuple[str, str]] = [("🔑 Моя подписка", "act:subscription:0")]
+    if balance_on:
+        entries.append(("💰 Баланс", "act:balance:0"))
+    entries.append(("📊 История", "act:history:0"))
+    if referral_on:
+        entries.append(("🎁 Рефералка", "act:referral:0"))
+    entries.append(("🎟 Промокод", "act:promocode"))
+    entries.append(("🆘 Поддержка", "act:support:0"))
     kb: list[list[InlineKeyboardButton]] = [
-        [
-            InlineKeyboardButton(text="🔑 Моя подписка", callback_data="act:subscription:0"),
-            InlineKeyboardButton(text="💰 Баланс", callback_data="act:balance:0"),
-        ],
-        [
-            InlineKeyboardButton(text="📊 История", callback_data="act:history:0"),
-            InlineKeyboardButton(text="🎁 Рефералка", callback_data="act:referral:0"),
-        ],
-        [
-            InlineKeyboardButton(text="🎟 Промокод", callback_data="act:promocode"),
-            InlineKeyboardButton(text="🆘 Поддержка", callback_data="act:support:0"),
-        ],
+        [InlineKeyboardButton(text=t, callback_data=c) for t, c in entries[i : i + 2]]
+        for i in range(0, len(entries), 2)
     ]
     if miniapp_url.startswith("https://"):
         kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
