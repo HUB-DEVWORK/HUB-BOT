@@ -80,15 +80,40 @@ def _default_menu_rows() -> list[MenuNode]:
     ]
 
 
-async def bootstrap_menu(container: AppContainer) -> None:
-    """Seed the default menu on first boot so the bot ships with real, editable buttons.
+# Top-level action sets of menus we shipped as defaults in earlier versions. A live menu
+# whose top-level actions match one of these was our seed (not the owner's work), so a
+# later deploy may upgrade it to the current DEFAULT_MENU. A customized menu — any other
+# action set — is never touched.
+_LEGACY_DEFAULT_SIGNATURES: tuple[frozenset[str], ...] = (
+    frozenset(
+        {
+            "cabinet",
+            "buy",
+            "subscription",
+            "connect",
+            "balance",
+            "history",
+            "promocode",
+            "referral",
+            "support",
+        }
+    ),
+)
 
-    Called from the app lifespan. No-op once any menu exists — never overwrites the
-    owner's constructor, so it is safe to run on every start.
+
+async def bootstrap_menu(container: AppContainer) -> None:
+    """Seed the default menu on first boot; on later boots, upgrade an *unmodified* older
+    default to the current one. Called from the app lifespan and safe to run on every start:
+    the owner's own menu (a different action set) is left untouched.
     """
     async with container.uow() as uow:
-        if await uow.menu_nodes.count() > 0:
+        top = [n for n in await uow.menu_nodes.tree() if n.parent_id is None]
+        current = frozenset(n.payload for n in top if n.kind is MenuNodeKind.ACTION and n.payload)
+        target = frozenset(b.action for b in DEFAULT_MENU)
+        # Non-empty menu that is already current OR was customized by the owner -> leave it.
+        if top and (current == target or current not in _LEGACY_DEFAULT_SIGNATURES):
             return
+        await uow.menu_nodes.delete_by()
         for row in _default_menu_rows():
             await uow.menu_nodes.add(row)
         await uow.commit()
