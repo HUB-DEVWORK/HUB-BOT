@@ -29,6 +29,7 @@ from src.infrastructure.database.dao.admin import (
     MenuNodeDAO,
     MiniappConfigDAO,
     NotificationTemplateDAO,
+    PartnerDAO,
     ReminderStepDAO,
     ReportTopicDAO,
     SaleCampaignDAO,
@@ -91,6 +92,7 @@ class UnitOfWork:
         self.notifications = NotificationTemplateDAO(session)
         self.sales = SaleCampaignDAO(session)
         self.traffic = TrafficSnapshotDAO(session)
+        self.partners = PartnerDAO(session)
         self.holidays = HolidayDAO(session)
         self.winback_steps = WinbackStepDAO(session)
         self.campaigns = CampaignDAO(session)

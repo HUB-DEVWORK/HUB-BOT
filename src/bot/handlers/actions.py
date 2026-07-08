@@ -6,6 +6,7 @@ import contextlib
 from html import escape as hesc
 
 from aiogram import F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -489,6 +490,21 @@ async def act_support(cb: CallbackQuery, container: AppContainer, db_user: User)
     from src.bot.handlers.tickets import begin_ticket
 
     await begin_ticket(cb, container, db_user)
+
+
+@router.message(Command("bug"))
+async def cmd_bug(message: Message, container: AppContainer, db_user: User) -> None:
+    """User bug report -> DM'd to admins with the reporter's handle."""
+    text = (message.text or "").removeprefix("/bug").strip()
+    if not text:
+        await message.answer(
+            "🐞 Опиши проблему одним сообщением: <code>/bug что не работает</code>"
+        )
+        return
+    tg = message.from_user
+    who = f"@{tg.username}" if tg and tg.username else f"id{db_user.telegram_id}"
+    await container.notifier.notify_admins(f"🐞 Баг-репорт от {who}:\n{text}", topic="bug")
+    await message.answer("🐞 Спасибо! Отправил разработчикам — разберёмся.")
 
 
 @router.callback_query(F.data.startswith("act:devices"))

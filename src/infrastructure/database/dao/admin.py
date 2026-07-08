@@ -20,6 +20,7 @@ from src.infrastructure.database.models.holiday import Holiday
 from src.infrastructure.database.models.menu_node import MenuNode
 from src.infrastructure.database.models.miniapp_config import MiniappConfig
 from src.infrastructure.database.models.notification_template import NotificationTemplate
+from src.infrastructure.database.models.partner import Partner
 from src.infrastructure.database.models.reminder_step import ReminderStep
 from src.infrastructure.database.models.report_topic import ReportTopic
 from src.infrastructure.database.models.sale_campaign import SaleCampaign
@@ -192,6 +193,17 @@ class SaleCampaignDAO(BaseDAO[SaleCampaign]):
             c.used_count = 0
             c.used_period = period
         c.used_count += 1
+
+
+class PartnerDAO(BaseDAO[Partner]):
+    model = Partner
+
+    async def by_code(self, code: str) -> Partner | None:
+        return await self.find_one(code=code)
+
+    async def ordered(self) -> Sequence[Partner]:
+        result = await self.session.scalars(select(Partner).order_by(Partner.created_at.desc()))
+        return result.all()
 
 
 class CampaignDAO(BaseDAO[Campaign]):
