@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from html import escape as hesc
+from pathlib import Path
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -16,7 +17,7 @@ from src.bot.gate import ensure_channel
 from src.bot.keyboards import menu_keyboard, simple_keyboard, url_keyboard, webapp_button
 from src.bot.media import photo_input
 from src.bot.menu_render import send_main_menu
-from src.bot.screen import safe_answer, show_screen
+from src.bot.screen import safe_answer, show_photo_screen, show_screen
 from src.core.enums import Currency, PurchaseType, TransactionStatus, TransactionType
 from src.core.exceptions import RemnawaveError
 from src.core.logging import get_logger
@@ -29,6 +30,9 @@ log = get_logger(__name__)
 router = Router(name="actions")
 
 GIB = 1024**3
+# Placeholder banner shipped with the code (owner swaps it for their own art). Lives under
+# src/bot/assets/, which deploys with the app (unlike runtime uploads/).
+_BANNER = Path(__file__).resolve().parent.parent / "assets" / "banner.png"
 
 
 def fmt_money(minor: int) -> str:
@@ -236,24 +240,40 @@ async def act_cabinet(cb: CallbackQuery, container: AppContainer, db_user: User)
 
     name = hesc(db_user.first_name or db_user.username or "друг")
     lines = [
-        "👤 <b>Личный кабинет</b>",
-        f"Привет, {name} 👋",
+        "👤 <b>Профиль</b>",
         "",
-        f"💳 Баланс: <b>{fmt_money(db_user.balance_minor)}</b>",
+        f"Привет, {name}! 👋",
+        f"Твой ID: <code>{db_user.telegram_id}</code>",
+        "",
     ]
     if sub is not None and sub.status.is_usable:
-        days = ""
+        now = dt.datetime.now(dt.UTC)
+        expire = sub.expire_at.strftime("%d.%m.%Y") if sub.expire_at else "—"
         if sub.expire_at is not None:
-            left = max(0, (sub.expire_at - dt.datetime.now(dt.UTC)).days)
-            days = f" · ещё {left} дн."
-        lines.append(f"📶 Подписка: <b>активна</b>{days}")
+            delta = sub.expire_at - now
+            d_left, h_left = max(0, delta.days), max(0, delta.seconds // 3600)
+            left = f"{d_left} дн. {h_left} ч." if d_left else f"{h_left} ч."
+        else:
+            left = "—"
+        traffic = f"{sub.traffic_used_bytes / GIB:.1f} / " + (
+            f"{sub.traffic_limit_bytes / GIB:.0f} ГБ" if sub.traffic_limit_bytes else "∞"
+        )
+        lines += [
+            "⭐ <b>Подписка</b>",
+            "├ Статус: <b>активна</b>",
+            f"├ Действует до: <b>{expire}</b>",
+            f"├ Осталось: <b>{left}</b>",
+            f"├ Устройств: <b>{sub.device_limit or '—'}</b>",
+            f"├ Трафик: <b>{traffic}</b>",
+            f"├ Автопродление: <b>{'вкл' if sub.autopay_enabled else 'выкл'}</b>",
+            "└ Ключ-ссылка — в разделе «Моя подписка».",
+        ]
     else:
-        lines.append("📶 Подписка: <b>не оформлена</b>")
-    if db_user.personal_discount_pct:
-        lines.append(f"🏷 Личная скидка: <b>{db_user.personal_discount_pct}%</b>")
-    lines.append(f"🎁 Приглашено друзей: <b>{invited}</b>")
-    lines.append("")
-    lines.append("Выбери раздел ниже 👇")
+        lines += ["⭐ <b>Подписка</b>", "└ Не оформлена — нажми «Купить VPN» в меню."]
+    lines += [
+        "",
+        f"💳 Баланс: <b>{fmt_money(db_user.balance_minor)}</b>   ·   🎁 Друзей: <b>{invited}</b>",
+    ]
 
     # The cabinet is the account hub — everything about the user's account, and the one
     # place «Поддержка» lives (the main menu stays lean). «Подключить»/«Купить» are the
@@ -275,7 +295,11 @@ async def act_cabinet(cb: CallbackQuery, container: AppContainer, db_user: User)
     if miniapp_url.startswith("https://"):
         kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
     kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
-    await show_screen(cb, "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb))
+    from aiogram.types import FSInputFile
+
+    await show_photo_screen(
+        cb, FSInputFile(str(_BANNER)), "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb)
+    )
     await cb.answer()
 
 

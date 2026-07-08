@@ -40,6 +40,36 @@ async def show_screen(
             await msg.delete()
 
 
+async def show_photo_screen(
+    cb: CallbackQuery,
+    photo: object,
+    caption: str,
+    markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    """Send a fresh photo screen (banner + caption + buttons) and drop the previous one.
+
+    Telegram can't edit a text message into a photo, so banner screens are re-sent. On any
+    delivery error the caption is sent as a plain text screen so the flow never breaks.
+    """
+    msg = cb.message if isinstance(cb.message, Message) else None
+    chat_id = msg.chat.id if msg is not None else (cb.from_user.id if cb.from_user else None)
+    if chat_id is None or cb.bot is None:
+        return
+    try:
+        await cb.bot.send_photo(
+            chat_id,
+            photo,  # type: ignore[arg-type]
+            caption=caption[:1024],  # Telegram caps photo captions at 1024 chars
+            reply_markup=markup,
+            parse_mode="HTML",
+        )
+    except Exception:
+        await cb.bot.send_message(chat_id, caption, reply_markup=markup, parse_mode="HTML")
+    if msg is not None:
+        with contextlib.suppress(Exception):
+            await msg.delete()
+
+
 async def safe_answer(cb: CallbackQuery, text: str | None = None) -> None:
     """Answer a callback that may already be answered (chained handlers)."""
     with contextlib.suppress(Exception):
