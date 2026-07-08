@@ -648,6 +648,39 @@ async def send_expiry_reminders() -> int:
     return sent
 
 
+@broker.task(schedule=[{"cron": "13 3 * * *"}])
+async def snapshot_traffic() -> int:
+    """Daily: record each active subscription's cumulative traffic use for the usage graph."""
+    from sqlalchemy import select
+
+    from src.core.enums import SubscriptionStatus
+    from src.infrastructure.database.models.subscription import Subscription
+
+    container = get_container()
+    day = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
+    recorded = 0
+    async with container.uow() as uow:
+        subs = (
+            await uow.session.scalars(
+                select(Subscription).where(
+                    Subscription.status.in_(
+                        [
+                            SubscriptionStatus.ACTIVE,
+                            SubscriptionStatus.TRIAL,
+                            SubscriptionStatus.LIMITED,
+                        ]
+                    )
+                )
+            )
+        ).all()
+        for sub in subs:
+            await uow.traffic.upsert(sub.id, day, sub.traffic_used_bytes)
+            recorded += 1
+        await uow.commit()
+    log.info("traffic snapshots recorded", count=recorded)
+    return recorded
+
+
 @broker.task(schedule=[{"cron": "*/5 * * * *"}])
 async def send_winback_offers() -> int:
     """Win-back funnel (screen 08): N days after a subscription expired, message the user

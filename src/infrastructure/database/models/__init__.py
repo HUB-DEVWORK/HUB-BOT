@@ -29,6 +29,7 @@ from src.infrastructure.database.models.settings import Settings
 from src.infrastructure.database.models.smart_reminder import SmartReminder
 from src.infrastructure.database.models.subscription import Subscription
 from src.infrastructure.database.models.ticket import Ticket, TicketMessage
+from src.infrastructure.database.models.traffic_snapshot import TrafficSnapshot
 from src.infrastructure.database.models.transaction import Transaction
 from src.infrastructure.database.models.user import User
 from src.infrastructure.database.models.winback_step import WinbackStep
@@ -66,6 +67,7 @@ __all__ = [
     "Ticket",
     "TicketMessage",
     "TrafficPack",
+    "TrafficSnapshot",
     "Transaction",
     "User",
     "UserPromoGroup",

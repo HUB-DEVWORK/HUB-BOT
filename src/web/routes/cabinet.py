@@ -574,6 +574,32 @@ async def reset_link(
     return {"subscription_url": new_url, "deep_links": build_deep_links(new_url or "", None)}
 
 
+@router.get("/traffic")
+async def traffic(
+    user: User = Depends(cabinet_user), container: AppContainer = Depends(get_container)
+) -> dict[str, Any]:
+    """Usage-graph data: current used/limit + the last 30 daily cumulative readings.
+
+    The client reverses the series and diffs consecutive days for per-day usage (a drop
+    means the monthly traffic reset kicked in).
+    """
+    async with container.uow() as uow:
+        sub = (
+            await uow.subscriptions.get(user.current_subscription_id)
+            if user.current_subscription_id
+            else None
+        )
+        if sub is None:
+            return {"used_bytes": 0, "limit_bytes": 0, "unlimited": True, "series": []}
+        rows = await uow.traffic.series(sub.id, limit=30)
+    return {
+        "used_bytes": sub.traffic_used_bytes,
+        "limit_bytes": sub.traffic_limit_bytes,
+        "unlimited": not sub.traffic_limit_bytes,
+        "series": [{"day": r.day, "used_bytes": r.used_bytes} for r in reversed(rows)],
+    }
+
+
 @router.get("/config")
 async def app_config(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
     """Public theming config (no auth) so the shell can paint before initData checks."""

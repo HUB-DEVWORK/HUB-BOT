@@ -543,6 +543,38 @@ async def test_cabinet_reset_link(
     assert (await http.post("/api/cabinet/subscription/reset-link", headers=tma)).status_code == 429
 
 
+async def test_cabinet_traffic(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    http, _ = client
+    auth = await _login(http)
+    tma = _tma_headers(tg_id=777000999)
+    # no subscription yet -> zeros + empty series
+    res = await http.get("/api/cabinet/traffic", headers=tma)
+    assert res.status_code == 200 and res.json()["series"] == []
+    # after a purchase -> current usage + limit reported
+    r = await http.post(
+        "/api/admin/plans",
+        headers=auth,
+        json={
+            "name": "Traf",
+            "traffic_limit_gb": 100,
+            "durations": [{"days": 30, "price_minor": 10000}],
+        },
+    )
+    plan_id = r.json()["id"]
+    uid = (await http.get("/api/cabinet/me", headers=tma)).json()["user"]["id"]
+    await http.post(f"/api/admin/users/{uid}/balance", headers=auth, json={"amount_minor": 50000})
+    await http.post(
+        "/api/cabinet/purchase",
+        headers=tma,
+        json={"plan_id": plan_id, "days": 30, "method": "balance"},
+    )
+    body = (await http.get("/api/cabinet/traffic", headers=tma)).json()
+    assert "used_bytes" in body
+    assert body["limit_bytes"] == 100 * 1024**3
+
+
 # --- servers sync -------------------------------------------------------------------------
 
 

@@ -25,6 +25,7 @@ from src.infrastructure.database.models.sale_campaign import SaleCampaign
 from src.infrastructure.database.models.server_node import ServerNode
 from src.infrastructure.database.models.smart_reminder import SmartReminder
 from src.infrastructure.database.models.ticket import Ticket, TicketMessage
+from src.infrastructure.database.models.traffic_snapshot import TrafficSnapshot
 from src.infrastructure.database.models.winback_step import WinbackStep
 from src.infrastructure.database.models.withdrawal import WithdrawalRequest
 
@@ -203,6 +204,30 @@ class TicketMessageDAO(BaseDAO[TicketMessage]):
 
 class ReportTopicDAO(BaseDAO[ReportTopic]):
     model = ReportTopic
+
+
+class TrafficSnapshotDAO(BaseDAO[TrafficSnapshot]):
+    model = TrafficSnapshot
+
+    async def upsert(self, subscription_id: int, day: str, used_bytes: int) -> None:
+        row = await self.find_one(subscription_id=subscription_id, day=day)
+        if row is None:
+            self.session.add(
+                TrafficSnapshot(subscription_id=subscription_id, day=day, used_bytes=used_bytes)
+            )
+        else:
+            row.used_bytes = used_bytes
+        await self.session.flush()
+
+    async def series(self, subscription_id: int, limit: int = 30) -> Sequence[TrafficSnapshot]:
+        """Most-recent-first daily readings (client reverses + diffs for the graph)."""
+        result = await self.session.scalars(
+            select(TrafficSnapshot)
+            .where(TrafficSnapshot.subscription_id == subscription_id)
+            .order_by(TrafficSnapshot.day.desc())
+            .limit(limit)
+        )
+        return result.all()
 
 
 class WithdrawalDAO(BaseDAO[WithdrawalRequest]):
