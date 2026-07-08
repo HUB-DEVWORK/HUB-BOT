@@ -18,6 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.exc import IntegrityError
 
 from src.application.services.ids import generate_referral_code
 from src.core.enums import AuthType, Currency, UserStatus
@@ -135,7 +136,10 @@ async def register(
                     dt.datetime.now(dt.UTC) + dt.timedelta(hours=_VERIFY_TTL_HOURS)
                 ).isoformat(),
             }
-        await uow.commit()
+        try:
+            await uow.commit()
+        except IntegrityError as exc:  # concurrent registration lost the uq_users_email race
+            raise HTTPException(409, "email already registered") from exc
         user_id = user.id
 
     if not verify:

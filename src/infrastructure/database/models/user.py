@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Index, String
+from sqlalchemy import Boolean, Enum, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.enums import AuthType, Currency, Locale, Role, UserStatus
@@ -17,7 +17,18 @@ if TYPE_CHECKING:
 
 class User(IntPk, TimestampMixin, Base):
     __tablename__ = "users"
-    __table_args__ = (Index("ix_users_referral_code", "referral_code", unique=True),)
+    __table_args__ = (
+        Index("ix_users_referral_code", "referral_code", unique=True),
+        # One account per email — check-then-insert in register/guest/oauth can't race past a DB
+        # constraint. Partial (emails are optional; tma users have none). Emails stored lowercased.
+        Index(
+            "uq_users_email",
+            "email",
+            unique=True,
+            postgresql_where=text("email IS NOT NULL"),
+            sqlite_where=text("email IS NOT NULL"),
+        ),
+    )
 
     telegram_id: Mapped[int | None] = mapped_column(BigInt, unique=True, index=True)
     auth_type: Mapped[AuthType] = mapped_column(
@@ -69,7 +80,7 @@ class User(IntPk, TimestampMixin, Base):
     saved_payment_method_title: Mapped[str | None] = mapped_column(String(64))
 
     # --- web cabinet (used later by the mini-app) --------------------------
-    email: Mapped[str | None] = mapped_column(String(255), index=True)
+    email: Mapped[str | None] = mapped_column(String(255))  # uniqueness via uq_users_email
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     password_hash: Mapped[str | None] = mapped_column(String(255))
     notification_settings: Mapped[dict[str, Any]] = mapped_column(JsonB, default=dict)

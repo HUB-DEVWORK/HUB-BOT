@@ -26,6 +26,9 @@ log = get_logger(__name__)
 
 _POLL_ATTEMPTS = 10
 _POLL_DELAY = 2.0
+# Safety bound on one scan's working set — far above any realistic live+panel base. If a scan ever
+# hits it we log rather than silently skip the rest (a shop that large should raise this knowingly).
+_SCAN_CAP = 100_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,10 +86,10 @@ class DeviceGuardService:
     ) -> list[Violation]:
         """Match collected usage to our live subscriptions and apply the configured action."""
         violations: list[Violation] = []
-        subs = await uow.subscriptions.list()
+        subs = await uow.subscriptions.live_with_panel(_SCAN_CAP)
+        if len(subs) >= _SCAN_CAP:
+            log.warning("device-guard scan hit the subscription cap", cap=_SCAN_CAP)
         for sub in subs:
-            if not sub.status.is_usable or sub.remnawave_uuid is None:
-                continue
             ips = self._ips_for(sub, usage)
             limit = sub.device_limit or cfg.max_ips
             if limit <= 0 or len(ips) <= limit + cfg.tolerance:

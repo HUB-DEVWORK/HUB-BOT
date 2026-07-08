@@ -153,14 +153,14 @@ async def user_detail(
         )
         txs = await uow.transactions.list_recent(user_id, limit=10)
         invited = await uow.users.count(referred_by_id=user_id)
-        earnings = await uow.referral_earnings.list(user_id=user_id, limit=1000)
+        earned_minor = await uow.referral_earnings.total_minor(user_id)
 
         detail = _row(user, sub)
         detail.update(
             {
                 "referral_code": user.referral_code,
                 "referral_invited": invited,
-                "referral_earned_minor": sum(e.amount_minor for e in earnings),
+                "referral_earned_minor": earned_minor,
                 "is_trial_available": user.is_trial_available,
                 "personal_discount_pct": user.personal_discount_pct,
                 "purchase_discount_pct": user.purchase_discount_pct,
@@ -359,6 +359,13 @@ async def reset_traffic(
         sub = await uow.subscriptions.get(user.current_subscription_id)
         if sub is None:
             raise HTTPException(400, "subscription missing")
+        # Panel-first: reset on Remnawave, else a user.updated webhook re-mirrors the real usage
+        # and the local zero is reverted — a traffic-LIMITED user would stay throttled (#3).
+        if sub.remnawave_uuid is not None:
+            try:
+                await container.remnawave_client.reset_traffic(sub.remnawave_uuid)
+            except RemnawaveError as exc:
+                raise HTTPException(502, f"panel error: {exc}") from exc
         sub.traffic_used_bytes = 0
         await audit(uow, identity, "user.reset_traffic", f"user:{user_id}")
         await uow.commit()

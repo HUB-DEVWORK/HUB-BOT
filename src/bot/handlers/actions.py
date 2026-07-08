@@ -371,15 +371,14 @@ _TXN_STATUS_EMOJI: dict[TransactionStatus, str] = {
 @router.callback_query(F.data.startswith("act:history"))
 async def act_history(cb: CallbackQuery | Message, container: AppContainer, db_user: User) -> None:
     async with container.uow() as uow:
-        txns = list(await uow.transactions.list(user_id=db_user.id))
-    txns.sort(key=lambda t: t.created_at, reverse=True)
+        txns = await uow.transactions.list_recent(db_user.id, limit=10)
     if not txns:
         text = "<b>🧾 История операций</b>\n\nПока пусто — здесь появятся все пополнения и платежи."
     else:
         lines = [
             f"{_TXN_STATUS_EMOJI.get(t.status, '')} {t.created_at:%d.%m} · "
             f"{_TXN_LABEL.get(t.type, t.type.value)} · {fmt_money(t.amount_minor)}"
-            for t in txns[:10]
+            for t in txns
         ]
         text = "<b>🧾 История операций</b>\n\n" + "\n".join(lines)
     await render_screen(cb, container, "history", text, simple_keyboard([("‹ Меню", "nav:root")]))
@@ -634,11 +633,11 @@ async def act_devices(cb: CallbackQuery | Message, container: AppContainer, db_u
     else:
         lines = [f"<b>📱 Устройства{limit}</b>", "", "Нажми на устройство, чтобы отвязать:"]
         kb = []
-        for d in devices[:10]:
+        # Encode the INDEX, not the HWID: a full HWID (up to 64 chars) + "devdel:" overruns the
+        # 64-byte callback_data cap; truncating it made the panel unbind silently miss (#8).
+        for i, d in enumerate(devices[:10]):
             label = " · ".join(x for x in (d.platform, d.device_model) if x) or d.hwid[:12]
-            kb.append(
-                [InlineKeyboardButton(text=f"❌ {label}", callback_data=f"devdel:{d.hwid[:48]}")]
-            )
+            kb.append([InlineKeyboardButton(text=f"❌ {label}", callback_data=f"devdel:{i}")])
         text = "\n".join(lines)
         kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
     await render_screen(cb, container, "devices", text, InlineKeyboardMarkup(inline_keyboard=kb))
@@ -647,22 +646,27 @@ async def act_devices(cb: CallbackQuery | Message, container: AppContainer, db_u
 
 @router.callback_query(F.data.startswith("devdel:"))
 async def devdel(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    hwid = (cb.data or "")[len("devdel:") :]
+    idx_s = (cb.data or "")[len("devdel:") :]
+    idx = int(idx_s) if idx_s.isdigit() else -1
     async with container.uow() as uow:
         sub = (
             await uow.subscriptions.get(db_user.current_subscription_id)
             if db_user.current_subscription_id
             else None
         )
-    if sub is None or sub.remnawave_uuid is None or not hwid:
+    if sub is None or sub.remnawave_uuid is None or idx < 0:
         await ack(cb, "Нет активной подписки", alert=True)
         return
     try:
-        await container.remnawave_client.delete_device(sub.remnawave_uuid, hwid)
+        devices = await container.remnawave_client.get_devices(sub.remnawave_uuid)
+        if idx >= len(devices):  # list changed since render
+            await ack(cb, "Список изменился — открой заново", alert=True)
+        else:
+            await container.remnawave_client.delete_device(sub.remnawave_uuid, devices[idx].hwid)
+            await ack(cb, "Устройство отвязано ✅")
     except Exception:
         await ack(cb, "Не получилось — попробуй позже", alert=True)
         return
-    await ack(cb, "Устройство отвязано ✅")
     await act_devices(cb, container, db_user)
 
 

@@ -107,17 +107,6 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Maintenance text",
     ),
     _p(
-        "LANGUAGE_SELECTION_ENABLED",
-        C.MAIN,
-        BOOL,
-        False,
-        "Выбор языка при старте",
-        "Language picker on start",
-        "Спрашивать язык при первом /start",
-        "Ask language on first /start",
-    ),
-    _p("DEFAULT_LANGUAGE", C.MAIN, STR, "ru", "Язык по умолчанию", "Default language"),
-    _p(
         "START_MESSAGE",
         C.MAIN,
         STR,
@@ -193,16 +182,6 @@ REGISTRY: tuple[ParamSpec, ...] = (
     _p("TRIAL_DEVICE_LIMIT", C.SUBSCRIPTIONS, INT, 1, "Устройств на триале", "Trial devices"),
     _p(
         "DEFAULT_DEVICE_LIMIT", C.SUBSCRIPTIONS, INT, 3, "Устройств по умолчанию", "Default devices"
-    ),
-    _p(
-        "DEFAULT_TRAFFIC_STRATEGY",
-        C.SUBSCRIPTIONS,
-        STR,
-        "MONTH",
-        "Сброс трафика",
-        "Traffic reset",
-        "NO_RESET / DAY / WEEK / MONTH — стратегия панели",
-        "Panel traffic reset strategy",
     ),
     _p(
         "AUTO_RENEWAL_ENABLED",
@@ -301,58 +280,6 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Форум-группа, куда бот пишет отчёты по топикам",
         "Forum group for topic reports",
     ),
-    _p(
-        "PAYMENT_NOTIFICATIONS_ENABLED",
-        C.NOTIFICATIONS,
-        BOOL,
-        True,
-        "Уведомления о платежах",
-        "Payment notifications",
-    ),
-    _p(
-        "PAYMENT_NOTIFICATIONS_TOPIC_ID",
-        C.NOTIFICATIONS,
-        INT,
-        0,
-        "Топик уведомлений о платежах",
-        "Payments topic ID",
-    ),
-    _p(
-        "REGISTRATION_NOTIFICATIONS_ENABLED",
-        C.NOTIFICATIONS,
-        BOOL,
-        True,
-        "Уведомления о регистрациях",
-        "Registration notifications",
-    ),
-    _p(
-        "EXPIRY_WARNING_DAYS",
-        C.NOTIFICATIONS,
-        STR,
-        "3,1",
-        "Предупреждение об истечении",
-        "Expiry warning days",
-        "За сколько дней напоминать (CSV)",
-        "CSV day offsets",
-    ),
-    _p(
-        "TRAFFIC_ALERT_PERCENT",
-        C.NOTIFICATIONS,
-        INT,
-        80,
-        "Порог уведомления о трафике %",
-        "Traffic alert %",
-    ),
-    _p("DAILY_REPORT_ENABLED", C.NOTIFICATIONS, BOOL, True, "Ежедневный отчёт", "Daily report"),
-    _p(
-        "DAILY_REPORT_TIME",
-        C.NOTIFICATIONS,
-        STR,
-        "21:00",
-        "Время ежедневного отчёта",
-        "Daily report time",
-    ),
-    _p("WEEKLY_REPORT_ENABLED", C.NOTIFICATIONS, BOOL, True, "Недельный отчёт", "Weekly report"),
     # --- REFERRAL ---------------------------------------------------------------
     _p("REFERRAL_ENABLED", C.REFERRAL, BOOL, True, "Реферальная программа", "Referral program"),
     _p(
@@ -582,7 +509,6 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Доля с каждого пополнения реферала",
         "Share of each referral top-up",
     ),
-    _p("REFERRAL_SECOND_LEVEL_PERCENT", C.REFERRAL, INT, 0, "Процент 2-го уровня", "2nd level %"),
     # --- SECURITY ----------------------------------------------------------------
     _p(
         "BLACKLIST_CHECK_ENABLED",
@@ -593,14 +519,6 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Blacklist check",
         "Проверять юзеров по базе недоброжелателей",
         "Check users against the shared blacklist",
-    ),
-    _p(
-        "BLACKLIST_UPDATE_INTERVAL_HOURS",
-        C.SECURITY,
-        INT,
-        24,
-        "Обновление чёрного списка (ч)",
-        "Blacklist update interval (h)",
     ),
     _p(
         "RATE_LIMIT_ENABLED",
@@ -621,22 +539,6 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Anti-flood cooldown (sec)",
         "Минимум секунд между действиями одного юзера",
         "Minimum seconds between one user's actions",
-    ),
-    _p(
-        "TRAFFIC_MONITORING_ENABLED",
-        C.SECURITY,
-        BOOL,
-        False,
-        "Мониторинг аномального трафика",
-        "Traffic anomaly monitoring",
-    ),
-    _p(
-        "TRAFFIC_THRESHOLD_GB_PER_DAY",
-        C.SECURITY,
-        INT,
-        100,
-        "Порог аномалии трафика (ГБ/сут)",
-        "Anomaly threshold GB/day",
     ),
     _p(
         "AUTO_PURCHASE_AFTER_TOPUP",
@@ -707,20 +609,10 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "all — всё; trial — только пробный период; buy — только покупки",
         "all — everything; trial — only the trial; buy — only purchases",
     ),
-    _p("HWID_DEVICE_LIMIT_ENABLED", C.SECURITY, BOOL, True, "Лимит HWID-устройств", "HWID limit"),
     # --- BACKUPS -------------------------------------------------------------------
     _p("BACKUP_ENABLED", C.BACKUPS, BOOL, True, "Автоматический бэкап", "Auto backup"),
-    _p("BACKUP_INTERVAL_HOURS", C.BACKUPS, INT, 24, "Интервал бэкапа (ч)", "Backup interval (h)"),
     _p("BACKUP_TIME", C.BACKUPS, STR, "04:00", "Время бэкапа", "Backup time"),
     _p("BACKUP_KEEP_LAST", C.BACKUPS, INT, 7, "Хранить копий", "Keep last N"),
-    _p(
-        "BACKUP_SEND_TO_GROUP",
-        C.BACKUPS,
-        BOOL,
-        True,
-        "Бэкап в группу отчётов",
-        "Send backup to report group",
-    ),
     _p(
         "BACKUP_ENCRYPTION_PASSWORD",
         C.BACKUPS,
@@ -731,16 +623,6 @@ REGISTRY: tuple[ParamSpec, ...] = (
     ),
     # --- BOT INTERFACE ---------------------------------------------------------------
     _p(
-        "CONNECT_BUTTON_HAPP_REDIRECT_ENABLED",
-        C.INTERFACE,
-        BOOL,
-        False,
-        "HTTPS-редирект для Happ",
-        "Happ HTTPS redirect",
-        "Оборачивать happ:// в https-редирект (iOS)",
-        "Wrap happ:// into an https redirect",
-    ),
-    _p(
         "HIDE_SUBSCRIPTION_LINK",
         C.INTERFACE,
         BOOL,
@@ -749,14 +631,6 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Hide subscription link",
         "Показывать только кнопку «Открыть в приложении»",
         "Show only the open-in-app button",
-    ),
-    _p(
-        "SHOW_SERVER_COUNTRIES",
-        C.INTERFACE,
-        BOOL,
-        True,
-        "Показывать страны серверов",
-        "Show server countries",
     ),
     _p(
         "SHOW_TRAFFIC_USAGE",

@@ -48,6 +48,10 @@ class TransactionDAO(BaseDAO[Transaction]):
                 Transaction.gateway_type.is_not(None),
                 Transaction.amount_minor > 0,
                 Transaction.receipt_uuid.is_(None),
+                # receipt_created_at is stamped as an "in-flight" claim BEFORE the irreversible
+                # fiscal registration, so a crash between filing and the receipt_uuid write can't
+                # re-file the same income on the next run (nalogo idempotency).
+                Transaction.receipt_created_at.is_(None),
                 Transaction.created_at > newer_than,
             )
             .order_by(Transaction.created_at)

@@ -29,3 +29,18 @@ class SubscriptionDAO(BaseDAO[Subscription]):
             Subscription.status.in_(_USABLE),
         )
         return (await self.session.scalars(stmt)).all()
+
+    async def live_with_panel(self, limit: int) -> Sequence[Subscription]:
+        """Usable subs that are provisioned on the panel — the resync / device-guard working set.
+        Filter is pushed to SQL (hits ix_subscriptions_remnawave_uuid) instead of loading the whole
+        table and filtering in Python, which is O(all subs) and unbounded at scale."""
+        stmt = (
+            select(Subscription)
+            .where(
+                Subscription.status.in_(_USABLE),
+                Subscription.remnawave_uuid.is_not(None),
+            )
+            .order_by(Subscription.id)
+            .limit(limit)
+        )
+        return (await self.session.scalars(stmt)).all()

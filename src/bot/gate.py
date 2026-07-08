@@ -90,7 +90,9 @@ async def ensure_channel(
         return True
 
     rows = [[InlineKeyboardButton(text=f"📢 {ch.title}", url=ch.url)] for ch in missing[:8]]
-    rows.append([InlineKeyboardButton(text="✅ Я подписался", callback_data="check:sub")])
+    # Carry the scope so «Я подписался» resumes the action the user was gated on (buy vs trial),
+    # not always the buy flow.
+    rows.append([InlineKeyboardButton(text="✅ Я подписался", callback_data=f"check:sub:{scope}")])
     rows.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
     text = (
         "Чтобы продолжить, подпишись на наш канал 👇"

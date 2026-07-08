@@ -261,6 +261,9 @@ async def reconcile_pending_payments() -> int:
             )
             if result.status is TransactionStatus.COMPLETED:
                 await _notify_paid(container, txn.payment_id)
+                # Same post-completion side effects as the live webhook path (tasks.py:48-50):
+                # a recovered top-up must still complete its stashed smart-cart purchase (#5).
+                await _try_auto_purchase(container, txn.payment_id)
     return recovered
 
 
@@ -320,22 +323,37 @@ async def issue_nalogo_receipts() -> int:
         return 0
 
     client = NalogoClient(inn, token, service)
+    from src.infrastructure.database.models.transaction import Transaction
+
     issued = 0
     for txn in pending:
         name = str((txn.plan_snapshot or {}).get("name") or service)
+        # Claim the slot BEFORE the irreversible fiscal call: stamp receipt_created_at under a row
+        # lock so a crash between register_income and the receipt_uuid write can't re-file next
+        # run (list_unreceipted skips claimed rows). Un-claim on a transient error to retry.
+        telegram_id = None
+        async with container.uow() as uow:
+            row = await uow.session.get(Transaction, txn.id, with_for_update=True)
+            if row is None or row.receipt_created_at is not None:
+                continue  # already claimed / filed by a concurrent run
+            row.receipt_created_at = dt.datetime.now(dt.UTC)
+            await uow.commit()
         try:
             receipt_id = await client.register_income(txn.amount_minor, name=name)
         except NalogoError as exc:
             log.warning("nalogo receipt deferred", payment_id=str(txn.payment_id), error=str(exc))
+            async with container.uow() as uow:  # un-claim so a transient failure retries
+                row = await uow.transactions.get_by_payment_id(txn.payment_id)
+                if row is not None:
+                    row.receipt_created_at = None
+                    await uow.commit()
             continue
         async with container.uow() as uow:
             row = await uow.transactions.get_by_payment_id(txn.payment_id)
             if row is not None:
                 # receipt_uuid holds the public print URL (the id is embedded in it).
                 row.receipt_uuid = receipt_id[:64]
-                row.receipt_created_at = dt.datetime.now(dt.UTC)
                 await uow.commit()
-                telegram_id = None
                 user = await uow.users.get(row.user_id)
                 telegram_id = user.telegram_id if user else None
         issued += 1

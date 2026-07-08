@@ -299,14 +299,14 @@ async def referral(
         bonus_days = int(await cfg.value(uow, "REFERRAL_BONUS_DAYS"))
         percent = int(await cfg.value(uow, "REFERRAL_PERCENT"))
         invited = await uow.users.count(referred_by_id=user.id)
-        earnings = await uow.referral_earnings.list(user_id=user.id, limit=1000)
+        earnings_minor = await uow.referral_earnings.total_minor(user.id)
     return {
         "code": user.referral_code,
         "link": f"https://t.me/{bot_username}?start=ref_{user.referral_code}",
         "bonus_days": bonus_days,
         "commission_percent": percent,
         "invited_count": invited,
-        "earnings_minor": sum(e.amount_minor for e in earnings),
+        "earnings_minor": earnings_minor,
     }
 
 

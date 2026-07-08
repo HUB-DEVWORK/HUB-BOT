@@ -76,7 +76,9 @@ async def process_withdrawal(
     container: AppContainer = Depends(get_container),
 ) -> OkOut:
     async with container.uow() as uow:
-        req = await uow.withdrawals.get(withdrawal_id)
+        # FOR UPDATE: two concurrent PATCHes (double-click / two admins) must not both read
+        # PENDING and both refund the hold — the 2nd blocks, then sees REJECTED and 409s (#7).
+        req = await uow.session.get(WithdrawalRequest, withdrawal_id, with_for_update=True)
         if req is None:
             raise HTTPException(404, "withdrawal not found")
         if req.status is not WithdrawalStatus.PENDING:

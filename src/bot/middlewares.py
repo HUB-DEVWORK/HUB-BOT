@@ -18,6 +18,21 @@ from src.infrastructure.di import AppContainer
 Handler = Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]]
 
 
+class AbortFormOnCommand(BaseMiddleware):
+    """A slash-command is top-level navigation, so it must abort any pending form (promocode /
+    withdrawal-details input). Otherwise the FSM state survives (RedisStorage) and the user's
+    NEXT stray message is captured by the form handler — e.g. typed as withdrawal details and
+    charged. Runs as an INNER middleware so ``state`` is already resolved into ``data``.
+    """
+
+    async def __call__(self, handler: Handler, event: TelegramObject, data: dict[str, Any]) -> Any:
+        if isinstance(event, Message) and (event.text or "").startswith("/"):
+            state = data.get("state")
+            if state is not None and await state.get_state() is not None:
+                await state.clear()
+        return await handler(event, data)
+
+
 def _tg_user(event: TelegramObject) -> TgUser | None:
     if isinstance(event, Message | CallbackQuery):
         return event.from_user

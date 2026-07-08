@@ -67,6 +67,16 @@ async def payment_webhook(
             return {"accepted": True, "ignored": True}
         raise HTTPException(status_code=404, detail="payment not found")
 
+    # Persist the provider's canonical transaction id so a later refund targets it. Some
+    # gateways (CloudPayments) return a create-time order id at checkout but a different
+    # TransactionId in the webhook — the refund API needs the latter (#4). No-op when they match.
+    if result.status is TransactionStatus.COMPLETED and result.external_id:
+        async with container.uow() as uow:
+            paid = await uow.transactions.get_by_payment_id(payment_id)
+            if paid is not None and paid.external_id != result.external_id:
+                paid.external_id = result.external_id
+                await uow.commit()
+
     # The provider saved a card for recurring charges — pass it along encrypted (the raw
     # charge token must not sit plaintext in the broker; stored on the user by the worker).
     saved_method_enc = saved_method_title = None

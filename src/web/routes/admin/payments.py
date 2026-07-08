@@ -410,7 +410,9 @@ async def refund_payment(
     async with container.uow() as uow:
         if not bool(await container.bot_config.value(uow, "REFUND_ENABLED")):
             raise HTTPException(403, "Возвраты отключены в настройках (REFUND_ENABLED)")
-        txn = await uow.transactions.get(txn_id)
+        # FOR UPDATE serializes concurrent refunds (double-click / two admins): the 2nd blocks,
+        # then sees REFUNDED and 409s, so the provider refund fires at most once per payment.
+        txn = await uow.session.get(Transaction, txn_id, with_for_update=True)
         if txn is None:
             raise HTTPException(404, "transaction not found")
         if txn.status is not TransactionStatus.COMPLETED:

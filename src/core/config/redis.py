@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from pydantic import BaseModel
 
 
@@ -13,5 +15,6 @@ class RedisSettings(BaseModel):
 
     @property
     def url(self) -> str:
-        auth = f":{self.password}@" if self.password else ""
+        # Percent-encode the password so URL-reserved chars in a secret don't corrupt the DSN.
+        auth = f":{quote(self.password, safe='')}@" if self.password else ""
         return f"redis://{auth}{self.host}:{self.port}/{self.db}"

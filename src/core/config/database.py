@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from pydantic import BaseModel
 
 
@@ -15,7 +17,7 @@ class DatabaseSettings(BaseModel):
 
     @property
     def url(self) -> str:
-        """Async SQLAlchemy URL (asyncpg driver)."""
-        return (
-            f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
-        )
+        """Async SQLAlchemy URL (asyncpg driver). Credentials are percent-encoded so a generated
+        secret with URL-reserved chars (@ / : + = #) can't corrupt the DSN."""
+        user, password = quote(self.user, safe=""), quote(self.password, safe="")
+        return f"postgresql+asyncpg://{user}:{password}@{self.host}:{self.port}/{self.name}"

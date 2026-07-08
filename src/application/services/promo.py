@@ -114,7 +114,10 @@ class PromoService:
             currency=Currency.RUB,
             purchase_type=PurchaseType.NEW,
         )
-        await self._subscriptions.grant(uow, user=user, plan=plan, req=req, is_trial=False)
+        # A promo gift, not a purchase — don't mark the user as a paying customer.
+        await self._subscriptions.grant(
+            uow, user=user, plan=plan, req=req, is_trial=False, mark_paid=False
+        )
 
     async def _apply_wallet_reward(self, uow: UnitOfWork, promo: Promocode, user: User) -> None:
         match promo.reward_type:

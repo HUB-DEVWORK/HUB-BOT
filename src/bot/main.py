@@ -13,7 +13,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.redis import RedisStorage
 
 from src.bot.handlers import build_router
-from src.bot.middlewares import ContextMiddleware
+from src.bot.middlewares import AbortFormOnCommand, ContextMiddleware
 from src.core.config import get_settings
 from src.core.logging import configure_logging, get_logger
 from src.infrastructure.di import AppContainer
@@ -58,6 +58,9 @@ async def run() -> None:
     context = ContextMiddleware(container)
     dp.message.outer_middleware(context)
     dp.callback_query.outer_middleware(context)
+    # Inner (post-FSM-resolution): a command aborts a pending form so a later stray message
+    # can't be captured as promocode/withdrawal input.
+    dp.message.middleware(AbortFormOnCommand())
     dp.include_router(build_router())
 
     await _apply_bot_config(bot, container)

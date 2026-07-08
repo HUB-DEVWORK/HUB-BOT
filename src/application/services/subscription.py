@@ -45,8 +45,13 @@ class SubscriptionService:
         plan: Plan,
         req: PurchaseRequest,
         is_trial: bool = False,
+        mark_paid: bool = True,
     ) -> Subscription:
-        """Create a brand-new subscription: panel user first, then persist locally."""
+        """Create a brand-new subscription: panel user first, then persist locally.
+
+        ``mark_paid`` records that the user became a paying customer. A free promo grant passes
+        False — a gift is neither a trial nor a purchase, so it must not flip has_had_paid (which
+        gates NEW/EXISTING-only promos and feeds paid-conversion analytics)."""
         short_id = generate_short_id()
         now = dt.datetime.now(dt.UTC)
         expire_at = now + dt.timedelta(days=req.duration_days)
@@ -94,7 +99,7 @@ class SubscriptionService:
         user.current_subscription_id = subscription.id
         if is_trial:
             user.is_trial_available = False
-        else:
+        elif mark_paid:
             user.has_had_paid_subscription = True
         return subscription
 
@@ -166,6 +171,12 @@ class SubscriptionService:
             subscription.internal_squads = list(req.internal_squads)
         elif plan.internal_squads:
             subscription.internal_squads = list(plan.internal_squads)
+        # Carry the new plan's external squad too — otherwise a plan change moving the user to a
+        # different exit silently keeps the old one (build_spec reads the sub, not the plan).
+        if req.external_squad is not None:
+            subscription.external_squad = req.external_squad
+        elif plan.external_squad is not None:
+            subscription.external_squad = plan.external_squad
         subscription.expire_at = dt.datetime.now(dt.UTC) + dt.timedelta(
             days=req.duration_days + bonus
         )
@@ -201,6 +212,12 @@ class SubscriptionService:
 
     @staticmethod
     def apply_purchase_discount_reset(user: User, purchase_type: PurchaseType) -> None:
-        """One-shot ``purchase_discount`` is consumed on any paid purchase (gotcha #14)."""
-        if purchase_type in (PurchaseType.NEW, PurchaseType.RENEW, PurchaseType.CHANGE):
+        """One-shot ``purchase_discount`` is consumed on ANY paid purchase (gotcha #14) —
+        including a traffic top-up, whose price is also reduced by it (#9)."""
+        if purchase_type in (
+            PurchaseType.NEW,
+            PurchaseType.RENEW,
+            PurchaseType.CHANGE,
+            PurchaseType.TRAFFIC_TOPUP,
+        ):
             user.purchase_discount_pct = 0

@@ -85,10 +85,18 @@ async def show_plans(cb: CallbackQuery | Message, container: AppContainer, db_us
     await ack(cb)
 
 
-@router.callback_query(F.data == "check:sub")
+@router.callback_query(F.data.startswith("check:sub"))
 async def check_sub(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    """'Я подписался' — re-check channel membership, then open the buy flow on success."""
-    if await ensure_channel(cb, container, scope="buy"):
+    """'Я подписался' — re-check membership, then resume the action the user was gated on."""
+    parts = (cb.data or "check:sub").split(":")
+    scope = parts[2] if len(parts) >= 3 else "buy"
+    if not await ensure_channel(cb, container, scope=scope):
+        return
+    if scope == "trial":
+        from src.bot.handlers.actions import act_trial
+
+        await act_trial(cb, container, db_user)
+    else:
         await open_buy(cb, container, db_user)
 
 

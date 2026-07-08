@@ -7,6 +7,7 @@ immediately. ``fulfill`` provisions the subscription. Payment-driven fulfilment 
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from src.application.common.events import EventBus
@@ -165,6 +166,17 @@ class PurchaseService:
         the whole purchase (including the balance debit) back. Raises ``InsufficientBalance`` /
         ``InvalidStateTransition`` / ``RemnawaveError`` for the caller to map to its response.
         """
+        # Serialize concurrent taps on the same wallet (aiogram runs updates in parallel): without
+        # the lock two near-simultaneous buys both resolve NEW and both grant a panel user,
+        # orphaning the first (#6). Under the lock the 2nd re-resolves to RENEW against the 1st.
+        if await uow.users.lock_for_update(req.user_id) is None:
+            raise PurchaseError(f"user {req.user_id} not found")
+        # A plan buy re-resolves NEW/RENEW/CHANGE under the lock so the 2nd tap renews the 1st
+        # tap's sub instead of orphaning it. Traffic top-ups keep their type (resolve only knows
+        # NEW/RENEW/CHANGE); the lock still serializes them.
+        if req.purchase_type is not PurchaseType.TRAFFIC_TOPUP:
+            ptype, sub_id = await self.resolve_purchase_type(uow, req.user_id, req.plan_id)
+            req = replace(req, purchase_type=ptype, subscription_id=sub_id)
         txn, quote = await self.start(uow, req)
         if quote.is_free:
             return txn, quote  # start() already completed + fulfilled the free purchase

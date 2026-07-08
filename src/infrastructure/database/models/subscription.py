@@ -47,6 +47,14 @@ class Subscription(IntPk, TimestampMixin, Base):
             postgresql_where=text(f"status IN ({_LIVE_STATUS_SQL})"),
             sqlite_where=text(f"status IN ({_LIVE_STATUS_SQL})"),
         ),
+        # Hottest read path: every inbound panel webhook resolves the sub by remnawave_uuid —
+        # index it so it isn't a full-table scan that degrades with the user base (perf).
+        Index(
+            "ix_subscriptions_remnawave_uuid",
+            "remnawave_uuid",
+            postgresql_where=text("remnawave_uuid IS NOT NULL"),
+            sqlite_where=text("remnawave_uuid IS NOT NULL"),
+        ),
     )
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)

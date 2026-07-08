@@ -43,11 +43,7 @@ class RemnawaveResyncService:
 
     async def resync(self, uow: UnitOfWork, *, limit: int = 500) -> ResyncReport:
         report = ResyncReport()
-        subs = [
-            s
-            for s in await uow.subscriptions.list()
-            if s.status.is_usable and s.remnawave_uuid is not None
-        ][:limit]
+        subs = await uow.subscriptions.live_with_panel(limit)
         for sub in subs:
             report.checked += 1
             assert sub.remnawave_uuid is not None
@@ -74,6 +70,10 @@ class RemnawaveResyncService:
                     await self._subscriptions.push_limits(
                         uow, sub, telegram_id=user.telegram_id if user else None
                     )
+                    if not panel.is_enabled:
+                        # push_limits PATCHes limits but never flips status; a DISABLED user
+                        # needs the explicit enable action, else self-heal is a no-op (#2).
+                        await self._client.enable_user(sub.remnawave_uuid)
                     report.healed += 1
                     report.notes.append(
                         f"#{sub.id}: панель разошлась (enabled={panel.is_enabled}) → восстановлено"
