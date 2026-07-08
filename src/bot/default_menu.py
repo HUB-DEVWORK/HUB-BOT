@@ -60,19 +60,20 @@ class DefaultButton:
     label: str  # user-facing caption (emoji included)
     action: str  # a MENU_ACTIONS code
     color: str | None = None  # #RRGGBB hint → nearest Bot API button style
+    row: int = 0  # buttons sharing a row sit side by side (a tidy grid, not one column)
 
 
 # The starter menu every shop begins with; the owner edits/reorders it in the constructor.
 # Conditional buttons (trial, proxy, node status, admin) are added by the renderer at
 # runtime rather than seeded, so they appear only when actually applicable.
 DEFAULT_MENU: tuple[DefaultButton, ...] = (
-    DefaultButton("👤 Личный кабинет", "cabinet"),
-    DefaultButton("🛒 Купить VPN", "buy", "#2ecc71"),
-    DefaultButton("🔑 Моя подписка", "subscription"),
-    DefaultButton("🔌 Подключить", "connect", "#3498db"),
-    DefaultButton("💰 Баланс", "balance"),
-    DefaultButton("📊 История", "history"),
-    DefaultButton("🎟 Промокод", "promocode"),
-    DefaultButton("🎁 Пригласить друга", "referral"),
-    DefaultButton("🆘 Поддержка", "support"),
+    DefaultButton("🛒 Купить VPN", "buy", "#2ecc71", row=0),
+    DefaultButton("🔌 Подключить", "connect", "#3498db", row=1),
+    DefaultButton("🔑 Моя подписка", "subscription", row=1),
+    DefaultButton("👤 Личный кабинет", "cabinet", row=2),
+    DefaultButton("💰 Баланс", "balance", row=2),
+    DefaultButton("📊 История", "history", row=3),
+    DefaultButton("🎟 Промокод", "promocode", row=3),
+    DefaultButton("🎁 Пригласить друга", "referral", row=4),
+    DefaultButton("🆘 Поддержка", "support", row=5),
 )

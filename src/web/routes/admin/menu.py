@@ -29,6 +29,7 @@ class NodeIn(BaseModel):
     color: str | None = Field(None, max_length=9)
     image_path: str | None = Field(None, max_length=512)
     is_active: bool = True
+    row_index: int = Field(0, ge=0)  # buttons sharing a row_index sit side by side
 
     @field_validator("color")
     @classmethod
@@ -57,6 +58,7 @@ def _serialize(nodes: list[MenuNode]) -> list[dict[str, Any]]:
             "image_path": n.image_path,
             "is_active": n.is_active,
             "order_index": n.order_index,
+            "row_index": n.row_index,
         }
         for n in nodes
     ]
@@ -68,6 +70,7 @@ def _default_menu_rows() -> list[MenuNode]:
         MenuNode(
             parent_id=None,
             order_index=i,
+            row_index=b.row,
             label=b.label,
             kind=MenuNodeKind.ACTION,
             payload=b.action,
@@ -134,6 +137,7 @@ async def save_menu(
                     row = MenuNode(
                         parent_id=id_map.get(n.parent) if n.parent else None,
                         order_index=order,
+                        row_index=n.row_index,
                         label=n.label,
                         kind=n.kind,
                         payload=n.payload,

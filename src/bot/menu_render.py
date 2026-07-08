@@ -6,15 +6,10 @@ import contextlib
 
 from aiogram.types import CallbackQuery, Message
 
-from src.bot.default_menu import DEFAULT_MENU
-from src.bot.keyboards import menu_keyboard, simple_keyboard, webapp_button
+from src.bot.keyboards import default_menu_markup, menu_keyboard, simple_keyboard, webapp_button
 from src.bot.media import photo_input
 from src.infrastructure.database.models.user import User
 from src.infrastructure.di import AppContainer
-
-# Built-in fallback menu until the admin builds one (screen 05). Derived from the same
-# DEFAULT_MENU the "load default" constructor action seeds, so the two never drift.
-_DEFAULT_BUTTONS: list[tuple[str, str]] = [(b.label, f"act:{b.action}:0") for b in DEFAULT_MENU]
 
 
 async def send_main_menu(
@@ -53,11 +48,11 @@ async def send_main_menu(
             nodes, None, miniapp_url=miniapp_url or None, default_color=button_color
         )
     else:
-        markup = simple_keyboard(list(_DEFAULT_BUTTONS), default_color=button_color)
+        markup = default_menu_markup(button_color)
 
     if extras:
         markup.inline_keyboard.extend(
-            simple_keyboard(extras, default_color=button_color).inline_keyboard
+            simple_keyboard(extras, columns=2, default_color=button_color).inline_keyboard
         )
     # Prominent mini-app CTA on top, unless the owner already placed a mini-app button.
     if miniapp_url.startswith("https://") and not has_miniapp_node:

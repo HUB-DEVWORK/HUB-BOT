@@ -61,13 +61,18 @@ def menu_keyboard(
     with_back: bool = False,
     default_color: str | None = None,
 ) -> InlineKeyboardMarkup:
-    rows = [
-        [_button(n, miniapp_url, default_color)]
-        for n in sorted(
-            (n for n in nodes if n.parent_id == parent_id and n.is_active),
-            key=lambda n: n.order_index,
-        )
-    ]
+    siblings = sorted(
+        (n for n in nodes if n.parent_id == parent_id and n.is_active),
+        key=lambda n: (n.row_index, n.order_index),
+    )
+    rows: list[list[InlineKeyboardButton]] = []
+    current: int | None = None
+    for n in siblings:
+        # Buttons that share a row_index sit side by side; a new value starts a new row.
+        if not rows or n.row_index != current:
+            rows.append([])
+            current = n.row_index
+        rows[-1].append(_button(n, miniapp_url, default_color))
     if with_back and parent_id is not None:
         rows.append([InlineKeyboardButton(text="‹ Назад", callback_data="nav:root")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -101,3 +106,24 @@ def webapp_button(text: str, url: str) -> InlineKeyboardButton:
     from aiogram.types import WebAppInfo
 
     return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=url))
+
+
+def default_menu_markup(default_color: str | None = None) -> InlineKeyboardMarkup:
+    """Grid keyboard for the built-in fallback menu — mirrors the seeded DEFAULT_MENU rows,
+    so a fresh shop (before the menu is seeded) shows the same tidy layout, not one column."""
+    from src.bot.default_menu import DEFAULT_MENU
+
+    rows: list[list[InlineKeyboardButton]] = []
+    current: int | None = None
+    for b in DEFAULT_MENU:
+        style = style_for_hex(b.color or default_color)
+        kwargs: dict[str, object] = {"text": b.label, "callback_data": f"act:{b.action}:0"}
+        if style:
+            kwargs["style"] = style
+        button = InlineKeyboardButton(**kwargs)  # type: ignore[arg-type]
+        if not rows or b.row != current:
+            rows.append([button])
+            current = b.row
+        else:
+            rows[-1].append(button)
+    return InlineKeyboardMarkup(inline_keyboard=rows)

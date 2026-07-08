@@ -20,7 +20,10 @@ class MenuNode(IntPk, TimestampMixin, Base):
     parent_id: Mapped[int | None] = mapped_column(
         ForeignKey("menu_nodes.id", ondelete="CASCADE"), index=True
     )
-    order_index: Mapped[int] = mapped_column(default=0)
+    order_index: Mapped[int] = mapped_column(default=0)  # position within its row
+    row_index: Mapped[int] = mapped_column(
+        default=0
+    )  # buttons sharing a row_index sit side by side
 
     label: Mapped[str] = mapped_column(String(64))  # button caption
     kind: Mapped[MenuNodeKind] = mapped_column(
