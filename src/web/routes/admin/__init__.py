@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from src.web.routes.admin import (
+    analytics,
     auth,
     blacklist,
     broadcasts,
@@ -39,6 +40,7 @@ router.include_router(auth.router)
 
 _protected = APIRouter(dependencies=[Depends(require_admin)])
 _protected.include_router(dashboard.router)
+_protected.include_router(analytics.router)
 _protected.include_router(users.router)
 _protected.include_router(catalog.router)
 _protected.include_router(promos.router)

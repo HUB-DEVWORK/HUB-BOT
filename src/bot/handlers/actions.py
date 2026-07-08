@@ -376,8 +376,11 @@ async def act_referral(cb: CallbackQuery, container: AppContainer, db_user: User
         return
     link = f"https://t.me/{bot_username}?start=ref_{db_user.referral_code}"
     text = (
-        f"<b>Пригласи друга — оба получите +{bonus_days} дней</b>\n\n"
-        f"Твоя ссылка:\n<code>{link}</code>\n\nПриглашено: <b>{invited}</b>"
+        "🎁 <b>Пригласи друга</b>\n\n"
+        f"За каждого друга вы <b>оба</b> получаете <b>+{bonus_days} дн.</b> подписки.\n\n"
+        "Твоя ссылка (нажми, чтобы скопировать):\n"
+        f"<code>{link}</code>\n\n"
+        f"👥 Приглашено: <b>{invited}</b>"
     )
     share = f"https://t.me/share/url?url={link}"
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
