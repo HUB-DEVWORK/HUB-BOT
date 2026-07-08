@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from src.infrastructure.database.base import Base
 from src.infrastructure.database.models.audit_log import AuditLog
+from src.infrastructure.database.models.blacklist import BlacklistEntry
 from src.infrastructure.database.models.bot_config import BotConfigValue
 from src.infrastructure.database.models.broadcast import Broadcast
 from src.infrastructure.database.models.cabinet_token import CabinetRefreshToken
@@ -38,6 +39,7 @@ from src.infrastructure.database.models.withdrawal import WithdrawalRequest
 __all__ = [
     "AuditLog",
     "Base",
+    "BlacklistEntry",
     "BotConfigValue",
     "Broadcast",
     "CabinetRefreshToken",

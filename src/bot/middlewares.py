@@ -64,6 +64,10 @@ class ContextMiddleware(BaseMiddleware):
             maintenance = bool(await cfg.value(uow, "MAINTENANCE_MODE"))
             admin_ids = self._admin_ids(str(await cfg.value(uow, "ADMIN_IDS")))
             maintenance_text = str(await cfg.value(uow, "MAINTENANCE_MESSAGE"))
+            blacklist_on = bool(await cfg.value(uow, "BLACKLIST_CHECK_ENABLED"))
+            blacklisted = blacklist_on and await uow.blacklist.has(tg.id)
+            rate_on = bool(await cfg.value(uow, "RATE_LIMIT_ENABLED"))
+            cooldown = int(await cfg.value(uow, "RATE_LIMIT_COOLDOWN_SEC"))
             await uow.commit()
 
         if created:
@@ -79,6 +83,15 @@ class ContextMiddleware(BaseMiddleware):
         )
         if user.status is UserStatus.BLOCKED and not is_admin:
             return None  # blocked users are ignored entirely
+        if blacklisted and not is_admin:
+            return None  # blacklisted id — ignored entirely (survives re-registration)
+        if (
+            rate_on
+            and not is_admin
+            and cooldown > 0
+            and not await self.container.redis.set(f"rl:{tg.id}", "1", nx=True, ex=cooldown)
+        ):
+            return None  # too-frequent action — drop this update (flood control)
         if maintenance and not is_admin:
             if isinstance(event, Message):
                 await event.answer(maintenance_text)

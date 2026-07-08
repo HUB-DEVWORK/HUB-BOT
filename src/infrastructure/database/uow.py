@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.infrastructure.database.dao.admin import (
     AuditLogDAO,
+    BlacklistDAO,
     BotConfigValueDAO,
     BroadcastDAO,
     CabinetRefreshTokenDAO,
@@ -81,6 +82,7 @@ class UnitOfWork:
         self.referral_earnings = ReferralEarningDAO(session)
         # --- admin cabinet aggregates --------------------------------------
         self.bot_config = BotConfigValueDAO(session)
+        self.blacklist = BlacklistDAO(session)
         self.menu_nodes = MenuNodeDAO(session)
         self.miniapp = MiniappConfigDAO(session)
         self.broadcasts = BroadcastDAO(session)

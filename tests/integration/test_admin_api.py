@@ -575,6 +575,23 @@ async def test_cabinet_traffic(
     assert body["limit_bytes"] == 100 * 1024**3
 
 
+async def test_blacklist_crud(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    http, _ = client
+    auth = await _login(http)
+    res = await http.post(
+        "/api/admin/blacklist", headers=auth, json={"telegram_id": 999, "reason": "spam"}
+    )
+    assert res.status_code == 200, res.text
+    dup = await http.post("/api/admin/blacklist", headers=auth, json={"telegram_id": 999})
+    assert dup.status_code == 409
+    items = (await http.get("/api/admin/blacklist", headers=auth)).json()["items"]
+    assert 999 in [e["telegram_id"] for e in items]
+    assert (await http.delete("/api/admin/blacklist/999", headers=auth)).status_code == 200
+    assert (await http.delete("/api/admin/blacklist/999", headers=auth)).status_code == 404
+
+
 # --- servers sync -------------------------------------------------------------------------
 
 

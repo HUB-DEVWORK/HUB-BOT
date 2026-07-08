@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from src.core.enums import BroadcastStatus, TicketStatus
 from src.infrastructure.database.dao.base import BaseDAO
 from src.infrastructure.database.models.audit_log import AuditLog
+from src.infrastructure.database.models.blacklist import BlacklistEntry
 from src.infrastructure.database.models.bot_config import BotConfigValue
 from src.infrastructure.database.models.broadcast import Broadcast
 from src.infrastructure.database.models.cabinet_token import CabinetRefreshToken
@@ -45,6 +46,19 @@ class BotConfigValueDAO(BaseDAO[BotConfigValue]):
             row.value = value
             await self.session.flush()
         return row
+
+
+class BlacklistDAO(BaseDAO[BlacklistEntry]):
+    model = BlacklistEntry
+
+    async def has(self, telegram_id: int) -> bool:
+        return await self.find_one(telegram_id=telegram_id) is not None
+
+    async def ordered(self) -> Sequence[BlacklistEntry]:
+        result = await self.session.scalars(
+            select(BlacklistEntry).order_by(BlacklistEntry.created_at.desc())
+        )
+        return result.all()
 
 
 class MenuNodeDAO(BaseDAO[MenuNode]):
