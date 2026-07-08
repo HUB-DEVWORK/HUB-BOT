@@ -63,6 +63,21 @@ async def cmd_admin(message: Message, container: AppContainer, is_admin: bool) -
     )
 
 
+@router.message(Command("resetmenu"))
+async def cmd_resetmenu(message: Message, container: AppContainer, is_admin: bool) -> None:
+    """Reset the bot menu to the lean built-in default (admin only)."""
+    if not is_admin:
+        return
+    from src.web.routes.admin.menu import _default_menu_rows
+
+    async with container.uow() as uow:
+        await uow.menu_nodes.delete_by()
+        for row in _default_menu_rows():
+            await uow.menu_nodes.add(row)
+        await uow.commit()
+    await message.answer("✅ Меню сброшено к базовому. Открой /start — увидишь новый вид.")
+
+
 @router.callback_query(F.data == "admin:menu")
 async def admin_menu(cb: CallbackQuery, container: AppContainer, is_admin: bool) -> None:
     if not is_admin:
