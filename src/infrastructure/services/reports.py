@@ -58,12 +58,20 @@ async def send_topic_report(
             delivered = True
         except Exception:
             log.warning("report_send_failed", code=code, exc_info=True)
-    # Admin DMs (independent destination — works even without a group).
+    # Admin DMs (independent destination — works even without a group). A backup goes as
+    # the file itself; a text report goes as a message.
     if dm_admins:
         import contextlib
 
         with contextlib.suppress(Exception):
-            await container.notifier.notify_admins(text)
+            if document is not None:
+                from aiogram.types import FSInputFile
+
+                await container.notifier.notify_admins_document(
+                    FSInputFile(str(document)), caption=text
+                )
+            else:
+                await container.notifier.notify_admins(text)
             delivered = True
     return delivered
 

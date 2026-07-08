@@ -26,6 +26,9 @@ class LogNotifier:
     async def notify_admins(self, text: str, *, topic: str | None = None) -> None:
         log.info("notify_admins", topic=topic, text=text)
 
+    async def notify_admins_document(self, document: object, *, caption: str | None = None) -> None:
+        log.info("notify_admins_document", caption=caption)
+
     async def aclose(self) -> None:  # symmetry with TelegramNotifier
         return None
 
@@ -56,6 +59,13 @@ class TelegramNotifier:
                 await self._get_bot().send_message(admin_id, prefix + text)
             except Exception:
                 log.warning("notify_admin_failed", admin_id=admin_id, exc_info=True)
+
+    async def notify_admins_document(self, document: object, *, caption: str | None = None) -> None:
+        for admin_id in self._admin_ids:
+            try:
+                await self._get_bot().send_document(admin_id, document, caption=caption)  # type: ignore[arg-type]
+            except Exception:
+                log.warning("notify_admin_doc_failed", admin_id=admin_id, exc_info=True)
 
     async def aclose(self) -> None:
         if self._bot is not None:
