@@ -66,14 +66,12 @@ class DefaultButton:
 # The starter menu every shop begins with; the owner edits/reorders it in the constructor.
 # Conditional buttons (trial, proxy, node status, admin) are added by the renderer at
 # runtime rather than seeded, so they appear only when actually applicable.
+# Deliberately lean — a fresh shop starts uncluttered. Balance, subscription, history,
+# referral and promocode all live inside «Личный кабинет», so they aren't duplicated up
+# here; the owner adds any of them (or support) to the main menu from the constructor
+# when they actually want them (every action is offered by GET /bot-menu/actions).
 DEFAULT_MENU: tuple[DefaultButton, ...] = (
     DefaultButton("🛒 Купить VPN", "buy", "#2ecc71", row=0),
+    DefaultButton("👤 Личный кабинет", "cabinet", row=1),
     DefaultButton("🔌 Подключить", "connect", "#3498db", row=1),
-    DefaultButton("🔑 Моя подписка", "subscription", row=1),
-    DefaultButton("👤 Личный кабинет", "cabinet", row=2),
-    DefaultButton("💰 Баланс", "balance", row=2),
-    DefaultButton("📊 История", "history", row=3),
-    DefaultButton("🎟 Промокод", "promocode", row=3),
-    DefaultButton("🎁 Пригласить друга", "referral", row=4),
-    DefaultButton("🆘 Поддержка", "support", row=5),
 )

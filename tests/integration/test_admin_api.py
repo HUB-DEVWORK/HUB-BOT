@@ -253,7 +253,7 @@ async def test_menu_reset_default_seeds_editable_menu(
     res = await http.post("/api/admin/bot-menu/reset-default", headers=auth)
     assert res.status_code == 200, res.text
     nodes = res.json()["nodes"]
-    assert len(nodes) >= 6
+    assert len(nodes) >= 2
     assert all(n["parent"] is None and n["kind"] == "action" for n in nodes)
     # persisted + editable: a follow-up GET returns the same seeded tree
     got = (await http.get("/api/admin/bot-menu", headers=auth)).json()["nodes"]
