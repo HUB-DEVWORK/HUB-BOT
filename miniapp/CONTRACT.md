@@ -49,6 +49,8 @@ user has never bought/trialed.
   },
   "app": {                         // (fragment) bot-config driven UI hints
     "balance_enabled": true,       // hide the balance chip when false
+    "hide_subscription_link": false, // when true, subscription_url is null — show import buttons only
+    "show_traffic_usage": true,    // when false, hide the traffic panel (matches the bot)
     "payment_methods": [           // active online gateways -> extra pay chips
       { "id": "yookassa", "label": "Карта / СБП" }
     ]
@@ -74,9 +76,11 @@ user has never bought/trialed.
 
 ### `GET /api/cabinet/plans`
 
-Buyable catalogue. Prices are the **base** price; the client applies
-`user.personal_discount_pct` for display. The server is the source of truth at purchase time
-(discounts, promo-group tiers, cap 100% → free — `PricingService`).
+Buyable catalogue. For an authenticated user each duration's `price_minor` is the **quoted
+final** price (personal + promo-group + active sale, cap 100% → free) — so the browse price
+equals the charge; `base_price_minor` is the list price for a strikethrough. Do **not** re-apply
+a discount client-side. `items[].is_current` marks the user's active plan. (Public/guest
+`/public/plans` has no user, so it returns base prices only.)
 
 ```jsonc
 {
@@ -136,12 +140,13 @@ webhook fulfilment via taskiq). In mock mode `shared/api.js` returns canned resp
 ### `POST /api/cabinet/promocode` — `{ "code": "WELCOME2026" }`
 
 ```jsonc
-{ "ok": true, "reward": { "type": "balance", "amount_minor": 5000 }, "message": null }
-// or: { "ok": false, "reward": null, "message": "invalid_or_used" }
+{ "ok": true,  "reward_type": "balance", "message": null }          // reward_type: balance|days|subscription|discount
+{ "ok": false, "reward_type": null,      "message": "invalid_or_used" }
 ```
 
-### `POST /api/cabinet/purchase` — `{ "public_code": "premium", "days": 30 }`
+### `POST /api/cabinet/purchase` — `{ "plan_id": 42, "days": 30 }`
 
+`plan_id` (from `/plans` `items[].id`) **or** `public_code` may identify the plan; both work.
 Constructor mode sends `{ "period_id": 1, "pack_id": 2, "method": "stars" }` instead of
 `plan_id`+`days` — the server assembles the price from the selected rows.
 

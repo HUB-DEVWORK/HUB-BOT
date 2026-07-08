@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from src.application.services.ids import generate_referral_code
-from src.core.enums import AuthType, Currency
+from src.core.enums import AuthType, Currency, UserStatus
 from src.core.security import hash_password, jwt_decode, jwt_encode, verify_password
 from src.infrastructure.database.models.cabinet_token import CabinetRefreshToken
 from src.infrastructure.database.models.user import User
@@ -65,9 +65,17 @@ async def _issue_refresh(container: AppContainer, user_id: int, *, device: str |
     return token
 
 
+def _ensure_active(user: User) -> None:
+    """A BLOCKED user must not get (or keep) a web session — the bot + tma paths already
+    enforce this; the email/OAuth/JWT path has to match, or a blocked user keeps full access."""
+    if user.status is UserStatus.BLOCKED:
+        raise HTTPException(403, "account blocked")
+
+
 async def _auth_response(
     container: AppContainer, user: User, *, device: str | None
 ) -> dict[str, Any]:
+    _ensure_active(user)  # single choke point: never mint a session for a blocked account
     refresh = await _issue_refresh(container, user.id, device=device)
     return {
         "access_token": _access_token(container, user),
@@ -245,7 +253,10 @@ async def web_user_from_bearer(request: Request, container: AppContainer) -> Use
     if payload is None or payload.get("type") != "access" or not payload.get("web"):
         return None
     async with container.uow() as uow:
-        return await uow.users.get(int(payload["sub"]))
+        user = await uow.users.get(int(payload["sub"]))
+    if user is None or user.status is UserStatus.BLOCKED:
+        return None  # blocked -> cabinet_user() raises 401, same as the bot/tma block
+    return user
 
 
 # --- guest purchase (buy without any prior registration) --------------------
@@ -262,7 +273,7 @@ def _auto_login_token(container: AppContainer, user_id: int) -> str:
 class GuestPurchaseIn(BaseModel):
     email: str = Field(..., max_length=255)
     plan_id: int
-    days: int = Field(..., ge=1, le=3660)
+    days: int = Field(..., ge=1, le=3650)  # same cap as PurchaseIn (#12)
     method: str = Field(..., min_length=2, max_length=32)
 
     @field_validator("email")
@@ -324,9 +335,12 @@ async def guest_purchase(
     if fresh is None:
         raise HTTPException(500, "guest user vanished")
     result = await _pay_with_gateway(container, fresh, req, body.method)
+    # Auto-login ONLY for an account THIS call just created. Reusing a pre-existing email must
+    # never hand out a session for it — that would be account takeover by anyone who knows the
+    # address (the guard mirrors register()'s 409 and oauth_callback()'s unverified-bind refusal).
     return {
         "redirect_url": result.get("redirect_url"),
-        "auto_login_token": _auto_login_token(container, user_id),
+        "auto_login_token": _auto_login_token(container, user_id) if created else None,
         "email": body.email,
     }
 

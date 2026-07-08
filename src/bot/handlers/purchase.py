@@ -8,6 +8,7 @@ PaymentService.process (the same idempotent path webhooks use).
 
 from __future__ import annotations
 
+import contextlib
 import math
 from dataclasses import replace
 from html import escape as hesc
@@ -111,12 +112,25 @@ async def show_durations(cb: CallbackQuery, container: AppContainer, db_user: Us
         # (the hidden plan has no durations) — open_buy routes back to the constructor.
         await open_buy(cb, container, db_user)
         return
+    # Quote the discounted final per duration so the browse price equals the charge (#4) — the
+    # same pricing.quote the payment screen uses; keeps bot list == bot pay == cabinet == charge.
+    ptype, sub_id = await _resolve_purchase_type(container, db_user, plan.id)
     rows = []
-    for d in plan.durations:
-        rub = next((p.price_minor for p in d.prices if p.currency is Currency.RUB), None)
-        if rub is None:
-            continue
-        rows.append((f"{_duration_label(d.days)} · {fmt_money(rub)}", f"dur:{plan.id}:{d.days}"))
+    async with container.uow() as uow:
+        for d in plan.durations:
+            rub = next((p.price_minor for p in d.prices if p.currency is Currency.RUB), None)
+            if rub is None:
+                continue
+            req = replace(
+                _purchase_request(plan.id, d.days, db_user),
+                purchase_type=ptype,
+                subscription_id=sub_id,
+            )
+            price = rub
+            with contextlib.suppress(Exception):
+                price = (await container.pricing.quote(uow, req)).final.amount_minor
+            label = f"{_duration_label(d.days)} · {fmt_money(price)}"
+            rows.append((label, f"dur:{plan.id}:{d.days}"))
     rows.append(("‹ Назад", "act:buy:0"))
     await render_screen(
         cb,

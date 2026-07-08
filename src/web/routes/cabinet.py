@@ -94,7 +94,7 @@ async def cabinet_user(request: Request, container: AppContainer = Depends(get_c
     return user
 
 
-def _sub_payload(sub: Any) -> dict[str, Any] | None:
+def _sub_payload(sub: Any, *, hide_link: bool = False) -> dict[str, Any] | None:
     if sub is None:
         return None
     return {
@@ -110,8 +110,12 @@ def _sub_payload(sub: Any) -> dict[str, Any] | None:
             "limit_bytes": sub.traffic_limit_bytes,
             "unlimited": not sub.traffic_limit_bytes,
         },
-        "subscription_url": sub.subscription_url,
+        # HIDE_SUBSCRIPTION_LINK hides the raw copyable URL on every surface (bot + all cabinets),
+        # but keeps crypto_link so one-tap import still works (#5). Single-sourced here so /me and
+        # /trial match /connection.
+        "subscription_url": None if hide_link else sub.subscription_url,
         "crypto_link": sub.crypto_link,
+        "autopay_enabled": sub.autopay_enabled,  # #10: contract field, was never returned
     }
 
 
@@ -132,6 +136,8 @@ async def me(
         proxy_enabled = bool(await cfg.value(uow, "MTPROTO_PROXY_ENABLED"))
         proxy_url = str(await cfg.value(uow, "MTPROTO_PROXY_URL") or "")
         sales_mode = str(await cfg.value(uow, "SALES_MODE"))
+        hide_link = bool(await cfg.value(uow, "HIDE_SUBSCRIPTION_LINK"))
+        show_traffic = bool(await cfg.value(uow, "SHOW_TRAFFIC_USAGE"))
         gateways = [
             {"id": g.type.value, "label": g.display_name or g.type.value}
             for g in await uow.payment_gateways.list()
@@ -152,7 +158,7 @@ async def me(
             "personal_discount_pct": user.personal_discount_pct,
             "is_trial_available": trial_enabled and user.is_trial_available,
         },
-        "subscription": _sub_payload(sub),
+        "subscription": _sub_payload(sub, hide_link=hide_link),
         "app": {
             "template": miniapp.template,
             "title": miniapp.title,
@@ -163,52 +169,78 @@ async def me(
             "ui": miniapp.ui or {},
             "payment_methods": gateways,
             "balance_enabled": bool(await container.bot_config.value(uow, "BALANCE_ENABLED")),
-            "hide_subscription_link": bool(
-                await container.bot_config.value(uow, "HIDE_SUBSCRIPTION_LINK")
-            ),
+            "hide_subscription_link": hide_link,
+            "show_traffic_usage": show_traffic,  # #8: honored by bot; now exposed to cabinets too
             "sales_mode": sales_mode,
         },
     }
 
 
-async def _plan_items(container: AppContainer) -> list[dict[str, Any]]:
+async def _plan_items(container: AppContainer, user: User | None = None) -> list[dict[str, Any]]:
+    """Catalogue. With a ``user`` the per-duration price is the QUOTED final (personal + promo +
+    sale, cap 100%) so the browse price equals the charge (#4); ``base_price_minor`` keeps the
+    list price for a strikethrough. Without a user (public/guest) it returns base prices only.
+    """
+    from src.application.dto.pricing import PurchaseRequest
+
     async with container.uow() as uow:
         rows = [p for p in await uow.plans.list_with_durations() if p.is_active and not p.is_trial]
         stars_rate = int(await container.bot_config.value(uow, "STARS_RATE_RUB"))
-    items = []
-    for p in sorted(rows, key=lambda p: p.order_index):
-        durations = []
-        for d in p.durations:
-            rub = next((pr.price_minor for pr in d.prices if pr.currency is Currency.RUB), None)
-            if rub is None:
-                continue
-            durations.append(
+        current_plan_id: int | None = None
+        if user is not None and user.current_subscription_id:
+            cur = await uow.subscriptions.get(user.current_subscription_id)
+            current_plan_id = cur.plan_id if cur else None
+        items = []
+        for p in sorted(rows, key=lambda p: p.order_index):
+            ptype = sub_id = None
+            if user is not None:
+                ptype, sub_id = await container.purchase.resolve_purchase_type(uow, user.id, p.id)
+            durations = []
+            for d in p.durations:
+                rub = next((pr.price_minor for pr in d.prices if pr.currency is Currency.RUB), None)
+                if rub is None:
+                    continue
+                final = rub
+                if user is not None:
+                    req = PurchaseRequest(
+                        user_id=user.id,
+                        plan_id=p.id,
+                        duration_days=d.days,
+                        currency=Currency.RUB,
+                        purchase_type=ptype,  # type: ignore[arg-type]
+                        subscription_id=sub_id,
+                    )
+                    with contextlib.suppress(Exception):
+                        final = (await container.pricing.quote(uow, req)).final.amount_minor
+                durations.append(
+                    {
+                        "days": d.days,
+                        "months": round(d.days / 30) or 1,
+                        "price_minor": final,
+                        "base_price_minor": rub,
+                        "price_stars": max(1, math.ceil(final / max(1, stars_rate))),
+                    }
+                )
+            items.append(
                 {
-                    "days": d.days,
-                    "months": round(d.days / 30) or 1,
-                    "price_minor": rub,
-                    "price_stars": max(1, math.ceil(rub / max(1, stars_rate))),
+                    "id": p.id,
+                    "public_code": p.public_code,
+                    "name": p.name,
+                    "description": p.description,
+                    "traffic_limit_bytes": p.traffic_limit_bytes,
+                    "device_limit": p.device_limit,
+                    "is_current": user is not None and p.id == current_plan_id,
+                    "durations": durations,
                 }
             )
-        items.append(
-            {
-                "id": p.id,
-                "public_code": p.public_code,
-                "name": p.name,
-                "description": p.description,
-                "traffic_limit_bytes": p.traffic_limit_bytes,
-                "device_limit": p.device_limit,
-                "durations": durations,
-            }
-        )
     return items
 
 
 @router.get("/plans")
 async def plans(
-    _: User = Depends(cabinet_user), container: AppContainer = Depends(get_container)
+    user: User = Depends(cabinet_user), container: AppContainer = Depends(get_container)
 ) -> dict[str, Any]:
-    return {"currency": "RUB", "items": await _plan_items(container)}
+    return {"currency": "RUB", "items": await _plan_items(container, user)}
 
 
 @router.get("/public/plans")
@@ -301,8 +333,9 @@ async def payments_history(
 
 
 class PurchaseIn(BaseModel):
-    # Plans mode: plan_id + days. Constructor mode: period_id + pack_id instead.
+    # Plans mode: plan_id (or public_code) + days. Constructor mode: period_id + pack_id instead.
     plan_id: int | None = None
+    public_code: str | None = Field(None, max_length=64)  # #6: template clients send this
     days: int | None = Field(None, ge=1, le=3650)
     period_id: int | None = None
     pack_id: int | None = None
@@ -315,6 +348,13 @@ async def purchase(
     user: User = Depends(cabinet_user),
     container: AppContainer = Depends(get_container),
 ) -> dict[str, Any]:
+    # Accept public_code as an alias for plan_id so the documented template contract works (#6).
+    plan_id = body.plan_id
+    if plan_id is None and body.public_code:
+        async with container.uow() as uow:
+            plan = await uow.plans.find_one(public_code=body.public_code)
+        plan_id = plan.id if plan is not None else None
+
     if body.period_id is not None and body.pack_id is not None:
         async with container.uow() as uow:
             device_limit = int(await container.bot_config.value(uow, "DEFAULT_DEVICE_LIMIT"))
@@ -329,21 +369,19 @@ async def purchase(
             except DomainError as exc:
                 raise HTTPException(400, str(exc)) from exc
             await uow.commit()  # the hidden constructor plan may have just been created
-    elif body.plan_id is not None and body.days is not None:
+    elif plan_id is not None and body.days is not None:
         async with container.uow() as uow:
-            ptype, sub_id = await container.purchase.resolve_purchase_type(
-                uow, user.id, body.plan_id
-            )
+            ptype, sub_id = await container.purchase.resolve_purchase_type(uow, user.id, plan_id)
         req = PurchaseRequest(
             user_id=user.id,
-            plan_id=body.plan_id,
+            plan_id=plan_id,
             duration_days=body.days,
             currency=Currency.RUB,
             purchase_type=ptype,
             subscription_id=sub_id,
         )
     else:
-        raise HTTPException(400, "plan_id+days or period_id+pack_id required")
+        raise HTTPException(400, "plan_id/public_code + days or period_id + pack_id required")
 
     if body.method == "balance":
         async with container.uow() as uow:
@@ -468,9 +506,9 @@ async def apply_promocode(
         try:
             reward = await container.promo.apply(uow, u, body.code.strip().upper())
         except PromoError as exc:
-            return {"ok": False, "message": str(exc)}
+            return {"ok": False, "reward_type": None, "message": str(exc)}
         await uow.commit()
-    return {"ok": True, "reward_type": reward.value}
+    return {"ok": True, "reward_type": reward.value, "message": None}  # #11: consistent shape
 
 
 @router.post("/trial")
@@ -488,6 +526,12 @@ async def activate_trial(
         days = int(await cfg.value(uow, "TRIAL_DURATION_DAYS"))
         traffic_gb = int(await cfg.value(uow, "TRIAL_TRAFFIC_GB"))
         devices = int(await cfg.value(uow, "TRIAL_DEVICE_LIMIT"))
+        hide_link = bool(await cfg.value(uow, "HIDE_SUBSCRIPTION_LINK"))
+        # Paid trial: charge the wallet before provisioning, exactly like the bot (#3) — grant()
+        # itself never charges, so without this the mini-app/web gave a configured paid trial free.
+        trial_price = int(await cfg.value(uow, "TRIAL_PRICE"))
+        if trial_price > 0 and not await uow.users.debit_balance_guarded(u, trial_price):
+            raise HTTPException(402, "insufficient balance for the paid trial")
         plan = await uow.plans.find_one(is_trial=True) or await uow.plans.find_one(name="Trial")
         if plan is not None and not plan.is_trial:
             plan.is_trial = True
@@ -518,7 +562,7 @@ async def activate_trial(
         from src.application.events import TrialGranted
 
         await container.event_bus.publish(TrialGranted(user_id=u.id, subscription_id=sub.id))
-        return {"ok": True, "days": days, "subscription": _sub_payload(sub)}
+        return {"ok": True, "days": days, "subscription": _sub_payload(sub, hide_link=hide_link)}
 
 
 @router.get("/connection")
@@ -547,6 +591,7 @@ async def connection(
 
 
 @router.post("/subscription/reset-link")
+@router.post("/subscription/reset-devices")  # #7: contract/client name — same reset, kicks devices
 async def reset_link(
     user: User = Depends(cabinet_user), container: AppContainer = Depends(get_container)
 ) -> dict[str, Any]:
@@ -578,7 +623,11 @@ async def reset_link(
             await uow.commit()
     with contextlib.suppress(Exception):  # best-effort: link is already rotated
         await container.remnawave_client.drop_connections(sub.remnawave_uuid)
-    return {"subscription_url": new_url, "deep_links": build_deep_links(new_url or "", None)}
+    return {
+        "ok": True,  # #7: reset-devices contract shape; the url is a useful superset
+        "subscription_url": new_url,
+        "deep_links": build_deep_links(new_url or "", None),
+    }
 
 
 @router.get("/traffic")

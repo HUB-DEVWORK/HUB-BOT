@@ -326,16 +326,20 @@ async def act_connect(cb: CallbackQuery | Message, container: AppContainer, db_u
             else None
         )
         miniapp_url = str(await container.bot_config.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "")
+        hide_link = bool(await container.bot_config.value(uow, "HIDE_SUBSCRIPTION_LINK"))
     if sub is None or not sub.status.is_usable or not sub.subscription_url:
         await ack(cb, "Сначала оформи подписку", alert=True)
         return
     links = build_deep_links(sub.subscription_url, sub.crypto_link)
     apps = "\n".join(f"• {CLIENT_LABELS[k]}: <code>{v}</code>" for k, v in links.items())
+    # Honor HIDE_SUBSCRIPTION_LINK here too (#5): drop the raw copyable URL, keep import links.
+    step2 = "2) Открой мини-приложение (импорт в один тап + QR)"
+    if not hide_link:
+        step2 += f" или вставь ссылку подписки вручную:\n\n<code>{sub.subscription_url}</code>"
     text = (
         "<b>🔌 Подключение</b>\n\n"
         "1) Поставь приложение: Happ, v2RayTun, Hiddify или Streisand.\n"
-        "2) Открой мини-приложение (импорт в один тап + QR) или вставь ссылку подписки вручную:\n\n"
-        f"<code>{sub.subscription_url}</code>\n\n"
+        f"{step2}\n\n"
         f"Ссылки-импорт:\n{apps}"
     )
     kb: list[list[InlineKeyboardButton]] = []

@@ -84,24 +84,33 @@
       deviceLimit: p.device_limit,
       isCurrent: !!p.is_current,
       durations: (p.durations || []).map((d) => {
-        const disc = discounted(d.price_minor, pct);
+        // The server already quotes the discounted final price_minor (promo+personal+sale, cap
+        // 100%) per user, so never re-apply a discount here — that double-discounted (#4).
+        // base_price_minor is the list price for a strikethrough.
+        const base = d.base_price_minor || d.price_minor;
+        const final = d.price_minor;
         return {
           days: d.days,
           months: Math.round(d.days / 30),
-          priceMinor: d.price_minor,
-          priceLabel: fmt.money(d.price_minor, currency),
-          hasDiscount: disc !== d.price_minor,
-          finalMinor: disc,
-          finalLabel: fmt.money(disc, currency),
+          priceMinor: base,
+          priceLabel: fmt.money(base, currency),
+          hasDiscount: final !== base,
+          finalMinor: final,
+          finalLabel: fmt.money(final, currency),
         };
       }),
     }));
 
     const ref = referral || {};
+    const appCfg = me.app || {};
     return {
       locale: loc,
       currency,
       discountPct: pct,
+      // Owner UI toggles, so skins stay consistent with the bot: hide the raw sub URL, hide
+      // the traffic panel. Server also nulls subscription_url when hideLink, belt-and-braces.
+      hideLink: !!appCfg.hide_subscription_link,
+      showTraffic: appCfg.show_traffic_usage !== false,
       user: {
         firstName: (me.user && me.user.first_name) || "",
         username: (me.user && me.user.username) || "",
