@@ -255,18 +255,21 @@ async def act_cabinet(cb: CallbackQuery, container: AppContainer, db_user: User)
     lines.append("")
     lines.append("Выбери раздел ниже 👇")
 
+    # The cabinet is the account hub — everything about the user's account, and the one
+    # place «Поддержка» lives (the main menu stays lean). «Подключить»/«Купить» are the
+    # primary actions up in the main menu, so they're not duplicated here.
     kb: list[list[InlineKeyboardButton]] = [
         [
-            InlineKeyboardButton(text="👤 Подписка", callback_data="act:subscription:0"),
-            InlineKeyboardButton(text="🔌 Подключить", callback_data="act:connect:0"),
-        ],
-        [
+            InlineKeyboardButton(text="🔑 Моя подписка", callback_data="act:subscription:0"),
             InlineKeyboardButton(text="💰 Баланс", callback_data="act:balance:0"),
-            InlineKeyboardButton(text="📊 История", callback_data="act:history:0"),
         ],
         [
+            InlineKeyboardButton(text="📊 История", callback_data="act:history:0"),
             InlineKeyboardButton(text="🎁 Рефералка", callback_data="act:referral:0"),
+        ],
+        [
             InlineKeyboardButton(text="🎟 Промокод", callback_data="act:promocode"),
+            InlineKeyboardButton(text="🆘 Поддержка", callback_data="act:support:0"),
         ],
     ]
     if miniapp_url.startswith("https://"):
