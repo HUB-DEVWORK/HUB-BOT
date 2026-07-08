@@ -9,7 +9,13 @@ from pathlib import Path
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from src.application.dto.pricing import PurchaseRequest
 from src.application.services.connection import CLIENT_LABELS, build_deep_links
@@ -33,6 +39,11 @@ GIB = 1024**3
 # Placeholder banner shipped with the code (owner swaps it for their own art). Lives under
 # src/bot/assets/, which deploys with the app (unlike runtime uploads/).
 _BANNER = Path(__file__).resolve().parent.parent / "assets" / "banner.png"
+
+
+def _banner() -> FSInputFile:
+    """Fresh FSInputFile for the screen banner (aiogram needs a new one per send)."""
+    return FSInputFile(str(_BANNER))
 
 
 def fmt_money(minor: int) -> str:
@@ -295,10 +306,8 @@ async def act_cabinet(cb: CallbackQuery, container: AppContainer, db_user: User)
     if miniapp_url.startswith("https://"):
         kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
     kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
-    from aiogram.types import FSInputFile
-
     await show_photo_screen(
-        cb, FSInputFile(str(_BANNER)), "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb)
+        cb, _banner(), "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb)
     )
     await cb.answer()
 
@@ -386,7 +395,7 @@ async def act_balance(cb: CallbackQuery, container: AppContainer, db_user: User)
             ("‹ Меню", "nav:root"),
         ]
     )
-    await show_screen(cb, text, markup)
+    await show_photo_screen(cb, _banner(), text, markup)
     await cb.answer()
 
 
@@ -422,7 +431,7 @@ async def act_referral(cb: CallbackQuery, container: AppContainer, db_user: User
         kb_rows.append([InlineKeyboardButton(text="💸 Вывести", callback_data="withdraw:start")])
     kb_rows.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
     markup = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-    await show_screen(cb, text, markup)
+    await show_photo_screen(cb, _banner(), text, markup)
     await cb.answer()
 
 
