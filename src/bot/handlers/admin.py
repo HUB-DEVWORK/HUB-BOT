@@ -7,6 +7,8 @@ the chat itself.
 
 from __future__ import annotations
 
+from html import escape as hesc
+
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -37,6 +39,7 @@ _TOGGLE_KEYS = {k for k, _ in _TOGGLES}
 def _admin_menu(admin_url: str) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats")],
+        [InlineKeyboardButton(text="📈 Аналитика", callback_data="admin:analytics")],
         [InlineKeyboardButton(text="⚙️ Быстрые настройки", callback_data="admin:settings")],
         [InlineKeyboardButton(text="🖼 Лого / стикер", callback_data="admin:brand")],
     ]
@@ -139,6 +142,61 @@ async def admin_stats(cb: CallbackQuery, container: AppContainer, is_admin: bool
         inline_keyboard=[[InlineKeyboardButton(text="‹ Назад", callback_data="admin:menu")]]
     )
     await show_screen(cb, text, kb)
+    await cb.answer()
+
+
+def _rub(minor: int) -> str:
+    return f"{minor / 100:,.0f} ₽".replace(",", " ")
+
+
+@router.callback_query(F.data == "admin:analytics")
+async def admin_analytics(cb: CallbackQuery, container: AppContainer, is_admin: bool) -> None:
+    """Funnel + revenue + ARPU + retention + top sources, in one text digest."""
+    if not is_admin:
+        await cb.answer()
+        return
+    from src.infrastructure.services import analytics as svc
+
+    async with container.uow() as uow:
+        data = await svc.full(uow)
+    o, r, s = data["overview"], data["retention"], data["sources"]
+    lines = [
+        "📈 <b>Аналитика</b>",
+        "",
+        f"👥 Пользователей: <b>{o['users']}</b> "
+        f"(+{o['new_today']} сегодня · +{o['new_week']} за 7д)",
+        "",
+        "🎯 <b>Воронка</b>",
+        f"├ Триал: <b>{o['ever_trial']}</b> → оплатили: <b>{o['paid_users']}</b> "
+        f"({o['trial_to_paid_pct']}%)",
+        f"├ Активных: <b>{o['active_subscriptions']}</b> · на триале: <b>{o['on_trial']}</b>",
+        f"└ Конверсия в оплату: <b>{o['conversion_paid_pct']}%</b>",
+        "",
+        "💰 <b>Выручка</b>",
+        f"├ Сегодня: <b>{_rub(o['revenue_today_minor'])}</b> · "
+        f"7д: <b>{_rub(o['revenue_week_minor'])}</b>",
+        f"├ 30д: <b>{_rub(o['revenue_month_minor'])}</b> · "
+        f"всего: <b>{_rub(o['revenue_minor'])}</b>",
+        f"└ ARPU {_rub(o['arpu_minor'])} · ARPPU {_rub(o['arppu_minor'])} · "
+        f"чек {_rub(o['avg_check_minor'])}",
+        "",
+        f"🔁 <b>Удержание</b>: 7д {r['d7']['pct']}% ({r['d7']['retained']}/{r['d7']['cohort']}) · "
+        f"30д {r['d30']['pct']}% ({r['d30']['retained']}/{r['d30']['cohort']})",
+    ]
+    if s["campaigns"]:
+        lines += ["", "🚀 <b>Источники (ТОП)</b>"]
+        lines += [
+            f"• {hesc(c['name'])}: {c['users']} юз · {_rub(c['revenue_minor'])} · "
+            f"ROI {_rub(c['roi_minor'])}"
+            for c in s["campaigns"]
+        ]
+    if s["referrers"]:
+        lines += ["", "🤝 <b>ТОП рефереров</b>"]
+        lines += [f"• {hesc(ref['label'])}: {ref['invited']}" for ref in s["referrers"]]
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="‹ Назад", callback_data="admin:menu")]]
+    )
+    await show_screen(cb, "\n".join(lines), kb)
     await cb.answer()
 
 

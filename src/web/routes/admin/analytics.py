@@ -22,6 +22,15 @@ from src.web.deps import get_container
 router = APIRouter(prefix="/analytics")
 
 
+@router.get("/full")
+async def analytics_full(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
+    """Rich dashboard: funnel + revenue + ARPU, settled-cohort retention, top sources (ROI)."""
+    from src.infrastructure.services import analytics as svc
+
+    async with container.uow() as uow:
+        return await svc.full(uow)
+
+
 async def _scalar(uow: Any, stmt: Any) -> int:
     return int(await uow.session.scalar(stmt) or 0)
 
