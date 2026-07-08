@@ -46,17 +46,26 @@ async def send_topic_report(
     """
     async with container.uow() as uow:
         group = str(await container.bot_config.value(uow, "REPORT_GROUP_ID") or "").strip()
+        dm_admins = bool(await container.bot_config.value(uow, "REPORT_DM_ADMINS"))
         topic = next((t for t in await uow.report_topics.list() if t.code == code), None)
-    if topic is None or not topic.enabled:
+    if topic is None or not topic.enabled or not container.settings.bot.token:
         return False
-    if not group.lstrip("-").isdigit() or not container.settings.bot.token:
-        return False
-    try:
-        await _deliver(container.settings.bot.token, int(group), topic.topic_id, text, document)
-    except Exception:
-        log.warning("report_send_failed", code=code, exc_info=True)
-        return False
-    return True
+    delivered = False
+    # Group forum topic (when a group id is configured).
+    if group.lstrip("-").isdigit():
+        try:
+            await _deliver(container.settings.bot.token, int(group), topic.topic_id, text, document)
+            delivered = True
+        except Exception:
+            log.warning("report_send_failed", code=code, exc_info=True)
+    # Admin DMs (independent destination — works even without a group).
+    if dm_admins:
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            await container.notifier.notify_admins(text)
+            delivered = True
+    return delivered
 
 
 async def _deliver(

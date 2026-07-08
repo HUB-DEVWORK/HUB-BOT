@@ -513,16 +513,35 @@ async def act_support(cb: CallbackQuery, container: AppContainer, db_user: User)
         cfg = container.bot_config
         mode = str(await cfg.value(uow, "SUPPORT_MODE"))
         redirect = str(await cfg.value(uow, "SUPPORT_REDIRECT_USERNAME") or "")
-    if mode == "redirect" and redirect:
+        support_bot = str(await cfg.value(uow, "SUPPORT_BOT_USERNAME") or "")
+        miniapp_url = str(await cfg.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "")
+    if mode == "bot" and support_bot:
         await show_screen(
             cb,
-            "Напиши нам — ответим быстро:",
-            url_keyboard([("💬 Написать", f"https://t.me/{redirect.lstrip('@')}")]),
-            parse_mode=None,
+            "🆘 <b>Поддержка</b>\n\nНапиши в наш саппорт-бот — оператор ответит прямо там:",
+            url_keyboard([("💬 Открыть поддержку", f"https://t.me/{support_bot.lstrip('@')}")]),
         )
         await cb.answer()
         return
-    # tickets mode: hand off to the tickets FSM
+    if mode == "redirect" and redirect:
+        await show_screen(
+            cb,
+            "🆘 <b>Поддержка</b>\n\nНапиши нам — ответим быстро:",
+            url_keyboard([("💬 Написать", f"https://t.me/{redirect.lstrip('@')}")]),
+        )
+        await cb.answer()
+        return
+    if mode == "miniapp" and miniapp_url.startswith("https://"):
+        await show_screen(
+            cb,
+            "🆘 <b>Поддержка</b>\n\nОткрой чат поддержки в приложении:",
+            InlineKeyboardMarkup(
+                inline_keyboard=[[webapp_button("💬 Открыть поддержку", miniapp_url)]]
+            ),
+        )
+        await cb.answer()
+        return
+    # tickets mode (default): hand off to the tickets FSM
     from src.bot.handlers.tickets import begin_ticket
 
     await begin_ticket(cb, container, db_user)
