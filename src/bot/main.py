@@ -30,6 +30,13 @@ async def _apply_bot_config(bot: Bot, container: AppContainer) -> None:
             await cfg.set_values(uow, {"BOT_USERNAME": me.username or ""})
             await uow.commit()
         miniapp_url = str(await cfg.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "")
+        # Auto-wire the mini-app from WEB__PUBLIC_URL if the owner hasn't set a URL, so the
+        # chat menu button + WebApp buttons appear out of the box (same value the web boot sets).
+        public = (container.settings.web.public_url or "").strip().rstrip("/")
+        if not miniapp_url and public.startswith("https://"):
+            miniapp_url = f"{public}/app"
+            await cfg.set_values(uow, {"SUBSCRIPTION_MINI_APP_URL": miniapp_url})
+            await uow.commit()
     if miniapp_url.startswith("https://"):
         from aiogram.types import MenuButtonWebApp, WebAppInfo
 

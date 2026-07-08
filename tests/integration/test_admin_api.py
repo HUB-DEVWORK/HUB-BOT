@@ -682,3 +682,26 @@ async def test_demo_login_read_only(
     # switching demo off kills existing demo sessions
     monkeypatch.setattr(container.settings.admin, "demo_enabled", False)
     assert (await http.get("/api/admin/dashboard", headers=demo_auth)).status_code == 401
+
+
+async def test_bootstrap_public_urls_autowires_bot_miniapp_link(
+    client: tuple[httpx.AsyncClient, ApiTestContainer], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.web.routes.admin.maintenance import bootstrap_public_urls
+
+    _, container = client
+    monkeypatch.setattr(container.settings.web, "public_url", "https://vpn.example.com")
+    await bootstrap_public_urls(container)
+    async with container.uow() as uow:
+        cfg = container.bot_config
+        assert (
+            str(await cfg.value(uow, "SUBSCRIPTION_MINI_APP_URL")) == "https://vpn.example.com/app"
+        )
+        assert str(await cfg.value(uow, "CABINET_URL")) == "https://vpn.example.com"
+        # a value the owner set by hand is never overwritten on the next boot
+        await cfg.set_values(uow, {"SUBSCRIPTION_MINI_APP_URL": "https://custom.example/mini"})
+        await uow.commit()
+    await bootstrap_public_urls(container)
+    async with container.uow() as uow:
+        keep = str(await container.bot_config.value(uow, "SUBSCRIPTION_MINI_APP_URL"))
+        assert keep == "https://custom.example/mini"

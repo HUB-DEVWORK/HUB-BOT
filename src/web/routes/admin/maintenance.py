@@ -50,6 +50,29 @@ async def bootstrap_report_topics(container: AppContainer) -> None:
             await uow.commit()
 
 
+async def bootstrap_public_urls(container: AppContainer) -> None:
+    """Auto-wire the bot <-> mini-app link from WEB__PUBLIC_URL on first boot.
+
+    Sets SUBSCRIPTION_MINI_APP_URL=<url>/app and CABINET_URL=<url> when the owner hasn't set
+    them, so the bot shows the mini-app button (and OAuth/web cabinet work) out of the box. Only
+    fills empties (never overrides a manual value); only for an https URL (Telegram WebApp needs
+    TLS). Idempotent — a no-op once set.
+    """
+    base = (container.settings.web.public_url or "").strip().rstrip("/")
+    if not base.startswith("https://"):
+        return
+    async with container.uow() as uow:
+        cfg = container.bot_config
+        updates: dict[str, str] = {}
+        if not str(await cfg.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "").strip():
+            updates["SUBSCRIPTION_MINI_APP_URL"] = f"{base}/app"
+        if not str(await cfg.value(uow, "CABINET_URL") or "").strip():
+            updates["CABINET_URL"] = base
+        if updates:
+            await cfg.set_values(uow, updates)
+            await uow.commit()
+
+
 @router.get("/report-topics")
 async def list_report_topics(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
     await bootstrap_report_topics(container)
