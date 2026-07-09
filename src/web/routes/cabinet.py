@@ -261,6 +261,41 @@ async def public_plans(container: AppContainer = Depends(get_container)) -> dict
     return {"currency": "RUB", "items": await _plan_items(container), "payment_methods": methods}
 
 
+@router.get("/public/landing")
+async def public_landing(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
+    """Everything the public marketing site (served at ``/``) needs, unauthenticated:
+    the chosen theme + branding, hero/features/FAQ copy, the tariff list, and where the
+    «Личный кабинет» button points (the web auth window or the Telegram bot)."""
+    async with container.uow() as uow:
+        cfg = container.bot_config
+        miniapp = await uow.miniapp.get_or_create()
+        landing = dict((miniapp.ui or {}).get("landing") or {})
+        web_enabled = bool(await cfg.value(uow, "WEB_CABINET_ENABLED"))
+        bot_username = str(await cfg.value(uow, "BOT_USERNAME") or "")
+        cabinet_url = str(await cfg.value(uow, "CABINET_URL") or "") or "/web/"
+        await uow.commit()
+    # No web cabinet → the CTA can only go to the bot, whatever the admin picked.
+    target = landing.get("cta_target") or "web"
+    if target == "web" and not web_enabled:
+        target = "bot"
+    return {
+        "enabled": landing.get("enabled", True),
+        "template": miniapp.template,
+        "title": miniapp.title,
+        "greeting": miniapp.greeting,
+        "accent_color": miniapp.accent_color,
+        "headline": landing.get("headline") or "",
+        "subheadline": landing.get("subheadline") or "",
+        "features": landing.get("features") or [],
+        "faq": landing.get("faq") or [],
+        "cta_target": target,
+        "bot_username": bot_username,
+        "cabinet_url": cabinet_url,
+        "currency": "RUB",
+        "plans": await _plan_items(container),
+    }
+
+
 @router.get("/constructor")
 async def constructor(
     user: User = Depends(cabinet_user), container: AppContainer = Depends(get_container)

@@ -30,6 +30,8 @@ _ADMIN_DIST = Path(__file__).resolve().parents[2] / "admin" / "dist"
 _MINIAPP_DIR = Path(__file__).resolve().parents[2] / "miniapp" / "app"
 # Standalone browser cabinet (email/OAuth/guest purchase) — served at /web.
 _WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+# Public marketing site (tariffs + «личный кабинет» CTA), themed per design — served at /.
+_SITE_DIR = Path(__file__).resolve().parents[2] / "site"
 # Admin-uploaded media (broadcasts, menu screens, covers) — created on demand.
 _UPLOADS_DIR = Path("uploads")
 
@@ -77,6 +79,10 @@ def create_app() -> FastAPI:
         app.mount("/web", StaticFiles(directory=_WEB_DIR, html=True), name="web-cabinet")
     _UPLOADS_DIR.mkdir(exist_ok=True)
     app.mount("/uploads", StaticFiles(directory=_UPLOADS_DIR), name="uploads")
+    # The public site is a catch-all at "/", so it MUST mount last — after every API
+    # router and the /admin, /app, /web, /uploads mounts, which still match first.
+    if _SITE_DIR.is_dir():
+        app.mount("/", StaticFiles(directory=_SITE_DIR, html=True), name="site")
     return app
 
 

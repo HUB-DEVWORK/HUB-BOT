@@ -10,6 +10,7 @@ from src.web.routes.admin.miniapp import (
     MiniappPatch,
     _clean_blocks,
     _clean_buttons_extra,
+    _clean_landing,
     _clean_url,
 )
 
@@ -56,6 +57,41 @@ def test_clean_buttons_extra_requires_label_and_url() -> None:
     assert out[0]["label"] == "Канал"
     assert out[0]["style"] == "ghost"
     assert out[0]["screen"] == "home"
+
+
+def test_clean_landing_normalizes_target_and_drops_empty() -> None:
+    out = _clean_landing(
+        {
+            "enabled": False,
+            "headline": "Hi",
+            "cta_target": "carrier-pigeon",  # invalid -> web
+            "features": [
+                {"icon": "⚡", "title": "Fast", "text": "very"},
+                {"title": "", "text": ""},  # empty -> dropped
+            ],
+            "faq": [
+                {"q": "Q?", "a": "A"},
+                {"q": "no answer", "a": ""},  # incomplete -> dropped
+            ],
+        }
+    )
+    assert out is not None
+    assert out["enabled"] is False
+    assert out["cta_target"] == "web"  # unknown target falls back to web
+    assert len(out["features"]) == 1 and out["features"][0]["title"] == "Fast"
+    assert len(out["faq"]) == 1 and out["faq"][0]["q"] == "Q?"
+
+
+def test_clean_landing_bot_target_kept() -> None:
+    out = _clean_landing({"cta_target": "bot"})
+    assert out is not None and out["cta_target"] == "bot" and out["enabled"] is True
+
+
+def test_ui_shape_carries_landing() -> None:
+    patch = MiniappPatch(ui={"landing": {"headline": "H", "cta_target": "bot"}})
+    assert patch.ui is not None
+    assert patch.ui["landing"]["headline"] == "H"
+    assert patch.ui["landing"]["cta_target"] == "bot"
 
 
 def test_ui_shape_full_roundtrip() -> None:

@@ -109,6 +109,16 @@ optional; unknown keys and unsafe urls (only `https`/`http`/`tg`/`mailto`) are d
 }
 ```
 
+### `GET /api/cabinet/public/landing`
+
+Unauthenticated. Feeds the **public marketing site** served at `/` (`site/`), themed with the
+same 8 palettes as the mini-app. Returns `{enabled, template, title, greeting, accent_color,
+headline, subheadline, features[], faq[], cta_target, bot_username, cabinet_url, currency,
+plans[]}`. `cta_target` is `"web"` (→ `cabinet_url`, the auth window) or `"bot"` (→
+`https://t.me/<bot_username>`) — where the site's «Личный кабинет» / buy buttons point;
+downgraded to `"bot"` automatically when the web cabinet is off. `headline`/`subheadline`/
+`features`/`faq` come from `miniapp_config.ui.landing`; empty → the site shows sensible defaults.
+
 ### `GET /api/cabinet/plans`
 
 Buyable catalogue. For an authenticated user each duration's `price_minor` is the **quoted

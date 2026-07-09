@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>VPN</title>
+    <meta name="description" content="Быстрый VPN без ограничений. Оформи подписку за минуту." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Nunito:wght@600;700;800;900&family=JetBrains+Mono:wght@400;600;700&family=Unbounded:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="site.css" />
+  </head>
+  <body data-variant="a" data-mode="light">
+    <header class="nav">
+      <div class="wrap nav-in">
+        <a class="brand" href="#top"><span class="brand-mark">V</span><span id="brandName">VPN</span></a>
+        <nav class="nav-links">
+          <a href="#plans" data-i18n="navPlans">Тарифы</a>
+          <a href="#features" data-i18n="navFeatures">Возможности</a>
+          <a href="#faq" data-i18n="navFaq">Вопросы</a>
+        </nav>
+        <div class="nav-actions">
+          <button id="themeToggle" class="icon-btn" title="Тема" aria-label="Тема">◐</button>
+          <a id="navCabinet" class="btn primary sm" href="#" data-i18n="cabinet">Личный кабинет</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="wrap hero-in">
+          <div class="hero-copy">
+            <div class="eyebrow" id="heroEyebrow"></div>
+            <h1 id="heroTitle" class="hero-title"></h1>
+            <p id="heroSub" class="hero-sub"></p>
+            <div class="hero-cta">
+              <a id="heroBuy" class="btn primary lg" href="#plans" data-i18n="buy">Купить подписку</a>
+              <a id="heroCabinet" class="btn ghost lg" href="#" data-i18n="cabinet">Личный кабинет</a>
+            </div>
+            <div class="hero-trust" id="heroTrust"></div>
+          </div>
+          <div class="hero-art" aria-hidden="true">
+            <div class="orb"></div>
+            <div class="glass-card">
+              <div class="gc-row"><span class="dot ok"></span><b data-i18n="statusOn">Защита включена</b></div>
+              <div class="gc-big"><span id="gcDays">30</span><small data-i18n="daysShort">дней</small></div>
+              <div class="gc-bar"><i></i></div>
+              <div class="gc-foot"><span data-i18n="speed">Скорость</span><b>10 Гбит/с</b></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="plans" class="section">
+        <div class="wrap">
+          <div class="sec-head">
+            <h2 data-i18n="plansTitle">Тарифы</h2>
+            <p class="sec-sub" data-i18n="plansSub">Оплата картой, СБП, криптой или Telegram Stars</p>
+          </div>
+          <div id="planGrid" class="plan-grid"></div>
+        </div>
+      </section>
+
+      <section id="features" class="section alt">
+        <div class="wrap">
+          <div class="sec-head">
+            <h2 data-i18n="featuresTitle">Почему мы</h2>
+          </div>
+          <div id="featureGrid" class="feature-grid"></div>
+        </div>
+      </section>
+
+      <section id="faq" class="section">
+        <div class="wrap narrow">
+          <div class="sec-head">
+            <h2 data-i18n="faqTitle">Частые вопросы</h2>
+          </div>
+          <div id="faqList" class="faq-list"></div>
+        </div>
+      </section>
+
+      <section class="cta-band">
+        <div class="wrap cta-in">
+          <h2 id="ctaBandTitle" data-i18n="ctaBand">Готовы подключиться?</h2>
+          <a id="ctaBandBtn" class="btn primary lg" href="#" data-i18n="cabinet">Личный кабинет</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap foot-in">
+        <span id="footBrand">VPN</span>
+        <span class="foot-links">
+          <a id="footCabinet" href="#" data-i18n="cabinet">Личный кабинет</a>
+          <a href="#plans" data-i18n="navPlans">Тарифы</a>
+        </span>
+        <span class="dim" id="footYear"></span>
+      </div>
+    </footer>
+
+    <script src="site.js"></script>
+  </body>
+</html>

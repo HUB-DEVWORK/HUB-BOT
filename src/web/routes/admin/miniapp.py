@@ -111,6 +111,46 @@ def _clean_buttons_extra(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _clean_landing(raw: Any) -> dict[str, Any] | None:
+    """Public marketing site (served at /) content — hero copy, feature cards, FAQ,
+    and where the «Личный кабинет» CTA points (web auth window vs the Telegram bot)."""
+    if not isinstance(raw, dict):
+        return None
+    features = []
+    for i, f in enumerate((raw.get("features") or [])[:8]):
+        if not isinstance(f, dict):
+            continue
+        title = str(f.get("title") or "")[:60]
+        text = str(f.get("text") or "")[:200]
+        if not (title or text):
+            continue
+        features.append(
+            {
+                "id": str(f.get("id") or f"f{i}")[:40],
+                "icon": str(f.get("icon") or "")[:8],
+                "title": title,
+                "text": text,
+            }
+        )
+    faq = []
+    for i, q in enumerate((raw.get("faq") or [])[:8]):
+        if not isinstance(q, dict):
+            continue
+        question = str(q.get("q") or "")[:160]
+        answer = str(q.get("a") or "")[:600]
+        if not (question and answer):
+            continue
+        faq.append({"id": str(q.get("id") or f"q{i}")[:40], "q": question, "a": answer})
+    return {
+        "enabled": bool(raw.get("enabled", True)),
+        "headline": str(raw.get("headline") or "")[:120],
+        "subheadline": str(raw.get("subheadline") or "")[:300],
+        "cta_target": "bot" if raw.get("cta_target") == "bot" else "web",
+        "features": features,
+        "faq": faq,
+    }
+
+
 def _serialize(cfg: Any) -> dict[str, Any]:
     return {
         "template": cfg.template,
@@ -174,6 +214,9 @@ class MiniappPatch(BaseModel):
         extra = _clean_buttons_extra(v.get("buttons_extra"))
         if extra:
             out["buttons_extra"] = extra
+        landing = _clean_landing(v.get("landing"))
+        if landing is not None:
+            out["landing"] = landing
         return out
 
     @field_validator("template")
