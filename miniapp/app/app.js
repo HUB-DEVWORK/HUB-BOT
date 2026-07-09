@@ -150,7 +150,9 @@
 
   // ---------- state ----------
   const state = { tab: "home", me: null, plans: null, constructor: null, referral: null, payments: null, connection: null, tariffSel: 0, planSel: 0, cPerSel: 0, cPackSel: 0, paySel: "stars", devices: undefined };
-  let UI = {}; // admin overrides: {scale, sections, buttons:{key:{text,color}}}
+  // admin overrides: {scale, sections:[order], hidden:[keys], buttons:{key:{text,color}},
+  // blocks:[{screen,title,text,icon,url,button_label,color}], buttons_extra:[{screen,label,url,color,style}]}
+  let UI = {};
 
   function btnText(key, fallback) {
     const b = UI.buttons && UI.buttons[key];
@@ -159,6 +161,37 @@
   function btnStyle(key) {
     const b = UI.buttons && UI.buttons[key];
     return b && b.color ? `background:${b.color}` : "";
+  }
+
+  // Open an admin-defined link — Telegram links via the native opener, the rest in a tab.
+  function openUrl(u) {
+    if (!u) return;
+    haptic();
+    const tg = u.startsWith("tg://") || /(?:^|\/\/)(?:t\.me|telegram\.me)\//.test(u);
+    if (tg && wa && wa.openTelegramLink) wa.openTelegramLink(u);
+    else if (wa && wa.openLink) wa.openLink(u);
+    else window.open(u, "_blank");
+  }
+
+  // Admin custom blocks + standalone link-buttons for a given screen (home/connect/account).
+  function customItems(screen) {
+    const out = [];
+    (UI.blocks || []).forEach((b) => {
+      if ((b.screen || "home") !== screen) return;
+      const kids = [];
+      if (b.title) kids.push(el("b", { text: (b.icon ? b.icon + " " : "") + b.title }));
+      if (b.text)
+        kids.push(el("div", { class: "sub", style: "font-size:13px;margin-top:4px;white-space:pre-line", text: b.text }));
+      if (b.url && b.button_label)
+        kids.push(el("button", { class: "btn primary sm", style: "margin-top:12px;" + (b.color ? `background:${b.color}` : ""), onclick: () => openUrl(b.url), text: b.button_label }));
+      if (kids.length) out.push(el("div", { class: "card fade" }, kids));
+    });
+    (UI.buttons_extra || []).forEach((x) => {
+      if ((x.screen || "home") !== screen) return;
+      if (!x.label || !x.url) return;
+      out.push(el("button", { class: `btn ${x.style === "ghost" ? "ghost" : "primary"}`, style: x.color ? `background:${x.color}` : "", onclick: () => openUrl(x.url), text: x.label }));
+    });
+    return out;
   }
 
   // ---------- screens ----------
@@ -180,10 +213,13 @@
   }
 
   function orderSections(map) {
-    const order = Array.isArray(UI.sections) && UI.sections.length ? UI.sections : ["status", "plans", "referral", "proxy"];
+    const hidden = Array.isArray(UI.hidden) ? UI.hidden : [];
+    const order = Array.isArray(UI.sections) && UI.sections.length
+      ? UI.sections
+      : ["status", "plans", "referral", "proxy", "custom"];
     const out = [];
-    for (const key of order) if (map[key]) out.push(...map[key]);
-    for (const key of Object.keys(map)) if (!order.includes(key)) out.push(...map[key]);
+    for (const key of order) if (map[key] && !hidden.includes(key)) out.push(...map[key]);
+    for (const key of Object.keys(map)) if (!order.includes(key) && !hidden.includes(key)) out.push(...map[key]);
     return out;
   }
 
@@ -193,8 +229,12 @@
     const usable = sub && ["active", "trial", "limited"].includes(sub.status);
     const left = usable ? daysLeft(sub.expire_at) : null;
     const total = 90;
-    const sections = { status: [], plans: [], referral: [], proxy: [] };
+    const sections = { status: [], plans: [], referral: [], proxy: [], custom: customItems("home") };
     const frag = sections.status;
+
+    // Owner greeting (from admin config) — shown once at the very top of Home.
+    const greeting = me && me.app && me.app.greeting;
+    if (greeting) frag.push(el("div", { class: "card fade", text: greeting }));
 
     // status card
     frag.push(
@@ -445,7 +485,7 @@
         ]),
       ]),
     );
-    return frag;
+    return frag.concat(customItems("connect"));
   }
 
   function accountScreen() {
@@ -591,7 +631,7 @@
       ]),
     );
     frag.push(el("div", { class: "sub", style: "text-align:center;font-size:11px;opacity:.7", text: T.version }));
-    return frag;
+    return frag.slice(0, -1).concat(customItems("account"), frag.slice(-1));
   }
 
   // ---------- actions ----------
@@ -674,6 +714,11 @@
         api("GET", "/api/cabinet/payments"),
       ]);
       Object.assign(state, { me, plans, constructor, referral, payments });
+      // Owner branding: title → document/tab title; greeting shown atop Home.
+      // ?title=/?greeting= let the admin preview override the (mock) config.
+      const title = params.get("title") || me.app.title;
+      if (title) document.title = title;
+      if (params.get("greeting") != null) me.app.greeting = params.get("greeting");
       // theme from admin config (?variant= wins for preview)
       const NAMES = { minimal: "a", private: "b", buddy: "c", native: "d",
                       terminal: "e", magazine: "f", neon: "g", pop: "h" };

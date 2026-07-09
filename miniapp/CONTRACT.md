@@ -47,10 +47,18 @@ user has never bought/trialed.
     "personal_discount_pct": 10,   // users.personal_discount_pct
     "is_trial_available": false    // users.is_trial_available
   },
-  "app": {                         // (fragment) bot-config driven UI hints
+  "app": {                         // bot-config + miniapp_config driven UI
+    "template": "minimal",         // theme a..h (minimal|private|buddy|native|terminal|magazine|neon|pop)
+    "title": "My VPN",             // owner brand -> document title
+    "greeting": "Привет!",         // shown atop Home (null -> hidden)
+    "accent_color": "#7C5CFF",     // overrides the theme accent (null -> theme default)
+    "bot_username": "my_bot",      // support link target
+    "mtproto_proxy": null,         // proxy link or null
     "balance_enabled": true,       // hide the balance chip when false
     "hide_subscription_link": false, // when true, subscription_url is null — show import buttons only
     "show_traffic_usage": true,    // when false, hide the traffic panel (matches the bot)
+    "sales_mode": "plans",         // plans | constructor
+    "ui": { },                     // owner customization overrides — see below
     "payment_methods": [           // active online gateways -> extra pay chips
       { "id": "yookassa", "label": "Карта / СБП" }
     ]
@@ -71,6 +79,33 @@ user has never bought/trialed.
     "crypto_link": "happ://add/https://.../s/AB12CD", // subscriptions.crypto_link (Happ)
     "autopay_enabled": true        // subscriptions.autopay_enabled
   }
+}
+```
+
+#### `app.ui` — owner customization overrides
+
+Free-form JSON authored in the admin cabinet (screen 06), validated server-side
+(`src/web/routes/admin/miniapp.py`) and applied by the mini-app at load. Everything is
+optional; unknown keys and unsafe urls (only `https`/`http`/`tg`/`mailto`) are dropped.
+
+```jsonc
+{
+  "scale": 100,                    // 85..115 — root font-size %
+  "sections": ["status","custom","plans","referral","proxy"], // Home order; "custom" = admin items
+  "hidden": ["proxy"],             // Home sections to hide (any of the above)
+  "buttons": {                     // rename/recolor the 6 built-in buttons
+    "renew": { "text": "Оформить", "color": "#FF6B00" }
+    // keys: renew | share | open_app | get_link | connect_proxy | trial
+  },
+  "blocks": [                      // custom content cards (max 16)
+    { "id": "b1", "screen": "home", "icon": "🔥", "title": "Акция",
+      "text": "Скидка 50%", "url": "https://t.me/ch", "button_label": "Открыть",
+      "color": "#E1495A" }         // screen: home | connect | account
+  ],
+  "buttons_extra": [               // custom standalone link-buttons (max 16)
+    { "id": "x1", "screen": "home", "label": "💬 Чат", "url": "https://t.me/chat",
+      "style": "ghost", "color": null } // style: primary | ghost
+  ]
 }
 ```
 

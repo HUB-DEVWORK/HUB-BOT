@@ -29,7 +29,86 @@ KNOWN_TEMPLATES = (
 
 
 UI_BUTTON_KEYS = ("renew", "share", "open_app", "get_link", "connect_proxy", "trial")
-UI_SECTIONS = ("status", "plans", "referral", "proxy")
+# Built-in home-screen sections + the "custom" bucket that holds admin blocks/buttons
+# targeted at the home tab. All of them are reorderable AND hideable.
+UI_SECTIONS = ("status", "plans", "referral", "proxy", "custom")
+# Where an admin-defined block or button may be placed.
+UI_SCREENS = ("home", "connect", "account")
+_MAX_CUSTOM = 16  # per list (blocks, buttons_extra) — plenty, keeps the payload sane
+# Schemes a custom link may use. Anything else (notably javascript:) is dropped.
+_URL_SCHEMES = ("https://", "http://", "tg://", "mailto:")
+
+
+def _clean_hex(color: Any) -> str | None:
+    """Return a valid ``#RGB``/``#RRGGBB`` string or None."""
+    s = str(color or "")
+    return s if (s.startswith("#") and len(s) in (4, 7)) else None
+
+
+def _clean_url(url: Any) -> str | None:
+    """Return a safe outbound link (http/https/tg/mailto) or None."""
+    s = str(url or "").strip()
+    if len(s) > 512:
+        return None
+    return s if s.lower().startswith(_URL_SCHEMES) else None
+
+
+def _clean_screen(screen: Any) -> str:
+    s = str(screen or "home")
+    return s if s in UI_SCREENS else "home"
+
+
+def _clean_blocks(raw: Any) -> list[dict[str, Any]]:
+    """Admin content cards: title + text + optional link-button, placed on a screen."""
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for i, item in enumerate(raw[:_MAX_CUSTOM]):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "")[:64]
+        text = str(item.get("text") or "")[:1000]
+        label = str(item.get("button_label") or "")[:32]
+        if not (title or text or label):
+            continue  # empty block — skip
+        out.append(
+            {
+                "id": str(item.get("id") or f"b{i}")[:40],
+                "screen": _clean_screen(item.get("screen")),
+                "title": title,
+                "text": text,
+                "icon": str(item.get("icon") or "")[:8],
+                "url": _clean_url(item.get("url")),
+                "button_label": label,
+                "color": _clean_hex(item.get("color")),
+            }
+        )
+    return out
+
+
+def _clean_buttons_extra(raw: Any) -> list[dict[str, Any]]:
+    """Admin standalone link-buttons: label + url, placed on a screen."""
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for i, item in enumerate(raw[:_MAX_CUSTOM]):
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "")[:32]
+        url = _clean_url(item.get("url"))
+        if not label or not url:
+            continue  # a link button without a label or a valid url is useless
+        out.append(
+            {
+                "id": str(item.get("id") or f"x{i}")[:40],
+                "screen": _clean_screen(item.get("screen")),
+                "label": label,
+                "url": url,
+                "color": _clean_hex(item.get("color")),
+                "style": "ghost" if item.get("style") == "ghost" else "primary",
+            }
+        )
+    return out
 
 
 def _serialize(cfg: Any) -> dict[str, Any]:
@@ -45,6 +124,7 @@ def _serialize(cfg: Any) -> dict[str, Any]:
         "templates": list(KNOWN_TEMPLATES),
         "ui_button_keys": list(UI_BUTTON_KEYS),
         "ui_sections": list(UI_SECTIONS),
+        "ui_screens": list(UI_SCREENS),
     }
 
 
@@ -76,6 +156,9 @@ class MiniappPatch(BaseModel):
         sections = v.get("sections")
         if isinstance(sections, list):
             out["sections"] = [s for s in sections if s in UI_SECTIONS]
+        hidden = v.get("hidden")
+        if isinstance(hidden, list):
+            out["hidden"] = [s for s in hidden if s in UI_SECTIONS]
         buttons = v.get("buttons")
         if isinstance(buttons, dict):
             clean: dict[str, Any] = {}
@@ -83,11 +166,14 @@ class MiniappPatch(BaseModel):
                 if key not in UI_BUTTON_KEYS or not isinstance(spec, dict):
                     continue
                 text = str(spec.get("text") or "")[:32]
-                color = spec.get("color")
-                if color and not (str(color).startswith("#") and len(str(color)) in (4, 7)):
-                    color = None
-                clean[key] = {"text": text, "color": color}
+                clean[key] = {"text": text, "color": _clean_hex(spec.get("color"))}
             out["buttons"] = clean
+        blocks = _clean_blocks(v.get("blocks"))
+        if blocks:
+            out["blocks"] = blocks
+        extra = _clean_buttons_extra(v.get("buttons_extra"))
+        if extra:
+            out["buttons_extra"] = extra
         return out
 
     @field_validator("template")

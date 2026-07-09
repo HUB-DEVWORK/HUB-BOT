@@ -12,7 +12,32 @@ import { Field } from "../components/ui";
 import { useApp } from "../state/app";
 
 type UiButtons = Record<string, { text: string; color: string | null }>;
-type UiConf = { scale?: number; sections?: string[]; buttons?: UiButtons };
+type UiBlock = {
+  id: string;
+  screen: string;
+  title: string;
+  text: string;
+  icon: string;
+  url: string | null;
+  button_label: string;
+  color: string | null;
+};
+type UiButtonExtra = {
+  id: string;
+  screen: string;
+  label: string;
+  url: string;
+  color: string | null;
+  style: string;
+};
+type UiConf = {
+  scale?: number;
+  sections?: string[];
+  hidden?: string[];
+  buttons?: UiButtons;
+  blocks?: UiBlock[];
+  buttons_extra?: UiButtonExtra[];
+};
 type Config = {
   template: string;
   title: string | null;
@@ -24,6 +49,7 @@ type Config = {
   templates: string[];
   ui_button_keys: string[];
   ui_sections: string[];
+  ui_screens: string[];
 };
 
 const BTN_LABELS: Record<string, string> = {
@@ -39,7 +65,24 @@ const SECTION_LABELS: Record<string, string> = {
   plans: "Тарифы и оплата",
   referral: "Пригласи друга",
   proxy: "MTProto-прокси",
+  custom: "Свои блоки и кнопки",
 };
+const SCREEN_LABELS: Record<string, string> = {
+  home: "Главная",
+  connect: "Подключение",
+  account: "Кабинет",
+};
+
+let _cid = 0;
+const newId = (p: string) => `${p}${Date.now().toString(36)}${(_cid++).toString(36)}`;
+
+/** Effective section order: the admin's saved order, with any not-yet-ordered
+ *  built-ins (e.g. "custom") appended — so every section is always listed. */
+function sectionOrder(c: Config): string[] {
+  const saved = c.ui.sections?.length ? c.ui.sections : c.ui_sections;
+  const rest = c.ui_sections.filter((s) => !saved.includes(s));
+  return [...saved, ...rest];
+}
 
 const SWATCHES = ["#2E63E7", "#31A24C", "#7C5CFF", "#EF7048", "#C03B2D", "#0C8F4E", "#111111"];
 
@@ -144,13 +187,65 @@ export default function Miniapp() {
   function moveSection(idx: number, dir: -1 | 1) {
     setCfg((c) => {
       if (!c) return c;
-      const order = [...(c.ui.sections?.length ? c.ui.sections : c.ui_sections)];
+      const order = [...sectionOrder(c)];
       const j = idx + dir;
       if (j < 0 || j >= order.length) return c;
       [order[idx], order[j]] = [order[j], order[idx]];
       return { ...c, ui: { ...c.ui, sections: order } };
     });
     setDirty(true);
+  }
+
+  function toggleHidden(sec: string) {
+    setCfg((c) => {
+      if (!c) return c;
+      const hidden = new Set(c.ui.hidden ?? []);
+      hidden.has(sec) ? hidden.delete(sec) : hidden.add(sec);
+      return { ...c, ui: { ...c.ui, hidden: [...hidden] } };
+    });
+    setDirty(true);
+  }
+
+  function addBlock() {
+    patchUi({
+      blocks: [
+        ...(cfg?.ui.blocks ?? []),
+        { id: newId("b"), screen: "home", title: "", text: "", icon: "", url: null, button_label: "", color: null },
+      ],
+    });
+  }
+  function patchBlock(i: number, field: keyof UiBlock, value: string | null) {
+    setCfg((c) => {
+      if (!c) return c;
+      const blocks = [...(c.ui.blocks ?? [])];
+      blocks[i] = { ...blocks[i], [field]: value };
+      return { ...c, ui: { ...c.ui, blocks } };
+    });
+    setDirty(true);
+  }
+  function removeBlock(i: number) {
+    patchUi({ blocks: (cfg?.ui.blocks ?? []).filter((_, j) => j !== i) });
+  }
+
+  function addButton() {
+    patchUi({
+      buttons_extra: [
+        ...(cfg?.ui.buttons_extra ?? []),
+        { id: newId("x"), screen: "home", label: "", url: "", color: null, style: "primary" },
+      ],
+    });
+  }
+  function patchButtonExtra(i: number, field: keyof UiButtonExtra, value: string | null) {
+    setCfg((c) => {
+      if (!c) return c;
+      const arr = [...(c.ui.buttons_extra ?? [])];
+      arr[i] = { ...arr[i], [field]: value };
+      return { ...c, ui: { ...c.ui, buttons_extra: arr } };
+    });
+    setDirty(true);
+  }
+  function removeButtonExtra(i: number) {
+    patchUi({ buttons_extra: (cfg?.ui.buttons_extra ?? []).filter((_, j) => j !== i) });
   }
 
   async function save(publish = false) {
@@ -299,16 +394,28 @@ export default function Miniapp() {
                 />
               </Field>
               <div>
-                <div className="caps" style={{ marginBottom: 8 }}>{t.sectionsOrder}</div>
+                <div className="caps" style={{ marginBottom: 8 }}>
+                  {t.sectionsOrder} · {t.visibility}
+                </div>
                 <div className="grid" style={{ gap: 6 }}>
-                  {(cfg.ui.sections?.length ? cfg.ui.sections : cfg.ui_sections).map((sec, i, arr) => (
-                    <div key={sec} className="row" style={{ fontSize: 13 }}>
-                      <span className="mono dim" style={{ width: 18 }}>{i + 1}</span>
-                      <span style={{ flex: 1 }}>{SECTION_LABELS[sec] ?? sec}</span>
-                      <button className="btn secondary sm" disabled={i === 0} onClick={() => moveSection(i, -1)}>↑</button>
-                      <button className="btn secondary sm" disabled={i === arr.length - 1} onClick={() => moveSection(i, 1)}>↓</button>
-                    </div>
-                  ))}
+                  {sectionOrder(cfg).map((sec, i, arr) => {
+                    const hidden = (cfg.ui.hidden ?? []).includes(sec);
+                    return (
+                      <div key={sec} className="row" style={{ fontSize: 13, opacity: hidden ? 0.5 : 1 }}>
+                        <span className="mono dim" style={{ width: 18 }}>{i + 1}</span>
+                        <span style={{ flex: 1 }}>{SECTION_LABELS[sec] ?? sec}</span>
+                        <button
+                          className="btn secondary sm"
+                          title={hidden ? t.show : t.hide}
+                          onClick={() => toggleHidden(sec)}
+                        >
+                          {hidden ? "🚫" : "👁"}
+                        </button>
+                        <button className="btn secondary sm" disabled={i === 0} onClick={() => moveSection(i, -1)}>↑</button>
+                        <button className="btn secondary sm" disabled={i === arr.length - 1} onClick={() => moveSection(i, 1)}>↓</button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               <div>
@@ -344,6 +451,144 @@ export default function Miniapp() {
                   })}
                 </div>
               </div>
+
+              {/* custom content blocks: title + text + optional link-button, per screen */}
+              <div>
+                <div className="row spread" style={{ marginBottom: 8 }}>
+                  <span className="caps">{t.customBlocks}</span>
+                  <button className="btn secondary sm" onClick={addBlock}>+ {t.add}</button>
+                </div>
+                <div className="grid" style={{ gap: 10 }}>
+                  {(cfg.ui.blocks ?? []).map((b, i) => (
+                    <div key={b.id} className="card" style={{ padding: 10, gap: 6, display: "grid", background: "var(--panel2, var(--panel))" }}>
+                      <div className="row" style={{ gap: 6 }}>
+                        <select
+                          className="input"
+                          style={{ width: 130 }}
+                          value={b.screen}
+                          onChange={(e) => patchBlock(i, "screen", e.target.value)}
+                        >
+                          {cfg.ui_screens.map((s) => (
+                            <option key={s} value={s}>{SCREEN_LABELS[s] ?? s}</option>
+                          ))}
+                        </select>
+                        <input
+                          className="input"
+                          style={{ width: 52, textAlign: "center" }}
+                          placeholder="😀"
+                          value={b.icon}
+                          maxLength={8}
+                          onChange={(e) => patchBlock(i, "icon", e.target.value)}
+                        />
+                        <input
+                          className="input"
+                          style={{ flex: 1 }}
+                          placeholder={t.blockTitle}
+                          value={b.title}
+                          maxLength={64}
+                          onChange={(e) => patchBlock(i, "title", e.target.value)}
+                        />
+                        <button className="btn danger sm" title={t.remove} onClick={() => removeBlock(i)}>✕</button>
+                      </div>
+                      <textarea
+                        className="input"
+                        style={{ minHeight: 46, resize: "vertical" }}
+                        placeholder={t.blockText}
+                        value={b.text}
+                        maxLength={1000}
+                        onChange={(e) => patchBlock(i, "text", e.target.value)}
+                      />
+                      <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                        <input
+                          className="input"
+                          style={{ flex: "1 1 120px" }}
+                          placeholder={t.buttonLabel}
+                          value={b.button_label}
+                          maxLength={32}
+                          onChange={(e) => patchBlock(i, "button_label", e.target.value)}
+                        />
+                        <input
+                          className="input mono"
+                          style={{ flex: "2 1 180px" }}
+                          placeholder="https://… / tg://…"
+                          value={b.url ?? ""}
+                          onChange={(e) => patchBlock(i, "url", e.target.value || null)}
+                        />
+                        <input
+                          type="color"
+                          value={b.color ?? "#2E63E7"}
+                          title={t.buttonColor}
+                          style={{ width: 34, height: 30, padding: 0, border: "1px solid var(--border2)", borderRadius: 3, background: "transparent", cursor: "pointer" }}
+                          onChange={(e) => patchBlock(i, "color", e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  {!(cfg.ui.blocks ?? []).length && (
+                    <div className="dim" style={{ fontSize: 12 }}>{t.customBlocksHint}</div>
+                  )}
+                </div>
+              </div>
+
+              {/* custom link buttons: label + url, per screen */}
+              <div>
+                <div className="row spread" style={{ marginBottom: 8 }}>
+                  <span className="caps">{t.customButtons}</span>
+                  <button className="btn secondary sm" onClick={addButton}>+ {t.add}</button>
+                </div>
+                <div className="grid" style={{ gap: 8 }}>
+                  {(cfg.ui.buttons_extra ?? []).map((x, i) => (
+                    <div key={x.id} className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                      <select
+                        className="input"
+                        style={{ width: 120 }}
+                        value={x.screen}
+                        onChange={(e) => patchButtonExtra(i, "screen", e.target.value)}
+                      >
+                        {cfg.ui_screens.map((s) => (
+                          <option key={s} value={s}>{SCREEN_LABELS[s] ?? s}</option>
+                        ))}
+                      </select>
+                      <input
+                        className="input"
+                        style={{ flex: "1 1 110px" }}
+                        placeholder={t.buttonLabel}
+                        value={x.label}
+                        maxLength={32}
+                        onChange={(e) => patchButtonExtra(i, "label", e.target.value)}
+                      />
+                      <input
+                        className="input mono"
+                        style={{ flex: "2 1 160px" }}
+                        placeholder="https://… / tg://…"
+                        value={x.url}
+                        onChange={(e) => patchButtonExtra(i, "url", e.target.value)}
+                      />
+                      <select
+                        className="input"
+                        style={{ width: 92 }}
+                        value={x.style}
+                        onChange={(e) => patchButtonExtra(i, "style", e.target.value)}
+                      >
+                        <option value="primary">{t.stylePrimary}</option>
+                        <option value="ghost">{t.styleGhost}</option>
+                      </select>
+                      <input
+                        type="color"
+                        value={x.color ?? "#2E63E7"}
+                        title={t.buttonColor}
+                        style={{ width: 34, height: 30, padding: 0, border: "1px solid var(--border2)", borderRadius: 3, background: "transparent", cursor: "pointer" }}
+                        onChange={(e) => patchButtonExtra(i, "color", e.target.value)}
+                      />
+                      <button className="btn danger sm" title={t.remove} onClick={() => removeButtonExtra(i)}>✕</button>
+                    </div>
+                  ))}
+                  {!(cfg.ui.buttons_extra ?? []).length && (
+                    <div className="dim" style={{ fontSize: 12 }}>{t.customButtonsHint}</div>
+                  )}
+                </div>
+              </div>
+
               {dirty && (
                 <button className="btn primary" onClick={() => void save(false)}>
                   {t.save}
