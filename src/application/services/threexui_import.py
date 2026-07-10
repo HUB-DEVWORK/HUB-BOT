@@ -100,7 +100,7 @@ def _is_uuid(raw: str) -> bool:
 
 
 def _normalize_client(
-    raw: dict[str, Any], inbound: sqlite3.Row, traffic_by_email: dict[str, sqlite3.Row]
+    raw: dict[str, Any], protocol: str, remark: str, traffic_by_email: dict[str, sqlite3.Row]
 ) -> dict[str, Any]:
     email = str(raw.get("email") or "")
     expiry_ms = _to_int(raw.get("expiryTime")) or 0
@@ -116,8 +116,8 @@ def _normalize_client(
         "email": email,
         "uuid": str(raw.get("id") or ""),
         "password": str(raw.get("password") or ""),
-        "protocol": str(inbound["protocol"] or ""),
-        "inbound_remark": str(inbound["remark"] or ""),
+        "protocol": protocol,
+        "inbound_remark": remark,
         "tg_id": _to_int(raw.get("tgId")) or None,  # 0 / "" / garbage -> no telegram
         "sub_id": str(raw.get("subId") or ""),
         "expiry_ms": expiry_ms,
@@ -166,7 +166,12 @@ def _rows(conn: sqlite3.Connection, query: str) -> list[sqlite3.Row]:
 
 
 def read_source(path: Path) -> dict[str, Any]:
-    """Read x-ui.db into normalized client/group dicts (sync — call via asyncio.to_thread)."""
+    """Read x-ui.db into normalized client/group dicts (sync — call via asyncio.to_thread).
+
+    Reads BOTH client models: the classic v2 ``inbounds.settings`` JSON and the v3
+    normalized ``clients`` + ``client_inbounds`` tables (3x-ui >= 3.x keeps clients
+    there and the settings JSON of migrated inbounds may be empty). Deduped by email.
+    """
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
@@ -174,6 +179,12 @@ def read_source(path: Path) -> dict[str, Any]:
         traffics = _rows(
             conn, "SELECT email, up, down, total, expiry_time, enable FROM client_traffics"
         )
+        v3_clients = _rows(
+            conn,
+            "SELECT id, email, sub_id, uuid, password, total_gb, expiry_time,"
+            " enable, tg_id, comment FROM clients",
+        )
+        v3_links = _rows(conn, "SELECT client_id, inbound_id FROM client_inbounds")
     finally:
         conn.close()
 
@@ -189,11 +200,38 @@ def read_source(path: Path) -> dict[str, Any]:
         raw_clients = settings.get("clients") if isinstance(settings, dict) else None
         if not isinstance(raw_clients, list):
             continue
+        protocol, remark = str(inbound["protocol"] or ""), str(inbound["remark"] or "")
         clients.extend(
-            _normalize_client(raw, inbound, traffic_by_email)
+            _normalize_client(raw, protocol, remark, traffic_by_email)
             for raw in raw_clients
             if isinstance(raw, dict)
         )
+
+    seen_emails = {c["email"] for c in clients if c["email"]}
+    inbound_by_id = {int(row["id"]): row for row in inbounds}
+    link_by_client: dict[int, int] = {}
+    for row in v3_links:
+        link_by_client.setdefault(_to_int(row["client_id"]) or 0, _to_int(row["inbound_id"]) or 0)
+    for row in v3_clients:
+        email = str(row["email"] or "")
+        if email and email in seen_emails:
+            continue  # the settings JSON copy already covered it
+        linked = inbound_by_id.get(link_by_client.get(_to_int(row["id"]) or 0, -1))
+        raw = {
+            "email": email,
+            "id": row["uuid"],
+            "password": row["password"],
+            "tgId": row["tg_id"],
+            "subId": row["sub_id"],
+            "expiryTime": row["expiry_time"],
+            "totalGB": row["total_gb"],  # bytes despite the name, same as the JSON key
+            "enable": row["enable"],
+            "comment": row["comment"],
+        }
+        protocol = str(linked["protocol"] or "") if linked is not None else ""
+        remark = str(linked["remark"] or "") if linked is not None else ""
+        clients.append(_normalize_client(raw, protocol, remark, traffic_by_email))
+
     return {"inbounds": len(inbounds), "clients": clients, "groups": _group(clients)}
 
 

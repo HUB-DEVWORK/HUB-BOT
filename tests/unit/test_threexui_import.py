@@ -283,3 +283,72 @@ async def test_panel_rejection_skips_group(uow: UnitOfWork, tmp_path: Path) -> N
     assert all("панель отклонила" in reason for reason in summary["skipped"])
     async with uow:
         assert await uow.users.count() == 0
+
+
+def _make_v3_source(path: Path) -> None:
+    """3x-ui >= 3.x: clients live in normalized tables; settings JSON has no clients."""
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE inbounds (
+            id INTEGER PRIMARY KEY, remark TEXT, protocol TEXT, settings TEXT
+        );
+        CREATE TABLE client_traffics (
+            id INTEGER PRIMARY KEY, inbound_id INTEGER, enable BOOLEAN, email TEXT,
+            up INTEGER, down INTEGER, expiry_time INTEGER, total INTEGER, reset INTEGER
+        );
+        CREATE TABLE clients (
+            id INTEGER PRIMARY KEY, email TEXT, sub_id TEXT, uuid TEXT, password TEXT,
+            total_gb INTEGER, expiry_time INTEGER, enable BOOLEAN, tg_id INTEGER,
+            comment TEXT
+        );
+        CREATE TABLE client_inbounds (
+            client_id INTEGER, inbound_id INTEGER, flow_override TEXT, created_at INTEGER
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO inbounds VALUES (6, 'CDN-XHTTP', 'vless', ?)",
+        (json.dumps({"clients": []}),),  # v3: migrated inbound, JSON is empty
+    )
+    conn.execute(
+        "INSERT INTO clients VALUES (1, 'v3user', 'v3subid12345678', ?, '', "
+        f"{5 * GIB}, {NOW_MS + 30 * DAY_MS}, 1, 424242, 'note')",
+        (VLESS_UUID,),
+    )
+    conn.execute("INSERT INTO client_inbounds VALUES (1, 6, '', 0)")
+    conn.execute(
+        f"INSERT INTO client_traffics VALUES (1, 6, 1, 'v3user', 111, 222, "
+        f"{NOW_MS + 30 * DAY_MS}, {5 * GIB}, 0)"
+    )
+    conn.commit()
+    conn.close()
+
+
+async def test_v3_client_tables_are_read(uow: UnitOfWork, tmp_path: Path) -> None:
+    db = tmp_path / "x-ui-v3.db"
+    _make_v3_source(db)
+
+    data = read_source(db)
+    result = probe(data)
+    assert result["ok"] is True
+    assert result["counts"]["clients"] == 1
+    assert result["counts"]["with_telegram"] == 1
+
+    panel = _RecordingPanel()
+    service = ThreexuiImportService(panel)
+    async with uow:
+        summary = await service.run(uow, data, squad_uuid="sq-1")
+        await uow.commit()
+
+    assert summary["panel_users_created"] == 1
+    spec = panel.specs[0]
+    assert spec.telegram_id == 424242
+    assert spec.short_id == "v3subid12345678"
+    assert spec.traffic_limit_bytes == 5 * GIB
+    assert spec.extra.get("vlessUuid") == VLESS_UUID  # protocol resolved via client_inbounds
+    async with uow:
+        user = await uow.users.find_one(telegram_id=424242)
+        assert user is not None
+        sub = await uow.subscriptions.find_one(user_id=user.id)
+        assert sub is not None and sub.traffic_used_bytes == 333  # traffics joined by email
