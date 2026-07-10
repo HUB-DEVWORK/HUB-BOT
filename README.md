@@ -183,6 +183,9 @@ git clone https://github.com/bini69-oi/HUB-BOT.git && cd HUB-BOT
 ./scripts/install.sh
 ```
 
+> **Требования:** 1 vCPU / 1–2 GB RAM. На 1 GB машине установщик сам поднимает
+> 2 GB swap, чтобы сборка не упала по OOM.
+
 Через пару минут: `https://ваш-домен/admin/` (HTTPS сам, через Caddy + Let's Encrypt).
 Всё остальное — тарифы, платёжки, меню бота, мини-аппа — настраивается в UI.
 Нет панели Remnawave? Просто нажми Enter — поднимется встроенная мок-панель,

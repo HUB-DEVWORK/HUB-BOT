@@ -20,12 +20,19 @@ from src.core.logging import get_logger
 
 if TYPE_CHECKING:
     from src.application.common.panel import RemnawaveClient
+    from src.application.dto.panel import PanelUser
     from src.application.services.subscription import SubscriptionService
     from src.infrastructure.database.uow import UnitOfWork
 
 log = get_logger(__name__)
 
 _DRIFT_DAYS = 1
+
+
+def _traffic_exhausted(panel: PanelUser) -> bool:
+    """The panel turned this user LIMITED for exhausting the traffic cap we sold — its own
+    correct enforcement of the plan, not drift. 0 == unlimited, so it never exhausts."""
+    return panel.traffic_limit_bytes > 0 and panel.traffic_used_bytes >= panel.traffic_limit_bytes
 
 
 @dataclass
@@ -64,13 +71,18 @@ class RemnawaveResyncService:
                 and panel.expire_at is not None
                 and abs((panel.expire_at - sub.expire_at).total_seconds()) > _DRIFT_DAYS * 86400
             )
-            if not panel.is_enabled or expire_drift:
+            # A user the panel turned LIMITED for hitting the traffic cap we sold is the panel
+            # enforcing that cap correctly — not drift. Re-enabling would flip them ACTIVE only
+            # for the next panel check to re-limit them: a pointless flap that briefly overrides
+            # real enforcement (B7). Re-enable only genuinely disabled/expired users.
+            needs_enable = not panel.is_enabled and not _traffic_exhausted(panel)
+            if needs_enable or expire_drift:
                 try:
                     user = await uow.users.get(sub.user_id)
                     await self._subscriptions.push_limits(
                         uow, sub, telegram_id=user.telegram_id if user else None
                     )
-                    if not panel.is_enabled:
+                    if needs_enable:
                         # push_limits PATCHes limits but never flips status; a DISABLED user
                         # needs the explicit enable action, else self-heal is a no-op (#2).
                         await self._client.enable_user(sub.remnawave_uuid)

@@ -79,6 +79,12 @@ class ProvisionSpec:
     external_squad: str | None = None
     description: str | None = None
     extra: dict[str, object] = field(default_factory=dict)
+    # Explicit "clear" intent for a plan CHANGE. When set, a None device_limit / falsy
+    # external_squad is actively CLEARED on the panel (hwidDeviceLimit:0 / externalSquadUuid:
+    # null) instead of omitted. Default False preserves the create/renew "omit ⇒ leave alone"
+    # rule (an omitted field must not disturb an adopted panel user — see _spec_payload).
+    reset_device_limit: bool = False
+    reset_external_squad: bool = False
 
 
 @dataclass(frozen=True, slots=True)

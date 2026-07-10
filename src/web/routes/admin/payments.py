@@ -457,6 +457,7 @@ async def refund_payment(
             warnings.append("на балансе меньше суммы возврата — баланс не списан")
 
         revoked = False
+        disable_retry_sub_id: int | None = None
         sub_id = (txn.pricing or {}).get("subscription_id")
         if body.revoke_subscription and sub_id:
             sub = await uow.subscriptions.get(int(sub_id))
@@ -465,7 +466,12 @@ async def refund_payment(
                     try:
                         await container.remnawave_client.disable_user(sub.remnawave_uuid)
                     except Exception:
-                        warnings.append("панель недоступна — подписка выключена только локально")
+                        # Panel down: we still flip the local status to DISABLED below, but the
+                        # panel user stays enabled — without a retry the refunded user keeps VPN
+                        # access forever (resync only re-drives USABLE subs, not this one). Hand
+                        # the disable to the panel-write retry queue to re-apply once panel is up.
+                        warnings.append("панель недоступна — выключим подписку в фоне, как ответит")
+                        disable_retry_sub_id = int(sub_id)
                 sub.status = SubscriptionStatus.DISABLED
                 revoked = True
 
@@ -479,6 +485,11 @@ async def refund_payment(
             revoked=revoked,
         )
         await uow.commit()
+        if disable_retry_sub_id is not None:
+            # import here: the web app must not import the taskiq broker at module load
+            from src.infrastructure.taskiq.tasks import panel_write_retry
+
+            await panel_write_retry.kiq(disable_retry_sub_id)
         telegram_id = user.telegram_id if user else None
         amount = txn.amount_minor
         currency = txn.currency.value

@@ -1,5 +1,12 @@
 # Production stack for one-command install (scripts/install.sh).
 # Caddy terminates HTTPS automatically when DOMAIN is set (Let's Encrypt).
+#
+# Low-RAM VPS (1 GB): the pressure point is `docker compose build` (SPA + Python
+# image), which BuildKit runs outside these service limits — so install.sh creates
+# a 2 GB swapfile before building instead. We deliberately avoid hard per-service
+# mem_limit/reservations here: on a swap-less 1 GB box too-tight limits just move the
+# OOM into runtime, and compose v2 without swap-limit support can't cap swap anyway.
+# Redis is already bounded (--maxmemory 96mb) and postgres shm_size is modest (128mb).
 name: vpnhub
 
 x-app: &app

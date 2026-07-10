@@ -108,10 +108,18 @@ def _spec_payload(spec: ProvisionSpec) -> dict[str, Any]:
         payload["activeInternalSquads"] = list(spec.internal_squads)
     if spec.telegram_id is not None:
         payload["telegramId"] = spec.telegram_id
+    # device_limit / external_squad follow the same omit ⇒ "leave alone" rule as squads,
+    # EXCEPT on a plan CHANGE: the reset_* flags let the new plan actively clear a stale
+    # cap/exit that the old plan set (unlimited devices ⇒ 0, no exit ⇒ null). Without them a
+    # None/falsy value is omitted and the panel keeps the old value (create/renew rely on that).
     if spec.device_limit is not None:
         payload["hwidDeviceLimit"] = spec.device_limit
+    elif spec.reset_device_limit:
+        payload["hwidDeviceLimit"] = 0  # Remnawave: 0 == unlimited devices
     if spec.external_squad:
         payload["externalSquadUuid"] = spec.external_squad
+    elif spec.reset_external_squad:
+        payload["externalSquadUuid"] = None
     if spec.description:
         payload["description"] = spec.description
     return payload

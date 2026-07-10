@@ -275,14 +275,29 @@ async def reconcile_pending_payments() -> int:
     return recovered
 
 
-@broker.task
+@broker.task(retry_on_error=True, max_retries=5)
 async def panel_write_retry(subscription_id: int) -> None:
-    """Re-drive a failed panel write for a subscription (ADR-0005 retry queue).
+    """Re-drive a failed panel-first write by reconciling the panel user's enabled state to our
+    local status (ADR-0005 retry queue).
 
-    Placeholder for the reconcile/sync implementation — wire to RemnawaveService.apply once
-    the sync mapper lands. Kept idempotent by design.
+    Enqueued when a best-effort panel write lost the race with a panel outage — e.g. a refund
+    flips the sub to DISABLED locally but the panel `disable` threw, leaving the refunded user
+    still able to connect (resync only re-drives USABLE subs, so it can't rescue this one).
+    Idempotent: re-runs converge, and `retry_on_error` backs off until the panel answers again.
     """
-    log.info("panel_write_retry", subscription_id=subscription_id)
+    container = get_container()
+    async with container.uow() as uow:
+        sub = await uow.subscriptions.get(subscription_id)
+        if sub is None or sub.remnawave_uuid is None:
+            return  # gone / never provisioned — nothing to reconcile
+        panel_uuid = sub.remnawave_uuid
+        should_be_enabled = sub.status.is_usable
+    # Panel-first, outside the DB txn (#1). A raise here re-queues via retry_on_error.
+    if should_be_enabled:
+        await container.remnawave_client.enable_user(panel_uuid)
+    else:
+        await container.remnawave_client.disable_user(panel_uuid)
+    log.info("panel_write_retry", subscription_id=subscription_id, enabled=should_be_enabled)
 
 
 @broker.task(schedule=[{"cron": "17 4 * * *"}])

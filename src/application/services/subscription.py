@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from src.application.dto.pricing import PurchaseRequest
@@ -189,6 +190,10 @@ class SubscriptionService:
             internal_squads=tuple(subscription.internal_squads or ()),
             external_squad=subscription.external_squad,
         )
+        # On a plan CHANGE the new plan's device cap / exit are authoritative: if it grants
+        # unlimited devices or has no external squad, the old panel value must be CLEARED, not
+        # left in place. create/renew keep the omit-semantics — only CHANGE opts into the clear.
+        spec = replace(spec, reset_device_limit=True, reset_external_squad=True)
         await self._remnawave.apply(subscription.remnawave_uuid, spec)
         return subscription
 

@@ -37,10 +37,40 @@ def test_non_empty_squads_are_sent() -> None:
 
 
 def test_device_limit_and_external_squad_follow_omit_semantics() -> None:
-    # None/falsy ⇒ omit (leave alone); concrete ⇒ send.
+    # None/falsy ⇒ omit (leave alone); concrete ⇒ send. This is the create/renew rule and
+    # the reset_* flags default False, so it is unaffected by the CHANGE clear-intent below.
     p = _spec_payload(_spec(device_limit=None, external_squad=None))
     assert "hwidDeviceLimit" not in p
     assert "externalSquadUuid" not in p
     p2 = _spec_payload(_spec(device_limit=5, external_squad="ext-1"))
     assert p2["hwidDeviceLimit"] == 5
     assert p2["externalSquadUuid"] == "ext-1"
+
+
+def test_reset_flags_clear_device_limit_and_external_squad() -> None:
+    # Plan CHANGE to unlimited devices / no exit: the flags force an explicit CLEAR so the
+    # panel drops the old plan's cap/exit instead of keeping it (omit would leave it in place).
+    p = _spec_payload(
+        _spec(
+            device_limit=None,
+            external_squad=None,
+            reset_device_limit=True,
+            reset_external_squad=True,
+        )
+    )
+    assert p["hwidDeviceLimit"] == 0  # Remnawave: 0 == unlimited
+    assert p["externalSquadUuid"] is None  # explicit null clears the old exit
+
+
+def test_reset_flags_do_not_override_concrete_values() -> None:
+    # When the new plan DOES specify a cap/exit, its concrete value wins over the clear.
+    p = _spec_payload(
+        _spec(
+            device_limit=5,
+            external_squad="ext-1",
+            reset_device_limit=True,
+            reset_external_squad=True,
+        )
+    )
+    assert p["hwidDeviceLimit"] == 5
+    assert p["externalSquadUuid"] == "ext-1"

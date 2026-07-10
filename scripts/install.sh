@@ -14,7 +14,7 @@ ORANGE=$'\033[38;5;208m'; GREEN=$'\033[1;32m'; CYAN=$'\033[1;36m'; RED=$'\033[1;
 LINE="────────────────────────────────────────────────────────"
 
 hr()    { printf "%s%s%s\n" "$DIM" "$LINE" "$R"; }
-step()  { printf "\n%s[%s/4]%s %s%s%s\n" "$ORANGE" "$1" "$R" "$B" "$2" "$R"; }
+step()  { printf "\n%s[%s/5]%s %s%s%s\n" "$ORANGE" "$1" "$R" "$B" "$2" "$R"; }
 ok()    { printf "  %s✔%s %s\n" "$GREEN" "$R" "$*"; }
 note()  { printf "  %s·%s %s\n" "$DIM" "$R" "$*"; }
 ask()   { printf "  %s?%s %s" "$CYAN" "$R" "$*"; }
@@ -46,8 +46,9 @@ run_spin() { # run_spin "подпись" cmd...
 
 cd "$(dirname "$0")/.."
 banner
+note "Требования: 1 vCPU / 1–2 GB RAM (создаём swap автоматически)"
 
-# --- [1/4] prerequisites --------------------------------------------------------
+# --- [1/5] prerequisites --------------------------------------------------------
 step 1 "Docker"
 if command -v docker >/dev/null 2>&1; then
   ok "docker уже установлен ($(docker --version | cut -d, -f1))"
@@ -57,8 +58,97 @@ fi
 docker compose version >/dev/null 2>&1 || fail "docker compose v2 не найден"
 ok "docker compose v2 на месте"
 
-# --- [2/4] questions (only what we can't invent) --------------------------------
-step 2 "Пара вопросов"
+# --- [2/5] memory / swap guard --------------------------------------------------
+# На 1 GB VPS `docker compose build` (SPA-сборка + Python-образ) может уронить
+# машину по OOM. Заранее поднимаем swapfile, чтобы сборка пережила пик памяти.
+# Всё best-effort и идемпотентно: не создаём второй swap, не дублируем fstab,
+# а при любой невозможности (контейнер / нет root / нет места) — предупреждаем и идём дальше.
+step 2 "Память и swap"
+ensure_swap() {
+  local swapfile=/swapfile
+  local mem_kb swap_kb mem_mb swap_mb
+
+  if [ ! -r /proc/meminfo ]; then
+    note "не Linux или нет /proc/meminfo — пропускаю проверку памяти"
+    return 0
+  fi
+
+  mem_kb=$(awk '/^MemTotal:/{print $2; exit}'  /proc/meminfo 2>/dev/null || echo 0)
+  swap_kb=$(awk '/^SwapTotal:/{print $2; exit}' /proc/meminfo 2>/dev/null || echo 0)
+  [ -n "$mem_kb" ]  || mem_kb=0
+  [ -n "$swap_kb" ] || swap_kb=0
+  mem_mb=$(( mem_kb / 1024 ))
+  swap_mb=$(( swap_kb / 1024 ))
+  note "RAM: ${mem_mb} MB · swap: ${swap_mb} MB"
+
+  # Достаточно памяти → swap не нужен.
+  if [ "$mem_kb" -ge 1843200 ]; then          # ~1.8 GB
+    ok "памяти достаточно (${mem_mb} MB) — swap не требуется"
+    return 0
+  fi
+
+  # Swap уже есть (любой источник) → второй не добавляем.
+  if [ "$swap_kb" -gt 0 ]; then
+    ok "swap уже активен (${swap_mb} MB) — хватит для сборки"
+    return 0
+  fi
+
+  note "мало RAM (${mem_mb} MB) и нет swap — поднимаю 2 GB ${swapfile} под сборку"
+
+  if [ "$(id -u 2>/dev/null || echo 1)" -ne 0 ]; then
+    note "нет root — не могу создать swap; продолжаю (сборка может упасть по OOM)"
+    return 0
+  fi
+
+  # Файл остался с прошлого запуска — не пересоздаём, пробуем просто включить.
+  if [ -e "$swapfile" ]; then
+    if swapon "$swapfile" 2>/dev/null; then
+      ok "включил существующий ${swapfile}"
+    else
+      note "${swapfile} уже существует — пропускаю создание"
+    fi
+    return 0
+  fi
+
+  # Выделяем: сначала fallocate, при неудаче — dd.
+  if ! fallocate -l 2G "$swapfile" 2>/dev/null; then
+    if ! dd if=/dev/zero of="$swapfile" bs=1M count=2048 status=none 2>/dev/null; then
+      note "не удалось выделить ${swapfile} (нет места/прав?) — продолжаю без swap"
+      rm -f "$swapfile" 2>/dev/null || true
+      return 0
+    fi
+  fi
+
+  chmod 600 "$swapfile" 2>/dev/null || true
+
+  if ! mkswap "$swapfile" >/dev/null 2>&1; then
+    note "mkswap не отработал — продолжаю без swap"
+    rm -f "$swapfile" 2>/dev/null || true
+    return 0
+  fi
+
+  if ! swapon "$swapfile" 2>/dev/null; then
+    note "swapon не отработал (нет прав в контейнере?) — продолжаю без swap"
+    rm -f "$swapfile" 2>/dev/null || true
+    return 0
+  fi
+
+  # Переживём перезагрузку — но не дублируем строку в /etc/fstab.
+  if ! grep -qsE "^${swapfile}[[:space:]]" /etc/fstab 2>/dev/null; then
+    if printf '%s none swap sw 0 0\n' "$swapfile" >> /etc/fstab 2>/dev/null; then
+      note "добавил запись в /etc/fstab"
+    else
+      note "не смог записать /etc/fstab — swap активен только до перезагрузки"
+    fi
+  fi
+
+  ok "swap 2 GB подключён (${swapfile})"
+  return 0
+}
+ensure_swap
+
+# --- [3/5] questions (only what we can't invent) --------------------------------
+step 3 "Пара вопросов"
 if [ -f .env ]; then
   ok ".env уже существует — использую его (удалите файл для чистой установки)"
 else
@@ -118,16 +208,16 @@ ENVEOF
   [ -z "${PANEL_URL:-}" ] && note "панель не указана — включаю встроенную мок-панель (профиль mock)"
 fi
 
-# --- [3/4] build + up ------------------------------------------------------------
-step 3 "Сборка и запуск стека"
+# --- [4/5] build + up ------------------------------------------------------------
+step 4 "Сборка и запуск стека"
 note "postgres · redis · web · bot · worker · scheduler · caddy"
 run_spin "docker compose build (первый раз — несколько минут)" \
   docker compose -f docker/compose.prod.yml build
 run_spin "docker compose up -d" \
   docker compose -f docker/compose.prod.yml up -d
 
-# --- [4/4] health ---------------------------------------------------------------
-step 4 "Миграции и здоровье"
+# --- [5/5] health ---------------------------------------------------------------
+step 5 "Миграции и здоровье"
 printf "  %s…%s жду /health " "$DIM" "$R"
 HEALTH_OK=""
 for _ in $(seq 1 90); do
