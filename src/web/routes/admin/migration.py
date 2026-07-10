@@ -1,8 +1,13 @@
-"""Admin: migration from remnawave-shopbot (upload users.db -> probe -> import).
+"""Admin: migration from other bots/panels (upload source DB/dump -> probe -> import).
 
-The DB file is stored OUTSIDE the public /uploads mount (it contains balances and
-tokens), referenced only by a server-generated id, and deleted after a successful
-import. Import adopts existing panel uuids, so subscribers keep working.
+Sources: remnawave-shopbot (users.db), Bedolaga (bot.db / pg_dump .sql / backup
+tar.gz / ORM json / Postgres DSN), RemnaShop (pg_dump .sql / Postgres DSN) and
+3x-ui (x-ui.db — the only one that CREATES users on the Remnawave panel).
+
+Uploaded files are stored OUTSIDE the public /uploads mount (they contain
+balances and tokens), referenced only by a server-generated id, and deleted
+after a successful import. Imports adopt existing panel uuids (except 3x-ui),
+so subscribers keep working mid-migration.
 """
 
 from __future__ import annotations
@@ -11,14 +16,21 @@ import asyncio
 import re
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
-from src.application.services import bedolaga_import, shopbot_import
+from src.application.services import (
+    bedolaga_import,
+    remnashop_import,
+    shopbot_import,
+    threexui_import,
+)
 from src.application.services.bedolaga_import import BedolagaImportService
+from src.application.services.remnashop_import import RemnashopImportService
 from src.application.services.shopbot_import import ShopbotImportService
+from src.application.services.threexui_import import ThreexuiImportService
 from src.core.logging import get_logger
 from src.infrastructure.di import AppContainer
 from src.web.deps import get_container
@@ -27,24 +39,43 @@ from src.web.routes.admin.deps import AdminIdentity, require_admin
 
 log = get_logger(__name__)
 
-router = APIRouter(prefix="/migration/shopbot")
+router = APIRouter(prefix="/migration")
 
 # NOT under uploads/ — that directory is publicly served.
 _INBOX = Path("migration_inbox")
 _MAX_BYTES = 200 * 1024 * 1024
 _ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
+_UPLOAD_EXTS = (".db", ".sqlite", ".sqlite3", ".sql", ".json", ".gz", ".tgz")
 
-def _file_for(file_id: str) -> Path:
+Source = Literal["bedolaga", "remnashop", "threexui"]
+
+
+def _saved_file(file_id: str, suffix: str) -> Path:
     if not _ID_RE.match(file_id):
         raise HTTPException(400, "bad file id")
-    path = _INBOX / f"{file_id}.db"
+    path = _INBOX / f"{file_id}{suffix}"
     if not path.is_file():
-        raise HTTPException(404, "файл не найден — загрузите users.db заново")
+        raise HTTPException(404, "файл не найден — загрузите базу заново")
     return path
 
 
-@router.post("/upload")
+async def _save_upload(file: UploadFile, suffix: str) -> str:
+    data = await file.read()
+    if len(data) > _MAX_BYTES:
+        raise HTTPException(413, "файл больше 200 МБ")
+    if not data:
+        raise HTTPException(400, "пустой файл")
+    _INBOX.mkdir(exist_ok=True)
+    file_id = uuid.uuid4().hex
+    (_INBOX / f"{file_id}{suffix}").write_bytes(data)
+    return file_id
+
+
+# --- remnawave-shopbot (users.db) — kept at its original paths -------------------------
+
+
+@router.post("/shopbot/upload")
 async def upload_db(file: UploadFile) -> dict[str, str]:
     name = (file.filename or "").lower()
     if not name.endswith((".db", ".sqlite", ".sqlite3")):
@@ -64,13 +95,13 @@ class FileIn(BaseModel):
     file_id: str = Field(..., min_length=32, max_length=32)
 
 
-@router.post("/probe")
+@router.post("/shopbot/probe")
 async def probe(
     body: FileIn,
     identity: AdminIdentity = Depends(require_admin),
     container: AppContainer = Depends(get_container),
 ) -> dict[str, Any]:
-    path = _file_for(body.file_id)
+    path = _saved_file(body.file_id, ".db")
     try:
         result = await asyncio.to_thread(shopbot_import.probe, path)
     except Exception as exc:
@@ -81,13 +112,13 @@ async def probe(
     return result
 
 
-@router.post("/run")
+@router.post("/shopbot/run")
 async def run_import(
     body: FileIn,
     identity: AdminIdentity = Depends(require_admin),
     container: AppContainer = Depends(get_container),
 ) -> dict[str, Any]:
-    path = _file_for(body.file_id)
+    path = _saved_file(body.file_id, ".db")
     try:
         data = await asyncio.to_thread(shopbot_import.read_source, path)
     except Exception as exc:
@@ -113,63 +144,125 @@ async def run_import(
     return {"ok": True, **summary}
 
 
-# ---------------------------------------------------------------------------
-# Bedolaga migration — the source is a live Postgres, so the admin gives us a
-# read-only DSN instead of uploading a file.
-# ---------------------------------------------------------------------------
-bedolaga_router = APIRouter(prefix="/migration/bedolaga")
+# --- Bedolaga / RemnaShop / 3x-ui -------------------------------------------------------
 
 
-class DsnIn(BaseModel):
-    dsn: str = Field(..., min_length=12, max_length=1024)
-
-    @field_validator("dsn")
-    @classmethod
-    def _pg(cls, v: str) -> str:
-        v = v.strip()
-        if not v.startswith(("postgresql://", "postgres://")):
-            raise ValueError("нужен postgresql:// DSN к БД bedolaga")
-        return v
+@router.post("/upload")
+async def upload_source(file: UploadFile) -> dict[str, str]:
+    """Generic upload: SQLite db, pg_dump .sql, Bedolaga backup tar.gz or ORM json."""
+    name = (file.filename or "").lower()
+    if not (name.endswith(_UPLOAD_EXTS) or name.endswith(".tar.gz")):
+        raise HTTPException(400, "нужен файл базы: .db/.sqlite, .sql, .json или бэкап .tar.gz")
+    file_id = await _save_upload(file, ".src")
+    return {"file_id": file_id}
 
 
-@bedolaga_router.post("/probe")
-async def bedolaga_probe(
-    body: DsnIn,
+class SourceIn(BaseModel):
+    file_id: str | None = Field(None, min_length=32, max_length=32)
+    dsn: str | None = Field(None, min_length=10, max_length=512)
+    squad_uuid: str | None = Field(None, max_length=64)  # 3x-ui only
+
+
+async def _load_source(source: Source, body: SourceIn) -> tuple[dict[str, Any], Path | None]:
+    """Read the source into plain dicts from an uploaded file or a live Postgres DSN."""
+    if body.dsn:
+        if source == "threexui":
+            raise HTTPException(400, "3x-ui импортируется только из файла x-ui.db")
+        if not body.dsn.startswith(("postgres://", "postgresql://")):
+            raise HTTPException(400, "dsn должен быть postgres:// URL")
+        reader = (
+            bedolaga_import.read_source_dsn
+            if source == "bedolaga"
+            else remnashop_import.read_source_dsn
+        )
+        try:
+            return await reader(body.dsn), None
+        except Exception as exc:
+            raise HTTPException(400, f"не удалось прочитать базу по DSN: {exc}") from exc
+    if not body.file_id:
+        raise HTTPException(400, "передайте file_id или dsn")
+    path = _saved_file(body.file_id, ".src")
+    readers = {
+        "bedolaga": bedolaga_import.read_source,
+        "remnashop": remnashop_import.read_source,
+        "threexui": threexui_import.read_source,
+    }
+    try:
+        return await asyncio.to_thread(readers[source], path), path
+    except Exception as exc:
+        raise HTTPException(400, f"не удалось прочитать файл: {exc}") from exc
+
+
+async def _panel_squads(container: AppContainer) -> list[dict[str, str]]:
+    try:
+        squads = await container.remnawave_client.get_internal_squads()
+    except Exception as exc:  # panel offline is not a probe failure
+        log.warning("migration: failed to list panel squads", error=str(exc))
+        return []
+    return [{"uuid": str(s.uuid), "name": s.name} for s in squads]
+
+
+@router.post("/{source}/probe")
+async def probe_source(
+    source: Source,
+    body: SourceIn,
     identity: AdminIdentity = Depends(require_admin),
     container: AppContainer = Depends(get_container),
 ) -> dict[str, Any]:
-    result = await bedolaga_import.probe(body.dsn)
+    data, _ = await _load_source(source, body)
+    probes = {
+        "bedolaga": bedolaga_import.probe,
+        "remnashop": remnashop_import.probe,
+        "threexui": threexui_import.probe,
+    }
+    result = probes[source](data)
+    if source == "threexui" and result.get("ok"):
+        result["squads"] = await _panel_squads(container)
     async with container.uow() as uow:
-        await audit(uow, identity, "migration.bedolaga.probe", None)
+        await audit(uow, identity, f"migration.{source}.probe", None)
         await uow.commit()
     return result
 
 
-@bedolaga_router.post("/run")
-async def bedolaga_run(
-    body: DsnIn,
+@router.post("/{source}/run")
+async def run_source_import(
+    source: Source,
+    body: SourceIn,
     identity: AdminIdentity = Depends(require_admin),
     container: AppContainer = Depends(get_container),
 ) -> dict[str, Any]:
-    try:
-        data = await bedolaga_import.read_source(body.dsn)
-    except Exception as exc:
-        raise HTTPException(400, f"не удалось прочитать БД bedolaga: {exc}") from exc
-    if not data["users"]:
-        raise HTTPException(400, "таблица users пуста — это точно БД bedolaga?")
+    data, path = await _load_source(source, body)
+    checks = {
+        "bedolaga": bedolaga_import.probe,
+        "remnashop": remnashop_import.probe,
+        "threexui": threexui_import.probe,
+    }
+    check = checks[source](data)
+    if not check.get("ok"):
+        raise HTTPException(400, str(check.get("detail") or "в источнике нет данных для импорта"))
+    if source == "threexui" and not body.squad_uuid:
+        # Panel users created without a squad get no inbounds -> dead subscriptions.
+        raise HTTPException(400, "не выбран сквад — юзеры на панели остались бы без конфигов")
 
-    service = BedolagaImportService(container.referrals)
     async with container.uow() as uow:
-        summary = await service.run(uow, data)
+        if source == "threexui":
+            xui = ThreexuiImportService(container.remnawave_client)
+            summary = await xui.run(uow, data, squad_uuid=body.squad_uuid or None)
+        elif source == "bedolaga":
+            summary = await BedolagaImportService(container.referrals).run(uow, data)
+        else:
+            summary = await RemnashopImportService(container.referrals).run(uow, data)
         await audit(
             uow,
             identity,
-            "migration.bedolaga.run",
+            f"migration.{source}.run",
             None,
-            users=summary["users_created"] + summary["users_updated"],
-            subscriptions=summary["subscriptions"],
+            users=summary.get("users_created", 0) + summary.get("users_updated", 0),
+            subscriptions=summary.get("subscriptions", 0),
         )
         await uow.commit()
-    log.info("bedolaga import done", **{k: v for k, v in summary.items() if k != "skipped"})
-    summary["skipped"] = summary["skipped"][:50]
+    if path is not None:
+        path.unlink(missing_ok=True)
+    log.info(f"{source} import done", **{k: v for k, v in summary.items() if k != "skipped"})
+    summary["skipped"] = summary["skipped"][:50]  # keep the response bounded
     return {"ok": True, **summary}

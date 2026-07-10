@@ -262,6 +262,7 @@ infrastructure/ (Postgres, Redis, Remnawave, платежи) ──────�
 | Файл | О чём |
 |---|---|
 | [docs/GO-LIVE.md](docs/GO-LIVE.md) | С нуля до живого: деплой → настройка → продажи |
+| [docs/MIGRATION.md](docs/MIGRATION.md) | Переезд с shopbot / Bedolaga / RemnaShop / 3x-ui |
 | [docs/OVERVIEW.md](docs/OVERVIEW.md) | Карта проекта: компоненты, дерево, запуск |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Кольца, потоки данных, сущности БД |
 | [docs/context/](docs/context/) | Домен Remnawave, платежи, рефералка, грабли |

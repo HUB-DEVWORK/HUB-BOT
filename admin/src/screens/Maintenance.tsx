@@ -26,15 +26,58 @@ const TOPIC_NAMES: Record<string, string> = {
   registrations: "Регистрации",
 };
 
+type MigSource = "shopbot" | "bedolaga" | "remnashop" | "threexui";
+type Squad = { uuid: string; name: string };
+
+const MIG_SOURCES: { key: MigSource; label: string }[] = [
+  { key: "shopbot", label: "remnawave-shopbot" },
+  { key: "bedolaga", label: "Bedolaga" },
+  { key: "remnashop", label: "RemnaShop" },
+  { key: "threexui", label: "3x-ui" },
+];
+
+const MIG_ACCEPT: Record<MigSource, string> = {
+  shopbot: ".db,.sqlite,.sqlite3",
+  bedolaga: ".db,.sqlite,.sqlite3,.sql,.json,.gz,.tgz,.tar.gz",
+  remnashop: ".sql,.json",
+  threexui: ".db,.sqlite,.sqlite3",
+};
+
+// Human labels for the run-summary counters (all importers share this key set).
+const MIG_RESULT_LABELS: Record<string, string> = {
+  users_created: "юзеры +",
+  users_updated: "обновлено",
+  referrals_linked: "рефералы",
+  subscriptions: "подписки",
+  transactions: "платежи",
+  promocodes: "промокоды",
+  panel_users_created: "создано на панели",
+  without_telegram: "без Telegram",
+};
+
+function summaryLine(r: Record<string, unknown>): string {
+  const parts = Object.entries(MIG_RESULT_LABELS)
+    .filter(([k]) => typeof r[k] === "number")
+    .map(([k, label]) => `${label} ${r[k]}`);
+  const skipped = (r.skipped as string[] | undefined) ?? [];
+  return (
+    parts.join(", ") +
+    (skipped.length ? ` · пропущено ${skipped.length}: ${skipped.slice(0, 3).join("; ")}…` : "")
+  );
+}
+
 export default function Maintenance() {
   const { t, toast, confirm } = useApp();
   const qc = useQueryClient();
+  const [migSrc, setMigSrc] = useState<MigSource>("shopbot");
   const [dsn, setDsn] = useState("");
-  const [migResult, setMigResult] = useState<string | null>(null);
   const [sbFileId, setSbFileId] = useState<string | null>(null);
   const [sbFileName, setSbFileName] = useState<string | null>(null);
   const [sbResult, setSbResult] = useState<string | null>(null);
   const [sbBusy, setSbBusy] = useState(false);
+  const [probed, setProbed] = useState(false);
+  const [squads, setSquads] = useState<Squad[]>([]);
+  const [squad, setSquad] = useState("");
   const [groupId, setGroupId] = useState<string | null>(null);
 
   const topics = useQuery({
@@ -61,34 +104,53 @@ export default function Maintenance() {
     }
   }
 
-  async function testMigration() {
-    setMigResult(null);
-    try {
-      const r = await api.post<{ ok: boolean; counts?: Record<string, number | null>; detail?: string }>(
-        "/api/admin/migration/test",
-        { dsn },
+  function resetMigration(src: MigSource) {
+    setMigSrc(src);
+    setSbFileId(null);
+    setSbFileName(null);
+    setSbResult(null);
+    setDsn("");
+    setProbed(false);
+    setSquads([]);
+    setSquad("");
+  }
+
+  function applyProbe(probe: {
+    ok: boolean;
+    counts?: Record<string, number>;
+    squads?: Squad[];
+    detail?: string;
+  }): boolean {
+    if (probe.ok && probe.counts) {
+      setSbResult(
+        `${t.sbFound}: ` +
+          Object.entries(probe.counts)
+            .map(([k, v]) => `${k} ${v}`)
+            .join(" · ") +
+          (migSrc === "threexui" && !(probe.squads ?? []).length ? ` · ${t.migNoSquads}` : ""),
       );
-      if (r.ok && r.counts) {
-        setMigResult(
-          Object.entries(r.counts)
-            .map(([k, v]) => `${k}: ${v ?? "—"}`)
-            .join(" · "),
-        );
-      } else {
-        setMigResult(`✕ ${r.detail ?? "error"}`);
-      }
-    } catch (e) {
-      setMigResult(`✕ ${(e as Error).message}`);
+      setSquads(probe.squads ?? []);
+      setSquad(probe.squads?.[0]?.uuid ?? "");
+      setProbed(true);
+      return true;
     }
+    setSbResult(`✕ ${probe.detail ?? "error"}`);
+    setProbed(false);
+    return false;
   }
 
   async function sbUpload(file: File) {
     setSbResult(null);
+    setProbed(false);
     setSbBusy(true);
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch("/api/admin/migration/shopbot/upload", {
+      const uploadUrl =
+        migSrc === "shopbot"
+          ? "/api/admin/migration/shopbot/upload"
+          : "/api/admin/migration/upload";
+      const res = await fetch(uploadUrl, {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken() ?? ""}` },
         body: fd,
@@ -97,21 +159,18 @@ export default function Maintenance() {
       if (!res.ok || !j.file_id) throw new Error(j.detail ?? `HTTP ${res.status}`);
       setSbFileId(j.file_id);
       setSbFileName(file.name);
-      const probe = await api.post<{ ok: boolean; counts?: Record<string, number>; detail?: string }>(
-        "/api/admin/migration/shopbot/probe",
-        { file_id: j.file_id },
-      );
-      if (probe.ok && probe.counts) {
-        setSbResult(
-          `${t.sbFound}: ` +
-            Object.entries(probe.counts)
-              .map(([k, v]) => `${k} ${v}`)
-              .join(" · "),
-        );
-      } else {
-        setSbResult(`✕ ${probe.detail ?? "error"}`);
-        setSbFileId(null);
-      }
+      setDsn("");
+      const probeUrl =
+        migSrc === "shopbot"
+          ? "/api/admin/migration/shopbot/probe"
+          : `/api/admin/migration/${migSrc}/probe`;
+      const probe = await api.post<{
+        ok: boolean;
+        counts?: Record<string, number>;
+        squads?: Squad[];
+        detail?: string;
+      }>(probeUrl, { file_id: j.file_id });
+      if (!applyProbe(probe)) setSbFileId(null);
     } catch (e) {
       setSbResult(`✕ ${(e as Error).message}`);
       setSbFileId(null);
@@ -120,23 +179,44 @@ export default function Maintenance() {
     }
   }
 
+  async function probeDsn() {
+    if (!dsn) return;
+    setSbResult(null);
+    setProbed(false);
+    setSbFileId(null);
+    setSbFileName(null);
+    setSbBusy(true);
+    try {
+      const probe = await api.post<{
+        ok: boolean;
+        counts?: Record<string, number>;
+        detail?: string;
+      }>(`/api/admin/migration/${migSrc}/probe`, { dsn });
+      applyProbe(probe);
+    } catch (e) {
+      setSbResult(`✕ ${(e as Error).message}`);
+    } finally {
+      setSbBusy(false);
+    }
+  }
+
   async function sbRun() {
-    if (!sbFileId) return;
-    if (!(await confirm(t.sbConfirm))) return;
+    if (!probed) return;
+    if (!(await confirm(t.migConfirm))) return;
     setSbBusy(true);
     setSbResult(t.sbRunning);
     try {
-      const r = await api.post<Record<string, unknown>>("/api/admin/migration/shopbot/run", {
-        file_id: sbFileId,
-      });
-      const skipped = (r.skipped as string[] | undefined) ?? [];
-      setSbResult(
-        `✓ ${t.sbDone}: юзеры +${r.users_created} (обновлено ${r.users_updated}), ` +
-          `рефералы ${r.referrals_linked}, подписки ${r.subscriptions}, ` +
-          `платежи ${r.transactions}, промокоды ${r.promocodes}` +
-          (skipped.length ? ` · пропущено ${skipped.length}: ${skipped.slice(0, 3).join("; ")}…` : ""),
-      );
+      const runUrl =
+        migSrc === "shopbot"
+          ? "/api/admin/migration/shopbot/run"
+          : `/api/admin/migration/${migSrc}/run`;
+      const body: Record<string, unknown> = sbFileId ? { file_id: sbFileId } : { dsn };
+      if (migSrc === "threexui" && squad) body.squad_uuid = squad;
+      const r = await api.post<Record<string, unknown>>(runUrl, body);
+      setSbResult(`✓ ${t.sbDone}: ${summaryLine(r)}`);
       setSbFileId(null);
+      setSbFileName(null);
+      setProbed(false);
     } catch (e) {
       setSbResult(`✕ ${(e as Error).message}`);
     } finally {
@@ -229,13 +309,30 @@ export default function Maintenance() {
             {t.migration}
           </div>
           <div className="grid" style={{ gap: 10 }}>
-            <div className="dim" style={{ fontSize: 12 }}>{t.sbHint}</div>
+            <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+              <span className="dim" style={{ fontSize: 12 }}>{t.migSource}:</span>
+              {MIG_SOURCES.map((s) => (
+                <button
+                  key={s.key}
+                  className={`btn sm ${migSrc === s.key ? "primary" : "secondary"}`}
+                  onClick={() => resetMigration(s.key)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <div className="dim" style={{ fontSize: 12 }}>
+              {migSrc === "shopbot" && t.sbHint}
+              {migSrc === "bedolaga" && t.migHintBedolaga}
+              {migSrc === "remnashop" && t.migHintRemnashop}
+              {migSrc === "threexui" && t.migHintThreexui}
+            </div>
             <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
               <label className="btn secondary" style={{ cursor: "pointer" }}>
-                {sbFileName ?? t.sbPick}
+                {sbFileName ?? t.migPickFile}
                 <input
                   type="file"
-                  accept=".db,.sqlite,.sqlite3"
+                  accept={MIG_ACCEPT[migSrc]}
                   style={{ display: "none" }}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
@@ -244,33 +341,54 @@ export default function Maintenance() {
                   }}
                 />
               </label>
-              <button className="btn primary" disabled={!sbFileId || sbBusy} onClick={() => void sbRun()}>
+              <button
+                className="btn primary"
+                disabled={!probed || sbBusy || (migSrc === "threexui" && !squad)}
+                onClick={() => void sbRun()}
+              >
                 {sbBusy ? "…" : t.startMigration}
               </button>
             </div>
+            {migSrc === "threexui" && probed && squads.length > 0 && (
+              <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+                <span className="dim" style={{ fontSize: 12 }}>{t.migSquad}</span>
+                <select
+                  className="input"
+                  style={{ flex: "1 1 180px" }}
+                  value={squad}
+                  onChange={(e) => setSquad(e.target.value)}
+                >
+                  {squads.map((s) => (
+                    <option key={s.uuid} value={s.uuid}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {(migSrc === "bedolaga" || migSrc === "remnashop") && (
+              <>
+                <div className="dim" style={{ fontSize: 12, marginTop: 4 }}>{t.migDsnLabel}</div>
+                <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+                  <input
+                    className="input mono"
+                    style={{ flex: "1 1 260px" }}
+                    placeholder="postgresql://user:pass@host:5432/oldbot"
+                    value={dsn}
+                    onChange={(e) => {
+                      setDsn(e.target.value);
+                      setProbed(false); // an edited DSN must be re-probed before run
+                    }}
+                  />
+                  <button className="btn secondary" disabled={!dsn || sbBusy} onClick={() => void probeDsn()}>
+                    {t.checkConn}
+                  </button>
+                </div>
+              </>
+            )}
             {sbResult && (
               <div className="mono muted" style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>
                 {sbResult}
-              </div>
-            )}
-            <div className="dim" style={{ fontSize: 12, marginTop: 8 }}>{t.sbOtherDsn}</div>
-            <input
-              className="input mono"
-              placeholder="postgresql://user:pass@host:5432/oldbot"
-              value={dsn}
-              onChange={(e) => setDsn(e.target.value)}
-            />
-            <div className="row">
-              <button className="btn secondary" disabled={!dsn} onClick={testMigration}>
-                {t.checkConn}
-              </button>
-              <button className="btn primary" disabled title="после проверки">
-                {t.startMigration}
-              </button>
-            </div>
-            {migResult && (
-              <div className="mono muted" style={{ fontSize: 12 }}>
-                {migResult}
               </div>
             )}
           </div>

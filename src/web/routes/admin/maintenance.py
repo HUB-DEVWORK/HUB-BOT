@@ -1,4 +1,4 @@
-"""Admin: maintenance actions, report topics, bot-migration stubs (screen 14).
+"""Admin: maintenance actions and report topics (screen 14).
 
 Heavy/irreversible host operations (update, restarts, reboot) are recorded to the audit
 journal and executed only where the runtime actually can (e.g. process restart via the
@@ -185,38 +185,4 @@ async def maintenance_action(
     return {"ok": True, "status": "scheduled", "action": action}
 
 
-# --- migration from another bot (stubs — real importer lands with the migration phase) --
-
-
-class MigrationTestIn(BaseModel):
-    dsn: str = Field(..., min_length=10, max_length=512)
-
-
-@router.post("/migration/test")
-async def migration_test(
-    body: MigrationTestIn,
-    identity: AdminIdentity = Depends(require_admin),
-    container: AppContainer = Depends(get_container),
-) -> dict[str, Any]:
-    """Probe a source-bot Postgres DSN and count importable rows."""
-    import asyncpg  # type: ignore[import-untyped]
-
-    if not body.dsn.startswith(("postgres://", "postgresql://")):
-        raise HTTPException(400, "dsn must be a postgres:// URL")
-    try:
-        conn = await asyncpg.connect(dsn=body.dsn, timeout=8)
-    except Exception as exc:
-        return {"ok": False, "detail": str(exc)[:300]}
-    try:
-        counts: dict[str, int | None] = {}
-        for table in ("users", "subscriptions", "transactions", "promo_codes"):
-            try:
-                counts[table] = await conn.fetchval(f'SELECT count(*) FROM "{table}"')
-            except Exception:
-                counts[table] = None
-        return {"ok": True, "counts": counts}
-    finally:
-        await conn.close()
-        async with container.uow() as uow:
-            await audit(uow, identity, "migration.test", None)
-            await uow.commit()
+# Bot migration moved to routes/admin/migration.py (shopbot/bedolaga/remnashop/3x-ui).

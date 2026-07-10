@@ -5,9 +5,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import sqlite3
 import time
 import urllib.parse
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -746,3 +748,204 @@ async def test_bootstrap_public_urls_autowires_bot_miniapp_link(
     async with container.uow() as uow:
         keep = str(await container.bot_config.value(uow, "SUBSCRIPTION_MINI_APP_URL"))
         assert keep == "https://custom.example/mini"
+
+
+# --- migration (bedolaga / 3x-ui) -------------------------------------------------------
+
+
+def _bedolaga_db(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY, telegram_id INTEGER, username TEXT, first_name TEXT,
+            last_name TEXT, status TEXT, language TEXT, balance_kopeks INTEGER,
+            has_had_paid_subscription BOOLEAN, has_made_first_topup BOOLEAN,
+            referred_by_id INTEGER, referral_code TEXT, referral_commission_percent INTEGER,
+            remnawave_uuid TEXT, created_at TIMESTAMP
+        );
+        CREATE TABLE subscriptions (
+            id INTEGER PRIMARY KEY, user_id INTEGER, status TEXT, is_trial BOOLEAN,
+            start_date TIMESTAMP, end_date TIMESTAMP, traffic_limit_gb INTEGER,
+            traffic_used_gb REAL, subscription_url TEXT, subscription_crypto_link TEXT,
+            device_limit INTEGER, connected_squads TEXT, autopay_enabled BOOLEAN,
+            autopay_days_before INTEGER, autopay_period_days INTEGER,
+            remnawave_short_uuid TEXT, remnawave_uuid TEXT, remnawave_short_id TEXT,
+            tariff_id INTEGER, created_at TIMESTAMP
+        );
+        CREATE TABLE transactions (
+            id INTEGER PRIMARY KEY, user_id INTEGER, type TEXT, amount_kopeks INTEGER,
+            description TEXT, payment_method TEXT, external_id TEXT, is_completed BOOLEAN,
+            created_at TIMESTAMP, completed_at TIMESTAMP
+        );
+        CREATE TABLE promocodes (
+            id INTEGER PRIMARY KEY, code TEXT, type TEXT, balance_bonus_kopeks INTEGER,
+            subscription_days INTEGER, max_uses INTEGER, valid_until TIMESTAMP,
+            is_active BOOLEAN, first_purchase_only BOOLEAN
+        );
+        CREATE TABLE tariffs (id INTEGER PRIMARY KEY, name TEXT);
+        """
+    )
+    conn.execute(
+        "INSERT INTO users VALUES (1, 555001, 'mig_alice', 'Alice', NULL, 'active', 'ru', "
+        "12345, 1, 1, NULL, 'refMigAli1', NULL, "
+        "'6f9619ff-8b86-4d01-b42d-00cf4fc964ff', '2025-01-15 12:00:00')"
+    )
+    conn.execute(
+        "INSERT INTO subscriptions VALUES (1, 1, 'active', 0, '2025-01-15 12:00:00', "
+        "'2099-01-01 00:00:00', 100, 1.5, 'https://sub.old/abc', NULL, 3, '[\"sq-1\"]', "
+        "0, 3, NULL, 'shortuuid1', NULL, 'a1b2c3', 7, '2025-01-15 12:00:00')"
+    )
+    conn.execute(
+        "INSERT INTO transactions VALUES (1, 1, 'deposit', 19900, NULL, 'pal24', "
+        "'ext-mig-1', 1, '2025-05-01 10:00:00', '2025-05-01 10:01:00')"
+    )
+    conn.execute("INSERT INTO promocodes VALUES (1, 'MIG10', 'discount', 10, 24, 50, NULL, 1, 0)")
+    conn.execute("INSERT INTO tariffs VALUES (7, 'Pro')")
+    conn.commit()
+    conn.close()
+
+
+async def test_migration_bedolaga_upload_probe_run(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http, container = client
+    monkeypatch.chdir(tmp_path)  # migration_inbox/ is created relative to CWD
+    auth = await _login(http)
+
+    src = tmp_path / "bot.db"
+    _bedolaga_db(src)
+    res = await http.post(
+        "/api/admin/migration/upload",
+        headers=auth,
+        files={"file": ("bot.db", src.read_bytes(), "application/octet-stream")},
+    )
+    assert res.status_code == 200, res.text
+    file_id = res.json()["file_id"]
+
+    res = await http.post(
+        "/api/admin/migration/bedolaga/probe", headers=auth, json={"file_id": file_id}
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["ok"] is True
+    assert res.json()["counts"]["users"] == 1
+
+    res = await http.post(
+        "/api/admin/migration/bedolaga/run", headers=auth, json={"file_id": file_id}
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["users_created"] == 1
+    assert body["subscriptions"] == 1
+    assert body["transactions"] == 1
+    assert not (tmp_path / "migration_inbox" / f"{file_id}.src").exists()
+
+    async with container.uow() as uow:
+        user = await uow.users.find_one(telegram_id=555001)
+        assert user is not None
+        assert user.balance_minor == 12345  # kopeks adopted 1:1, not x100
+        sub = await uow.subscriptions.find_one(user_id=user.id)
+        assert sub is not None and str(sub.remnawave_uuid) == "6f9619ff-8b86-4d01-b42d-00cf4fc964ff"
+        txn = await uow.transactions.find_one(external_id="ext-mig-1")
+        assert txn is not None and txn.gateway_type is not None
+        assert txn.gateway_type.value == "paypalych"  # pal24 -> paypalych
+
+
+def _xui_db(path: Path) -> None:
+    clients = {
+        "clients": [
+            {
+                "id": "2d5a1f39-3c8e-4d5e-9a1b-0c2d3e4f5a6b",
+                "email": "mike",
+                "flow": "xtls-rprx-vision",
+                "totalGB": 10737418240,
+                "expiryTime": 4102444800000,
+                "enable": True,
+                "tgId": 555777,
+                "subId": "mikesub123456789",
+            }
+        ]
+    }
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE inbounds (
+            id INTEGER PRIMARY KEY, user_id INTEGER, up INTEGER, down INTEGER, total INTEGER,
+            remark TEXT, enable BOOLEAN, expiry_time INTEGER, listen TEXT, port INTEGER,
+            protocol TEXT, settings TEXT, stream_settings TEXT, tag TEXT, sniffing TEXT
+        );
+        CREATE TABLE client_traffics (
+            id INTEGER PRIMARY KEY, inbound_id INTEGER, enable BOOLEAN, email TEXT,
+            up INTEGER, down INTEGER, expiry_time INTEGER, total INTEGER, reset INTEGER
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO inbounds VALUES (1, 1, 0, 0, 0, 'DE-Reality', 1, 0, '', 443, 'vless', "
+        "?, '{}', 'inbound-1', '{}')",
+        (json.dumps(clients),),
+    )
+    conn.execute(
+        "INSERT INTO client_traffics VALUES (1, 1, 1, 'mike', 1000, 2000, 4102444800000, "
+        "10737418240, 0)"
+    )
+    conn.commit()
+    conn.close()
+
+
+async def test_migration_threexui_creates_panel_users(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http, container = client
+    monkeypatch.chdir(tmp_path)
+    auth = await _login(http)
+
+    src = tmp_path / "x-ui.db"
+    _xui_db(src)
+    res = await http.post(
+        "/api/admin/migration/upload",
+        headers=auth,
+        files={"file": ("x-ui.db", src.read_bytes(), "application/octet-stream")},
+    )
+    assert res.status_code == 200, res.text
+    file_id = res.json()["file_id"]
+
+    res = await http.post(
+        "/api/admin/migration/threexui/probe", headers=auth, json={"file_id": file_id}
+    )
+    assert res.status_code == 200, res.text
+    probe_body = res.json()
+    assert probe_body["ok"] is True
+    assert probe_body["counts"]["with_telegram"] == 1
+    assert probe_body["squads"], "probe must list panel squads"
+    squad_uuid = probe_body["squads"][0]["uuid"]
+
+    # No squad -> panel users would end up with zero inbounds; the server refuses.
+    res = await http.post(
+        "/api/admin/migration/threexui/run", headers=auth, json={"file_id": file_id}
+    )
+    assert res.status_code == 400
+
+    res = await http.post(
+        "/api/admin/migration/threexui/run",
+        headers=auth,
+        json={"file_id": file_id, "squad_uuid": squad_uuid},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["panel_users_created"] == 1
+
+    assert len(container.remnawave_client.users) == 1  # created on the panel
+    async with container.uow() as uow:
+        user = await uow.users.find_one(telegram_id=555777)
+        assert user is not None
+        sub = await uow.subscriptions.find_one(user_id=user.id)
+        assert sub is not None
+        assert sub.short_id == "mikesub123456789"[:16]
+        assert sub.traffic_limit_bytes == 10737418240  # totalGB is bytes, adopted verbatim

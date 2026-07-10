@@ -122,6 +122,8 @@ def _spec_payload(spec: ProvisionSpec) -> dict[str, Any]:
         payload["externalSquadUuid"] = None
     if spec.description:
         payload["description"] = spec.description
+    # Caller-supplied passthrough fields (e.g. vlessUuid/shortUuid/status on import).
+    payload.update(spec.extra)
     return payload
 
 
