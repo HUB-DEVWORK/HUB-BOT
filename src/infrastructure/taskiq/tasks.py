@@ -203,6 +203,22 @@ async def _notify_paid(container: object, payment_id: UUID) -> None:
         await mailer.send(email, "VPN — подписка активна", body)
 
 
+@broker.task(schedule=[{"cron": "* * * * *"}])
+async def worker_heartbeat() -> None:
+    """Prove the worker is alive: stamp a short-lived Redis key every minute.
+
+    /health/deep flags the worker as down when this key is missing or stale — so a
+    silently crash-looping worker (which /health can't see: web stays up) trips an
+    external uptime monitor instead of only surfacing via angry customers.
+    """
+    import contextlib
+    import time as _time
+
+    container = get_container()
+    with contextlib.suppress(Exception):  # best-effort; never crash-loop the worker on Redis blips
+        await container.redis.set("worker:heartbeat", str(int(_time.time())), ex=300)
+
+
 @broker.task(schedule=[{"cron": "*/5 * * * *"}])
 async def reconcile_pending_payments() -> int:
     """Recover paid-but-stuck gateway transactions by polling the provider.
