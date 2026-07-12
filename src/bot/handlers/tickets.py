@@ -96,8 +96,11 @@ async def user_message(
         cfg = container.bot_config
         mode = str(await cfg.value(uow, "SUPPORT_MODE"))
         support_chat = str(await cfg.value(uow, "SUPPORT_CHAT_ID") or "")
-        if mode == "redirect":
-            return  # support goes to an external account; ignore free text
+        if mode != "tickets":
+            # Only the in-bot ticket mode consumes free text. Under bot/miniapp/redirect
+            # act_support pointed the user elsewhere; creating a DB ticket nobody is watching
+            # would silently orphan the message and contradict what we told them.
+            return
         tickets = await uow.tickets.list(user_id=db_user.id)
         active = next((t for t in tickets if t.status is not TicketStatus.CLOSED), None)
         created = False
@@ -142,3 +145,26 @@ async def user_message(
                 int(support_chat),
                 f"🎫 #{ticket_id} от @{db_user.username or db_user.telegram_id}:\n\n{text[:1000]}",
             )
+
+
+@router.message(F.photo | F.document | F.video | F.voice | F.audio | F.animation | F.video_note)
+async def user_media(
+    message: Message, container: AppContainer, db_user: User, state: FSMContext
+) -> None:
+    """Non-text attachment in ticket support: guide the user to describe the issue in words.
+
+    A screenshot/voice with no caption otherwise matches no handler and the bot looks dead
+    (the free-text catch-all only sees ``F.text``). Scoped like ``user_message``: skip when
+    mid-FSM (promocode/withdrawal input) and only in the in-bot ticket mode, so it never
+    hijacks another flow or a shop whose support lives elsewhere.
+    """
+    if await state.get_state() is not None:
+        return  # user is mid-FSM — don't hijack their attachment
+    async with container.uow() as uow:
+        mode = str(await container.bot_config.value(uow, "SUPPORT_MODE"))
+    if mode != "tickets":
+        return
+    await message.answer(
+        "Опиши, пожалуйста, проблему словами — отдельным сообщением или подписью к вложению. "
+        "Так мы сразу поймём, чем помочь."
+    )

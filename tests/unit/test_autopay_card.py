@@ -69,6 +69,9 @@ def make_container(session_factory: async_sessionmaker) -> SimpleNamespace:
     )
 
 
+_FAR_HORIZON = dt.datetime(2099, 1, 1, tzinfo=dt.UTC)  # autopay due-check: keep test subs 'due'
+
+
 async def _seed(
     container: SimpleNamespace,
     uow: UnitOfWork,
@@ -139,7 +142,7 @@ async def test_card_charge_renews_subscription(session_factory: async_sessionmak
     sub_id = await _seed(container, uow)
     route = respx.post(API_PAYMENTS).mock(return_value=_charge_response("succeeded"))
 
-    assert await _autopay_one(container, sub_id) is True
+    assert await _autopay_one(container, sub_id, _FAR_HORIZON) is True
 
     sent = json.loads(route.calls.last.request.content)
     assert sent["payment_method_id"] == METHOD_ID  # decrypted before the API call
@@ -169,7 +172,7 @@ async def test_card_charge_declined_notifies_and_keeps_sub(
     sub_id = await _seed(container, uow)
     respx.post(API_PAYMENTS).mock(return_value=_charge_response("canceled"))
 
-    assert await _autopay_one(container, sub_id) is False
+    assert await _autopay_one(container, sub_id, _FAR_HORIZON) is False
 
     async with uow:
         sub = await uow.subscriptions.get(sub_id)
@@ -190,7 +193,7 @@ async def test_card_charge_http_error_notifies_leaves_pending(
     sub_id = await _seed(container, uow)
     respx.post(API_PAYMENTS).mock(return_value=httpx.Response(500))
 
-    assert await _autopay_one(container, sub_id) is False
+    assert await _autopay_one(container, sub_id, _FAR_HORIZON) is False
 
     async with uow:
         sub = await uow.subscriptions.get(sub_id)
@@ -208,7 +211,7 @@ async def test_no_saved_card_skips_charge(session_factory: async_sessionmaker) -
     sub_id = await _seed(container, uow, card_saved=False)
     route = respx.post(API_PAYMENTS).mock(return_value=_charge_response("succeeded"))
 
-    assert await _autopay_one(container, sub_id) is False
+    assert await _autopay_one(container, sub_id, _FAR_HORIZON) is False
     assert not route.called
     assert container.notifier.sent == []
 
@@ -220,7 +223,7 @@ async def test_card_toggle_off_skips_charge(session_factory: async_sessionmaker)
     sub_id = await _seed(container, uow, card_enabled=False)
     route = respx.post(API_PAYMENTS).mock(return_value=_charge_response("succeeded"))
 
-    assert await _autopay_one(container, sub_id) is False
+    assert await _autopay_one(container, sub_id, _FAR_HORIZON) is False
     assert not route.called
 
 
@@ -233,7 +236,7 @@ async def test_recent_attempt_is_not_retried(session_factory: async_sessionmaker
     )
     route = respx.post(API_PAYMENTS).mock(return_value=_charge_response("succeeded"))
 
-    assert await _autopay_one(container, sub_id) is False
+    assert await _autopay_one(container, sub_id, _FAR_HORIZON) is False
     assert not route.called
 
 
@@ -246,7 +249,7 @@ async def test_recurrent_disabled_gateway_skips_charge(
     sub_id = await _seed(container, uow, recurrent_enabled=False)
     route = respx.post(API_PAYMENTS).mock(return_value=_charge_response("succeeded"))
 
-    assert await _autopay_one(container, sub_id) is False
+    assert await _autopay_one(container, sub_id, _FAR_HORIZON) is False
     assert not route.called
 
 
@@ -257,7 +260,7 @@ async def test_balance_still_first_no_card_charge(session_factory: async_session
     sub_id = await _seed(container, uow, balance_minor=50000)
     route = respx.post(API_PAYMENTS).mock(return_value=_charge_response("succeeded"))
 
-    assert await _autopay_one(container, sub_id) is True
+    assert await _autopay_one(container, sub_id, _FAR_HORIZON) is True
     assert not route.called  # paid from the wallet, the card was never touched
 
     async with uow:

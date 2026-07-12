@@ -112,7 +112,11 @@ def _duration_label(days: int) -> str:
 
 @router.callback_query(F.data.startswith("plan:"))
 async def show_durations(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    plan_id = int((cb.data or "plan:0").split(":")[1])
+    parts = (cb.data or "").split(":")
+    if len(parts) < 2 or not parts[1].isdigit():  # crafted/stale payload — back to the menu
+        await open_buy(cb, container, db_user)
+        return
+    plan_id = int(parts[1])
     async with container.uow() as uow:
         plan = await uow.plans.get_with_durations(plan_id)
     if plan is None or not plan.durations:
@@ -175,7 +179,11 @@ async def _payment_methods(
 
 @router.callback_query(F.data.startswith("dur:"))
 async def choose_payment(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    _, plan_id, days = (cb.data or "dur:0:0").split(":")
+    parts = (cb.data or "").split(":")
+    if len(parts) != 3 or not (parts[1].isdigit() and parts[2].isdigit()):
+        await open_buy(cb, container, db_user)
+        return
+    _, plan_id, days = parts
     ptype, sub_id = await _resolve_purchase_type(container, db_user, int(plan_id))
     async with container.uow() as uow:
         req = _purchase_request(int(plan_id), int(days), db_user)
@@ -229,7 +237,11 @@ async def _resolve_purchase_type(
 
 @router.callback_query(F.data.startswith("pay:"))
 async def pay(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    _, plan_id_s, days_s, method = (cb.data or "pay:0:0:bal").split(":")
+    parts = (cb.data or "").split(":")
+    if len(parts) != 4 or not (parts[1].isdigit() and parts[2].isdigit()):
+        await open_buy(cb, container, db_user)
+        return
+    _, plan_id_s, days_s, method = parts
     plan_id, days = int(plan_id_s), int(days_s)
     ptype, sub_id = await _resolve_purchase_type(container, db_user, plan_id)
     req = PurchaseRequest(
@@ -334,7 +346,11 @@ async def show_constructor(
 
 @router.callback_query(F.data.startswith("cper:"))
 async def constructor_packs(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    period_id = int((cb.data or "cper:0").split(":")[1])
+    parts = (cb.data or "").split(":")
+    if len(parts) < 2 or not parts[1].isdigit():
+        await show_constructor(cb, container, db_user)
+        return
+    period_id = int(parts[1])
     async with container.uow() as uow:
         period = await uow.constructor_periods.get(period_id)
         packs = [t for t in await uow.traffic_packs.list() if t.is_active]
@@ -360,7 +376,11 @@ async def constructor_packs(cb: CallbackQuery, container: AppContainer, db_user:
 
 @router.callback_query(F.data.startswith("cpack:"))
 async def constructor_payment(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    _, period_id, pack_id = (cb.data or "cpack:0:0").split(":")
+    parts = (cb.data or "").split(":")
+    if len(parts) != 3 or not (parts[1].isdigit() and parts[2].isdigit()):
+        await show_constructor(cb, container, db_user)
+        return
+    _, period_id, pack_id = parts
     async with container.uow() as uow:
         try:
             req = await _constructor_request(container, uow, db_user, int(period_id), int(pack_id))
@@ -391,7 +411,11 @@ async def constructor_payment(cb: CallbackQuery, container: AppContainer, db_use
 
 @router.callback_query(F.data.startswith("cpay:"))
 async def constructor_pay(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    _, period_id, pack_id, method = (cb.data or "cpay:0:0:bal").split(":")
+    parts = (cb.data or "").split(":")
+    if len(parts) != 4 or not (parts[1].isdigit() and parts[2].isdigit()):
+        await show_constructor(cb, container, db_user)
+        return
+    _, period_id, pack_id, method = parts
     async with container.uow() as uow:
         try:
             req = await _constructor_request(container, uow, db_user, int(period_id), int(pack_id))
@@ -587,7 +611,11 @@ async def traffic_menu(cb: CallbackQuery, container: AppContainer, db_user: User
 
 @router.callback_query(F.data.startswith("tpack:"))
 async def traffic_pack_pay(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    pack_id = int((cb.data or "tpack:0").split(":")[1])
+    parts = (cb.data or "").split(":")
+    if len(parts) < 2 or not parts[1].isdigit():
+        await traffic_menu(cb, container, db_user)
+        return
+    pack_id = int(parts[1])
     async with container.uow() as uow:
         pack = await uow.traffic_packs.get(pack_id)
         sub = (
@@ -644,7 +672,11 @@ async def traffic_pack_pay(cb: CallbackQuery, container: AppContainer, db_user: 
 
 @router.callback_query(F.data.startswith("tpay:"))
 async def traffic_pay(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    _, pack_id_s, method = (cb.data or "tpay:0:bal").split(":")
+    parts = (cb.data or "").split(":")
+    if len(parts) != 3 or not parts[1].isdigit():
+        await traffic_menu(cb, container, db_user)
+        return
+    _, pack_id_s, method = parts
     async with container.uow() as uow:
         sub = (
             await uow.subscriptions.get(db_user.current_subscription_id)
@@ -695,7 +727,11 @@ async def topup_menu(cb: CallbackQuery, container: AppContainer, db_user: User) 
 
 @router.callback_query(F.data.startswith("topup:"))
 async def topup_amount(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
-    amount_minor = int((cb.data or "topup:0").split(":")[1])
+    parts = (cb.data or "").split(":")
+    if len(parts) < 2 or not parts[1].isdigit():
+        await cb.answer("Некорректная сумма", show_alert=True)
+        return
+    amount_minor = int(parts[1])
     if amount_minor <= 0:
         await cb.answer("Некорректная сумма", show_alert=True)
         return

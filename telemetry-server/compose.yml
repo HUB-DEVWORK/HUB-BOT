@@ -7,4 +7,6 @@ services:
     volumes:
       - ./data:/data
     env_file:
-      - .env
+      # copy .env.example → .env first; optional so `up` doesn't hard-fail before you do
+      - path: .env
+        required: false

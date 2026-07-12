@@ -400,11 +400,15 @@ class RemnashopImportService:
         for row in rows:
             if _upper(row.get("status")) != "COMPLETED":
                 continue
+            if _to_bool(row.get("is_test")):  # sandbox payments must not inflate imported revenue
+                continue
             user = by_sid.get(_to_int(row.get("user_id")) or 0)
             if user is None:
                 continue
-            external = str(row.get("payment_id") or "")
-            if not external or await uow.transactions.find_one(external_id=external) is not None:
+            # Empty payment_id falls back to a stable synthetic id (mirror shopbot/bedolaga) so
+            # the transaction is imported and still matches on re-run, not silently dropped.
+            external = str(row.get("payment_id") or "") or f"remnashop-{_to_int(row.get('id'))}"
+            if await uow.transactions.find_one(external_id=external) is not None:
                 continue
 
             pricing = _to_json(row.get("pricing"))

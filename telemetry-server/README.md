@@ -21,7 +21,7 @@ docker compose up -d --build
 | Переменная | Обязательна | Что делает |
 |---|---|---|
 | `TS_DASH_USER` / `TS_DASH_PASS` | да (для дашборда) | Basic Auth на `/`. Без них дашборд отдаёт 503 |
-| `TS_INGEST_TOKEN` | нет | Если задан — `POST /ingest` требует заголовок `X-Telemetry-Token` с этим значением. Ставь всегда |
+| `TS_INGEST_TOKEN` | **да** | `POST /ingest` требует заголовок `X-Telemetry-Token` с этим значением. Без токена endpoint отвечает 503 (fail-closed). Обойти можно только явным `TS_ALLOW_ANONYMOUS=1` (не рекомендуется) |
 | `TS_TG_BOT_TOKEN` + `TS_TG_CHAT_ID` | нет | Алерты в Telegram: 🆕 новая ошибка, ♻️ регрессия решённой |
 | `TS_DB_PATH` | нет | Путь к SQLite, в контейнере уже `/data/telemetry.db` |
 

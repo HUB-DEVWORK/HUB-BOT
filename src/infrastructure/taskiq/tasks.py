@@ -298,8 +298,10 @@ async def panel_write_retry(subscription_id: int) -> None:
 
     Enqueued when a best-effort panel write lost the race with a panel outage — e.g. a refund
     flips the sub to DISABLED locally but the panel `disable` threw, leaving the refunded user
-    still able to connect (resync only re-drives USABLE subs, so it can't rescue this one).
-    Idempotent: re-runs converge, and `retry_on_error` backs off until the panel answers again.
+    still able to connect. Idempotent: re-runs converge. NOTE: retry_on_error re-kicks with NO
+    delay (taskiq SimpleRetryMiddleware), so the 5 attempts burn within seconds — they can't
+    outlast a multi-minute outage. The durable backstop is ``reconcile_disabled_subs`` below,
+    which sweeps locally-DISABLED-but-panel-enabled subs every few minutes regardless.
     """
     container = get_container()
     async with container.uow() as uow:
@@ -314,6 +316,20 @@ async def panel_write_retry(subscription_id: int) -> None:
     else:
         await container.remnawave_client.disable_user(panel_uuid)
     log.info("panel_write_retry", subscription_id=subscription_id, enabled=should_be_enabled)
+
+
+@broker.task(schedule=[{"cron": "*/7 * * * *"}])
+async def reconcile_disabled_subs() -> int:
+    """Durable backstop: re-disable the panel users of locally-DISABLED subs whose panel user is
+    still enabled (a refund/revoke that lost the race with a panel outage). panel_write_retry's
+    5 no-delay retries can't survive a real outage; this sweep catches what they miss."""
+    container = get_container()
+    async with container.uow() as uow:
+        if not bool(await container.bot_config.value(uow, "REMNAWAVE_RESYNC_ENABLED")):
+            return 0
+        fixed = await container.resync.reconcile_disabled(uow)
+        await uow.commit()
+    return fixed
 
 
 @broker.task(schedule=[{"cron": "17 4 * * *"}])
@@ -343,7 +359,7 @@ async def issue_nalogo_receipts() -> int:
     """Register unreceipted paid subscriptions as income in «Мой налог» (retry queue)."""
     import datetime as dt
 
-    from src.infrastructure.services.nalogo import NalogoClient, NalogoError
+    from src.infrastructure.services.nalogo import NalogoClient
 
     container = get_container()
     async with container.uow() as uow:
@@ -379,7 +395,11 @@ async def issue_nalogo_receipts() -> int:
             await uow.commit()
         try:
             receipt_id = await client.register_income(txn.amount_minor, name=name)
-        except NalogoError as exc:
+        except Exception as exc:
+            # ANY failure must un-claim, not just NalogoError: register_income does res.json(),
+            # which raises JSONDecodeError (not NalogoError) on a 200-with-HTML maintenance page —
+            # that would escape, crash the run, and orphan the claimed row forever (never re-filed,
+            # income never registered with the tax office). Un-claim + continue instead.
             log.warning("nalogo receipt deferred", payment_id=str(txn.payment_id), error=str(exc))
             async with container.uow() as uow:  # un-claim so a transient failure retries
                 row = await uow.transactions.get_by_payment_id(txn.payment_id)
@@ -898,14 +918,24 @@ async def send_holiday_promos() -> int:
                 text = f"🎉 {h.name}! Дарим +{h.value} дней при продлении сегодня!"
             else:
                 text = f"🎉 {h.name}! Бонус {h.value / 100:.0f} ₽ на баланс за продление сегодня!"
+            import asyncio
+
+            from aiogram.exceptions import TelegramRetryAfter
+
             sent = 0
             for chat_id in chat_ids:
                 try:
                     await bot.send_message(chat_id, text)
                     sent += 1
+                except TelegramRetryAfter as exc:  # flood control — wait and retry once
+                    await asyncio.sleep(exc.retry_after)
+                    try:
+                        await bot.send_message(chat_id, text)
+                        sent += 1
+                    except Exception:
+                        pass
                 except Exception:
                     pass
-                import asyncio
 
                 await asyncio.sleep(0.04)
             sent_total += sent
@@ -1265,7 +1295,7 @@ async def process_autopay() -> int:
     renewed = 0
     for (sub_id,) in rows:
         try:
-            if await _autopay_one(container, sub_id):
+            if await _autopay_one(container, sub_id, horizon):
                 renewed += 1
         except Exception:
             log.warning("autopay_failed", subscription_id=sub_id, exc_info=True)
@@ -1273,7 +1303,7 @@ async def process_autopay() -> int:
     return renewed
 
 
-async def _autopay_one(container: object, subscription_id: int) -> bool:
+async def _autopay_one(container: object, subscription_id: int, horizon: dt.datetime) -> bool:
     """Charge + renew one subscription: from balance, else the saved card (opt-in).
 
     Returns True on a successful renewal."""
@@ -1281,18 +1311,29 @@ async def _autopay_one(container: object, subscription_id: int) -> bool:
 
     from src.application.dto.pricing import PurchaseRequest
     from src.application.services.subscription import _plan_snapshot
-    from src.core.enums import Currency, PurchaseType
+    from src.core.enums import Currency, PurchaseType, SubscriptionStatus
     from src.core.enums import TransactionStatus as TS
     from src.core.enums import TransactionType as TT
     from src.infrastructure.database.base import utcnow
+    from src.infrastructure.database.models.subscription import Subscription
     from src.infrastructure.database.models.transaction import Transaction
     from src.infrastructure.di import AppContainer
 
     c = cast(AppContainer, container)
     async with c.uow() as uow:
-        sub = await uow.subscriptions.get(subscription_id)
+        # Lock the row + re-assert still-due INSIDE the lock: two overlapping process_autopay
+        # runs both snapshot this sub_id; without this a slow run A renews, then run B (holding
+        # the same snapshot) charges again for the same period. A already pushed expire_at past
+        # the horizon, so the re-check makes B bail (double-charge guard).
+        sub = await uow.session.get(Subscription, subscription_id, with_for_update=True)
         if sub is None or not sub.autopay_enabled or sub.plan_id is None:
             return False
+        if (
+            sub.status not in (SubscriptionStatus.ACTIVE, SubscriptionStatus.LIMITED)
+            or sub.expire_at is None
+            or sub.expire_at > horizon
+        ):
+            return False  # already renewed this window (or no longer due)
         user = await uow.users.get(sub.user_id)
         plan = await uow.plans.get_with_durations(sub.plan_id)
         if user is None or plan is None or not plan.durations:

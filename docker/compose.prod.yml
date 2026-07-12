@@ -60,13 +60,41 @@ services:
       RUN_MIGRATIONS: "true"
     command: ["uvicorn", "src.web.app:app", "--host", "0.0.0.0", "--port", "8080"]
     expose: ["8080"]
+    # web owns migrations (entrypoint runs `alembic upgrade head` BEFORE exec'ing uvicorn), so a
+    # 200 here means the schema is migrated and db+redis are reachable — the gate bot/worker/
+    # scheduler wait on below. No curl in the slim runtime image; python + urllib is always present
+    # (urlopen raises on a non-200, failing the check). start_period covers first-boot migrations.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
 
+  # bot/worker/scheduler must not start against an un-migrated DB. They wait for web to be
+  # healthy (web runs migrations before serving), which transitively implies postgres+redis are
+  # up too — but we keep those conditions explicit. A service-level depends_on replaces the one
+  # merged from *app, so postgres/redis are re-listed here. No cycle: web depends only on pg+redis.
   bot:
     <<: *app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
     command: ["python", "-m", "src.bot.main"]
 
   worker:
     <<: *app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
     command:
       [
         "taskiq",
@@ -79,6 +107,13 @@ services:
 
   scheduler:
     <<: *app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
     command:
       [
         "taskiq",

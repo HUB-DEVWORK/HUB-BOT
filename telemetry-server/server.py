@@ -52,6 +52,7 @@ class Config:
     ingest_token: str
     tg_bot_token: str
     tg_chat_id: str
+    allow_anonymous: bool  # explicit opt-in to run /ingest WITHOUT a token (not recommended)
 
 
 def _load_config() -> Config:
@@ -62,6 +63,8 @@ def _load_config() -> Config:
         ingest_token=os.environ.get("TS_INGEST_TOKEN", ""),
         tg_bot_token=os.environ.get("TS_TG_BOT_TOKEN", ""),
         tg_chat_id=os.environ.get("TS_TG_CHAT_ID", ""),
+        allow_anonymous=os.environ.get("TS_ALLOW_ANONYMOUS", "").strip().lower()
+        in ("1", "true", "yes"),
     )
 
 
@@ -82,7 +85,7 @@ class IngestPayload(BaseModel):
     install_id: str = Field(min_length=1, max_length=128)
     version: str = Field(default="", max_length=64)
     # Raw dicts, not TelemetryEvent: one malformed event must not 422 the whole batch.
-    events: list[Any] = Field(default_factory=list)
+    events: list[Any] = Field(default_factory=list, max_length=MAX_EVENTS_PER_REQUEST)
 
 
 def _now_iso() -> str:
@@ -297,11 +300,16 @@ def create_app() -> FastAPI:
             alerts.put(text)
 
     def _client_ip(request: Request) -> str:
-        # Behind nginx the socket peer is 127.0.0.1; trust X-Forwarded-For's first hop
-        # (nginx must set it — see README). Falls back to the socket for direct exposure.
+        # Use nginx-set X-Real-IP (see README) — it OVERWRITES any client value, so it can't be
+        # spoofed. The X-Forwarded-For FIRST hop is attacker-controlled (nginx APPENDS the real IP
+        # to whatever the client sent), so trusting it lets one attacker mint a fresh rate bucket
+        # per request → rate-limit bypass + unbounded map growth. Use the LAST XFF hop as fallback.
+        real = request.headers.get("x-real-ip", "").strip()
+        if real:
+            return real[:64]
         xff = request.headers.get("x-forwarded-for", "")
         if xff:
-            return xff.split(",")[0].strip()[:64]
+            return xff.split(",")[-1].strip()[:64]
         return request.client.host if request.client else "unknown"
 
     def _check_rate(ip: str) -> None:
@@ -336,14 +344,21 @@ def create_app() -> FastAPI:
             )
 
     def _evict_issues() -> None:
-        """Bound total issue rows (disk-fill guard): drop resolved first, then oldest."""
+        """Bound total issue rows (disk-fill guard): drop resolved first, then oldest.
+        Delete the evicted issues' event rows too, else the events table grows unbounded and
+        install_count (COUNT(DISTINCT install_id) FROM events) counts orphans."""
         over = conn.execute("SELECT COUNT(*) AS c FROM issues").fetchone()["c"] - MAX_ISSUE_ROWS
         if over > 0:
-            conn.execute(
-                "DELETE FROM issues WHERE fingerprint IN (SELECT fingerprint FROM issues"
-                " ORDER BY resolved DESC, last_seen ASC LIMIT ?)",
-                (over,),
-            )
+            victims = [
+                r["fingerprint"]
+                for r in conn.execute(
+                    "SELECT fingerprint FROM issues ORDER BY resolved DESC, last_seen ASC LIMIT ?",
+                    (over,),
+                ).fetchall()
+            ]
+            marks = ",".join("?" * len(victims))
+            conn.execute(f"DELETE FROM events WHERE fingerprint IN ({marks})", victims)
+            conn.execute(f"DELETE FROM issues WHERE fingerprint IN ({marks})", victims)
 
     def _apply_event(ev: TelemetryEvent, install_id: str, version: str) -> None:
         traceback = ev.traceback[:MAX_TRACEBACK_CHARS]
@@ -415,7 +430,12 @@ def create_app() -> FastAPI:
     @app.post("/ingest")
     def ingest(payload: IngestPayload, request: Request) -> dict[str, Any]:
         _check_rate(_client_ip(request))
-        if cfg.ingest_token:
+        # Fail CLOSED: without a configured token /ingest is a public write endpoint anyone can
+        # flood/forge. Require the token unless the operator EXPLICITLY opted into anonymous mode.
+        if not cfg.ingest_token:
+            if not cfg.allow_anonymous:
+                raise HTTPException(status_code=503, detail="telemetry ingest not configured")
+        else:
             supplied = request.headers.get("X-Telemetry-Token", "")
             if not secrets.compare_digest(supplied.encode(), cfg.ingest_token.encode()):
                 raise HTTPException(status_code=401, detail="bad telemetry token")

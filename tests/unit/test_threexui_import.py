@@ -8,7 +8,12 @@ import sqlite3
 from pathlib import Path
 
 from src.application.dto.panel import PanelUser, ProvisionSpec
-from src.application.services.threexui_import import ThreexuiImportService, probe, read_source
+from src.application.services.threexui_import import (
+    ThreexuiImportService,
+    _short_id,
+    probe,
+    read_source,
+)
 from src.core.enums import SubscriptionStatus
 from src.core.exceptions import RemnawaveError
 from src.infrastructure.database.uow import UnitOfWork
@@ -265,6 +270,77 @@ async def test_import_and_idempotent_rerun(uow: UnitOfWork, tmp_path: Path) -> N
         assert await uow.users.count() == 6
         alice = await uow.users.find_one(telegram_id=111)
         assert alice is not None and alice.balance_minor == 777
+
+
+def _make_limit_source(path: Path) -> None:
+    """Clients carrying per-client ``limitIp`` device caps, incl. a subId-less one."""
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE inbounds (
+            id INTEGER PRIMARY KEY, user_id INTEGER, up INTEGER, down INTEGER, total INTEGER,
+            remark TEXT, enable INTEGER, expiry_time INTEGER, listen TEXT, port INTEGER,
+            protocol TEXT, settings TEXT, stream_settings TEXT, tag TEXT, sniffing TEXT
+        );
+        CREATE TABLE client_traffics (
+            id INTEGER PRIMARY KEY, inbound_id INTEGER, enable INTEGER, email TEXT,
+            up INTEGER, down INTEGER, expiry_time INTEGER, total INTEGER, reset INTEGER
+        );
+        """
+    )
+    clients = [
+        # one group (shared subId "grpA"): 0 (unlimited) dominates the concrete cap 4
+        _client(id=VLESS_UUID, email="capped@x", subId="grpA", limitIp=4),
+        _client(email="unlim@x", subId="grpA", limitIp=0),
+        # one group (shared subId "grpB"): no zero -> max of the concrete caps
+        _client(email="b3@x", subId="grpB", limitIp=3),
+        _client(email="b7@x", subId="grpB", limitIp=7),
+        # NO subId -> short_id must derive from the stable email key for idempotent re-runs
+        _client(email="noid@x", subId="", limitIp=2),
+    ]
+    conn.execute(
+        "INSERT INTO inbounds VALUES (1,1,0,0,0,'DE',1,0,'',443,'vless',?,'{}','in-1','{}')",
+        (json.dumps({"clients": clients, "decryption": "none"}),),
+    )
+    conn.commit()
+    conn.close()
+
+
+async def test_device_limit_and_subidless_idempotency(uow: UnitOfWork, tmp_path: Path) -> None:
+    db = tmp_path / "x-ui-limits.db"
+    _make_limit_source(db)
+
+    panel = _RecordingPanel()
+    service = ThreexuiImportService(panel)
+    async with uow:
+        summary = await service.run(uow, read_source(db), squad_uuid="sq-lim")
+        await uow.commit()
+
+    assert summary["panel_users_created"] == 3  # grpA, grpB, noid
+    specs = {spec.short_id: spec for spec in panel.specs}
+    assert specs["grpA"].device_limit == 0  # 0 (unlimited) dominates the concrete cap 4
+    assert specs["grpB"].device_limit == 7  # no zero -> max concrete cap
+    noid_short = _short_id("noid@x")  # deterministic, derived from the stable email key
+    assert noid_short in specs
+    assert specs[noid_short].device_limit == 2
+
+    async with uow:
+        grpa_sub = await uow.subscriptions.find_one(short_id="grpA")
+        assert grpa_sub is not None and grpa_sub.device_limit == 0
+        grpb_sub = await uow.subscriptions.find_one(short_id="grpB")
+        assert grpb_sub is not None and grpb_sub.device_limit == 7
+        noid_sub = await uow.subscriptions.find_one(short_id=noid_short)
+        assert noid_sub is not None and noid_sub.device_limit == 2
+
+    # Re-run: the subId-less group is refreshed in place, panel NOT called again.
+    async with uow:
+        summary2 = await service.run(uow, read_source(db), squad_uuid="sq-lim")
+        await uow.commit()
+    assert summary2["panel_users_created"] == 0
+    assert summary2["users_updated"] == 3
+    assert len(panel.users) == 3
+    async with uow:
+        assert len(list(await uow.subscriptions.list())) == 3
 
 
 async def test_panel_rejection_skips_group(uow: UnitOfWork, tmp_path: Path) -> None:

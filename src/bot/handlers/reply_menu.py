@@ -78,6 +78,33 @@ class ReplyMenuButton(BaseFilter):
         return {"menu_match": match} if match else False
 
 
+async def maybe_dispatch_menu_button(
+    message: Message, container: AppContainer, db_user: User, state: FSMContext
+) -> bool:
+    """When a text handler is waiting on FSM input, let a bottom-bar tap escape it.
+
+    promo/withdraw register their state-gated text handlers BEFORE this router, so while
+    ``PromoForm.waiting_code`` / ``WithdrawForm.waiting_details`` is set a persistent-menu
+    tap reaches them and would be eaten as the code/details. Those handlers call this first:
+    if ``message.text`` exactly matches a current bottom-bar label (reply mode only, derived
+    the same way as :class:`ReplyMenuButton`), clear the state and open that menu action,
+    returning True so the caller stops. Real codes/details never match an emoji menu label.
+    """
+    text = (message.text or "").strip()
+    if not text or text.startswith("/"):
+        return False
+    async with container.uow() as uow:
+        mode = str(await container.bot_config.value(uow, "MAIN_MENU_MODE") or "inline")
+    if mode != "reply":
+        return False
+    match = await _match_button(container, text)
+    if match is None:
+        return False
+    await state.clear()  # abort the pending form — the user chose a menu button instead
+    await dispatch(message, container, db_user, state, match)
+    return True
+
+
 @router.message(ReplyMenuButton())
 async def dispatch(
     message: Message,

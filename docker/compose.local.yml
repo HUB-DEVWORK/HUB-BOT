@@ -45,16 +45,41 @@ services:
       RUN_MIGRATIONS: "true"
     command: ["uvicorn", "src.web.app:app", "--host", "0.0.0.0", "--port", "8080"]
     ports: ["8080:8080"]
+    # A 200 here means migrations ran (entrypoint applies them before serving) and db+redis are
+    # reachable — worker/scheduler wait on this. No curl in the slim image; python+urllib always is.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
 
   # Background jobs: payment processing, panel-sync + retry queue, backups.
+  # Wait for web (which runs migrations) so jobs never hit an un-migrated DB. A service-level
+  # depends_on replaces the one merged from *app, so postgres/redis are re-listed here.
   worker:
     <<: *app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
     command: ["taskiq", "worker", "src.infrastructure.taskiq.broker:broker", "src.infrastructure.taskiq.tasks"]
 
-  # Scheduled jobs (autopay reminders, backups, reconcile).
+  # Scheduled jobs (autopay reminders, backups, reconcile). The tasks module MUST be passed so
+  # LabelScheduleSource discovers the @broker.task(schedule=...) labels — without it no jobs fire.
   scheduler:
     <<: *app
-    command: ["taskiq", "scheduler", "src.infrastructure.taskiq.broker:scheduler"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    command: ["taskiq", "scheduler", "src.infrastructure.taskiq.broker:scheduler", "src.infrastructure.taskiq.tasks"]
 
 volumes:
   pgdata:

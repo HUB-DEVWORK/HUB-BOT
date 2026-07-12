@@ -100,3 +100,26 @@ class RemnawaveResyncService:
         )
         report.notes = report.notes[:50]
         return report
+
+    async def reconcile_disabled(self, uow: UnitOfWork, *, limit: int = 500) -> int:
+        """Backstop for refund/revoke: re-disable panel users of locally-DISABLED subs.
+
+        A refund disables locally + best-effort on the panel; if the panel was down the
+        immediate retry can't recover (no real backoff), and ``resync`` never re-checks these
+        (they aren't usable). Without this a refunded/revoked customer keeps connecting. Fixing
+        it here — idempotent, panel-first — is the durable safety net. Returns count re-disabled.
+        """
+        fixed = 0
+        subs = await uow.subscriptions.disabled_with_panel(limit)
+        for sub in subs:
+            assert sub.remnawave_uuid is not None
+            try:
+                panel = await self._client.get_user_by_uuid(sub.remnawave_uuid)
+                if panel is not None and panel.is_enabled:
+                    await self._client.disable_user(sub.remnawave_uuid)
+                    fixed += 1
+            except Exception as exc:
+                log.warning("reconcile_disabled failed", sub=sub.id, error=str(exc))
+        if fixed:
+            log.info("reconcile_disabled", re_disabled=fixed)
+        return fixed

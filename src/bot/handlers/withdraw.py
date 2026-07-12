@@ -113,6 +113,11 @@ async def choose_method(
 async def take_details(
     message: Message, container: AppContainer, db_user: User, state: FSMContext
 ) -> None:
+    from src.bot.handlers.reply_menu import maybe_dispatch_menu_button
+
+    # A bottom-bar tap (reply mode) reaches here before reply_menu — don't take it as details.
+    if await maybe_dispatch_menu_button(message, container, db_user, state):
+        return
     data = await state.get_data()
     await state.clear()
     method = str(data.get("method") or "card")

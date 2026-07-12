@@ -25,6 +25,7 @@ def _load(tmp_db: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     monkeypatch.setenv("TS_DASH_USER", "admin")
     monkeypatch.setenv("TS_DASH_PASS", "pw")
     monkeypatch.delenv("TS_INGEST_TOKEN", raising=False)
+    monkeypatch.setenv("TS_ALLOW_ANONYMOUS", "1")  # tokenless tests opt into anonymous ingest
     monkeypatch.delenv("TS_TG_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TS_TG_CHAT_ID", raising=False)
     spec = importlib.util.spec_from_file_location("telemetry_server", SERVER_PATH)

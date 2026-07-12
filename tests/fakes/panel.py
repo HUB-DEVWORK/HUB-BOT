@@ -62,9 +62,15 @@ class FakeRemnawaveClient:
     async def get_user_by_telegram_id(self, telegram_id: int) -> PanelUser | None:
         return next((u for u in self.users.values() if u.telegram_id == telegram_id), None)
 
-    async def enable_user(self, panel_uuid: uuid.UUID) -> None: ...
+    async def enable_user(self, panel_uuid: uuid.UUID) -> None:
+        user = self.users.get(panel_uuid)
+        if user is not None:
+            self.users[panel_uuid] = dataclasses.replace(user, is_enabled=True)
 
-    async def disable_user(self, panel_uuid: uuid.UUID) -> None: ...
+    async def disable_user(self, panel_uuid: uuid.UUID) -> None:
+        user = self.users.get(panel_uuid)
+        if user is not None:
+            self.users[panel_uuid] = dataclasses.replace(user, is_enabled=False)
 
     async def delete_user(self, panel_uuid: uuid.UUID) -> None:
         self.users.pop(panel_uuid, None)

@@ -10,6 +10,11 @@ from __future__ import annotations
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramRetryAfter,
+)
 from aiogram.types.error_event import ErrorEvent
 
 from src.core.logging import get_logger
@@ -24,9 +29,22 @@ log = get_logger(__name__)
 _USER_TEXT = "⚠️ Что-то пошло не так. Попробуйте ещё раз.\nКод ошибки: {error_id}"
 
 
+def _is_transient(exc: BaseException) -> bool:
+    """Expected Telegram-transport hiccups, not bugs: flood-wait, the user blocked the
+    bot, or an edit that changes nothing. They must not spam telemetry/admins nor scare
+    the user with an error id — the offending handler already did its job or never could.
+    """
+    if isinstance(exc, TelegramRetryAfter | TelegramForbiddenError):
+        return True
+    return isinstance(exc, TelegramBadRequest) and "message is not modified" in str(exc)
+
+
 def setup_error_handler(dp: Dispatcher, container: AppContainer) -> None:
     @dp.errors()
     async def _on_error(event: ErrorEvent) -> bool:
+        if _is_transient(event.exception):
+            return True  # handled: swallow silently — no telemetry, no user-facing error
+
         update = event.update
         context: dict[str, Any] = {}
         message = getattr(update, "message", None)
@@ -38,6 +56,15 @@ def setup_error_handler(dp: Dispatcher, container: AppContainer) -> None:
 
         error_id = container.telemetry.report(event.exception, source="bot", context=context)
         log.error("unhandled bot error", error_id=error_id, exc_info=event.exception)
+
+        # Also DM the shop's own admins, so a self-hoster with telemetry disabled still
+        # learns of the crash. Best-effort — a notifier failure must not raise here.
+        with suppress(Exception):
+            await container.notifier.notify_admins(
+                f"⚠️ Ошибка в боте (код <code>{error_id}</code>):\n"
+                f"{type(event.exception).__name__}: {str(event.exception)[:500]}",
+                topic="bug",
+            )
 
         text = _USER_TEXT.format(error_id=error_id)
         with suppress(Exception):  # notifying the user must not raise a second time

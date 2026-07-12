@@ -56,6 +56,11 @@ async def ask_code(
 async def apply_code(
     message: Message, container: AppContainer, db_user: User, state: FSMContext
 ) -> None:
+    from src.bot.handlers.reply_menu import maybe_dispatch_menu_button
+
+    # A bottom-bar tap (reply mode) reaches here before reply_menu — don't swallow it as a code.
+    if await maybe_dispatch_menu_button(message, container, db_user, state):
+        return
     await state.clear()
     # Codes are stored uppercase (admin/miniapp normalize input) — the bot must too.
     code = (message.text or "").strip().upper()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -471,3 +472,59 @@ async def test_import_and_idempotent_rerun(uow: UnitOfWork, tmp_path: Path) -> N
         assert len(list(await uow.subscriptions.list())) == 1
         assert len(list(await uow.transactions.list())) == 3
         assert len(list(await uow.promocodes.list())) == 2
+
+
+async def test_empty_payment_id_fallback_and_is_test_skip(uow: UnitOfWork, tmp_path: Path) -> None:
+    dump = tmp_path / "export.json"
+    dump.write_text(
+        json.dumps(
+            {
+                "users": [{"id": 1, "telegram_id": 5001, "referral_code": "u1"}],
+                "transactions": [
+                    # empty payment_id -> synthetic fallback id, still imported (not dropped)
+                    {
+                        "id": 77,
+                        "payment_id": "",
+                        "user_id": 1,
+                        "status": "COMPLETED",
+                        "is_test": False,
+                        "gateway_type": "YOOKASSA",
+                        "currency": "RUB",
+                        "pricing": {"final_amount": 100},
+                    },
+                    # is_test sandbox payment -> skipped, must not inflate imported revenue
+                    {
+                        "id": 78,
+                        "payment_id": "test-pay-1",
+                        "user_id": 1,
+                        "status": "COMPLETED",
+                        "is_test": True,
+                        "gateway_type": "YOOKASSA",
+                        "currency": "RUB",
+                        "pricing": {"final_amount": 200},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    service = RemnashopImportService(ReferralService(RecordingEventBus()))
+    async with uow:
+        summary = await service.run(uow, read_source(dump))
+        await uow.commit()
+
+    assert summary["transactions"] == 1  # is_test skipped, empty-payment-id one still imported
+    async with uow:
+        imported = await uow.transactions.find_one(external_id="remnashop-77")
+        assert imported is not None
+        assert imported.amount_minor == 10000  # 100 RUB -> kopeks
+        assert await uow.transactions.find_one(external_id="test-pay-1") is None
+
+    # Re-run: the synthetic fallback id matches idempotently, nothing duplicates.
+    async with uow:
+        summary2 = await service.run(uow, read_source(dump))
+        await uow.commit()
+    assert summary2["transactions"] == 0
+    async with uow:
+        assert len(list(await uow.transactions.list())) == 1

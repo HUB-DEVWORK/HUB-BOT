@@ -44,3 +44,19 @@ class SubscriptionDAO(BaseDAO[Subscription]):
             .limit(limit)
         )
         return (await self.session.scalars(stmt)).all()
+
+    async def disabled_with_panel(self, limit: int) -> Sequence[Subscription]:
+        """Locally-DISABLED subs still provisioned on the panel — the refund/revoke backstop.
+        A refund disables locally + best-effort on the panel; if the panel was down the retry
+        can't recover, and live_with_panel never re-checks these (they're not usable). This sweep
+        re-asserts the disable so a refunded user can't keep connecting."""
+        stmt = (
+            select(Subscription)
+            .where(
+                Subscription.status == SubscriptionStatus.DISABLED,
+                Subscription.remnawave_uuid.is_not(None),
+            )
+            .order_by(Subscription.id)
+            .limit(limit)
+        )
+        return (await self.session.scalars(stmt)).all()

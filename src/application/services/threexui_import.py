@@ -122,6 +122,7 @@ def _normalize_client(
         "sub_id": str(raw.get("subId") or ""),
         "expiry_ms": expiry_ms,
         "total_bytes": _to_int(raw.get("totalGB")) or 0,  # bytes despite the name
+        "device_limit": _to_int(raw.get("limitIp")) or 0,  # per-client IP/device cap; 0 = unlimited
         "used_bytes": used,
         "enabled": _to_bool(raw.get("enable")),
         "comment": str(raw.get("comment") or ""),
@@ -142,6 +143,7 @@ def _group(clients: list[dict[str, Any]]) -> list[dict[str, Any]]:
         )
         expiries = [int(c["expiry_ms"]) for c in members]
         totals = [int(c["total_bytes"]) for c in members]
+        limits = [int(c["device_limit"]) for c in members]
         groups.append(
             {
                 "key": key,
@@ -151,6 +153,7 @@ def _group(clients: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 # 0 = never / unlimited — it dominates any concrete deadline or cap.
                 "expiry_ms": 0 if 0 in expiries else max(expiries),
                 "total_bytes": 0 if 0 in totals else max(totals),
+                "device_limit": 0 if 0 in limits else max(limits),
                 "used_bytes": sum(int(c["used_bytes"]) for c in members),
                 "enabled": any(bool(c["enabled"]) for c in members),
             }
@@ -325,7 +328,7 @@ def _build_spec(
         username=username,
         expire_at=expire_at,
         traffic_limit_bytes=int(group["total_bytes"]),
-        device_limit=None,
+        device_limit=int(group["device_limit"]),  # 0 = unlimited; preserve the source cap
         internal_squads=(squad_uuid,) if squad_uuid else (),
         description=description,
         extra=extra,
@@ -360,7 +363,9 @@ class ThreexuiImportService:
             expire_at = _expire_at(expiry_ms, now)
             panel_status = _panel_status(bool(group["enabled"]), expiry_ms, now_ms)
             status = _LOCAL_STATUS[panel_status]
-            short_id = _short_id(str(primary["sub_id"]))
+            # Same stable key _group bucketed by (sub_id or email): subId-less clients get a
+            # deterministic short_id so a re-run matches the existing sub, not re-provisions.
+            short_id = _short_id(str(group["key"]))
 
             # Idempotency: an already-imported group is refreshed, never re-provisioned.
             existing = await uow.subscriptions.find_one(short_id=short_id)
@@ -412,6 +417,7 @@ class ThreexuiImportService:
                 status=status,
                 expire_at=expire_at,
                 traffic_limit_bytes=int(group["total_bytes"]),
+                device_limit=int(group["device_limit"]),
                 traffic_used_bytes=int(group["used_bytes"]),
                 internal_squads=[squad_uuid] if squad_uuid else [],
                 subscription_url=panel_user.subscription_url,

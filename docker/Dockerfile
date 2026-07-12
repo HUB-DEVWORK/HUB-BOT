@@ -10,10 +10,14 @@ RUN npm run build
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 WORKDIR /app
-# Install deps first (cached layer) — only project metadata needed.
-COPY pyproject.toml ./
+# Install deps from the committed lockfile so prod images are reproducible (CI resolves off
+# uv.lock too). The old `uv pip install -r pyproject.toml` ignored the lock and could pull a
+# breaking major on a future rebuild. Only lock + metadata are copied, so this stays a cached
+# layer until deps change; `package = false` means the app itself is never installed (deps only),
+# and `--no-dev` keeps the dev extra out. Creates the venv at /app/.venv.
+COPY uv.lock pyproject.toml ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv venv && uv pip install --python /app/.venv -r pyproject.toml
+    uv sync --frozen --no-dev
 
 FROM python:3.12-slim-bookworm AS runtime
 ENV PATH="/app/.venv/bin:$PATH" \
