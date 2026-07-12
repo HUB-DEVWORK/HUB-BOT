@@ -68,7 +68,7 @@ The contract and field-by-field mapping to the base models live in **[CONTRACT.m
 ## Wiring to the real backend (later)
 
 The base ships **core only** — the cabinet API is a documented seam, not yet implemented
-(see the root `CLAUDE.md` / feature-matrix). To go live:
+(see `docs/context/08-feature-matrix.md`). To go live:
 
 1. Implement the `/api/cabinet/*` routes in `src/web/` over the existing services, validating
    Telegram `initData` (the `APP__JWT_SECRET` + `cryptography` seams already exist).

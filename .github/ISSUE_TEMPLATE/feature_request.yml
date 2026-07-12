@@ -1,0 +1,26 @@
+name: 💡 Идея / фича
+description: Предложить улучшение или новую возможность
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу это решает
+      description: Опишите проблему или сценарий, ради которого нужна фича.
+      placeholder: Хочу продавать тарифы с разным числом устройств, сейчас лимит один на всех…
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Как вы это видите
+      description: Желаемое поведение. Если есть пример из другого бота/сервиса — сошлитесь.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативы / обходные пути
+      description: Как решаете сейчас, если решаете.
+    validations:
+      required: false

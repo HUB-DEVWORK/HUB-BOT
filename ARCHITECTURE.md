@@ -74,5 +74,5 @@ RBAC для вебхуков/воркеров/сидинга.
 
 ## Инварианты
 
-Список — в [CLAUDE.md](CLAUDE.md#инварианты) и подробно в `docs/context/07-gotchas.md`.
+Список — подробно в `docs/context/07-gotchas.md`.
 Ключевые ADR — в [docs/adr/](docs/adr/).

@@ -1,0 +1,65 @@
+name: 🐛 Баг
+description: Что-то работает не так, как должно
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Что случилось
+      description: Что вы делали и что пошло не так. Скриншоты приветствуются.
+      placeholder: Нажал «Купить» в боте → счёт создался, но после оплаты подписка не выдалась.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемое поведение
+    validations:
+      required: false
+  - type: dropdown
+    id: install
+    attributes:
+      label: Способ установки
+      options:
+        - install.sh (Docker)
+        - VPS (systemd, deploy-vps.md)
+        - Ручной запуск (make up)
+        - Другое
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Версия / коммит
+      placeholder: git rev-parse --short HEAD
+    validations:
+      required: false
+  - type: dropdown
+    id: panel
+    attributes:
+      label: Панель
+      options:
+        - Живая Remnawave
+        - Мок-панель (scripts/mock_panel.py)
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи
+      description: |
+        Фрагмент логов вокруг ошибки (journalctl -u vpnshop-web / docker compose logs web).
+        ⚠️ Уберите из логов токены, ключи и персональные данные.
+      render: text
+    validations:
+      required: false

@@ -35,7 +35,7 @@ class RemnawaveService:
 
         Only hard-fails when the version is *known* and below the minimum. Some panels do
         not expose their version via the API — in that case we proceed with a warning rather
-        than block a healthy panel (verified: panel.shketozavr.com reports no version field).
+        than block a healthy panel (verified against a live panel with no version field).
         """
         version = await self._client.get_version()
         if version.tuple == _UNKNOWN_VERSION:

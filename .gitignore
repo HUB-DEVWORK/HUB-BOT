@@ -28,8 +28,9 @@ htmlcov/
 /backups/
 /data/
 
-# Claude Code — keep shared settings + skills in git; ignore personal overrides
-.claude/settings.local.json
+# Local AI-assistant context (not part of the public repo)
+.claude/
+CLAUDE.md
 
 # OS / editor
 .DS_Store

@@ -1,8 +1,3 @@
----
-name: add-payment-gateway
-description: Add a new payment provider to the base's payment abstraction. Use when asked to "add a payment gateway/provider" (YooKassa, Cryptomus, CryptoBot, Tribute, etc.) or "подключить платёжку/провайдера оплаты".
----
-
 # Добавить платёжного провайдера
 
 Дизайн платежей — single ABC / single route / DB-config (ADR-0004, `docs/context/03-payments.md`).

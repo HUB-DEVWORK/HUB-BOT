@@ -1,8 +1,3 @@
----
-name: add-db-model
-description: Add a new SQLAlchemy model + DAO + migration to the base. Use when asked to "add a table/model", "new entity", "добавить модель/таблицу в БД".
----
-
 # Добавить модель БД
 
 Postgres-first, но переносимо (тесты гоняют sqlite). Правила — `docs/context/07-gotchas.md`.
