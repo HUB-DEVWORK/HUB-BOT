@@ -42,3 +42,4 @@ CLAUDE.md
 .idea/
 .vscode/
 migration_inbox/
+admin/tsconfig.tsbuildinfo

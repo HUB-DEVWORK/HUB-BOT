@@ -42,7 +42,10 @@ jobs:
           path: docs-site/.vitepress/dist
 
   deploy:
+    # Зеркало на github.io; основная дока — docs.vpn-hub.pro (deploy-docs.sh).
+    # Не валит workflow, пока Pages не включён в Settings -> Pages -> GitHub Actions.
     needs: build
+    continue-on-error: true
     runs-on: ubuntu-latest
     environment:
       name: github-pages
