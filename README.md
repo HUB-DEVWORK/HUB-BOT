@@ -178,12 +178,22 @@ happ/v2raytun/hiddify/streisand), **Кабинет** (промокоды, ист
 ## 🚀 Установка одной командой
 
 Никаких `.env` руками — скрипт спросит только токен бота (и домен, если есть),
-сам сгенерирует секреты, поднимет весь стек в Docker и отдаст ссылку на кабинет:
+сам поставит git и Docker, склонирует репозиторий, сгенерирует секреты,
+поднимет весь стек и отдаст ссылку на кабинет. На чистом VPS (Ubuntu/Debian):
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/bini69-oi/HUB-BOT/main/scripts/install.sh)
+```
+
+<details>
+<summary>То же из клона репозитория</summary>
 
 ```bash
 git clone https://github.com/bini69-oi/HUB-BOT.git && cd HUB-BOT
 ./scripts/install.sh
 ```
+
+</details>
 
 > **Требования:** 1 vCPU / 1–2 GB RAM. На 1 GB машине установщик сам поднимает
 > 2 GB swap, чтобы сборка не упала по OOM.

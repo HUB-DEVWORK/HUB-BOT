@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # VPN-HUB BOT — one-command install.
 #
-#   git clone https://github.com/bini69-oi/HUB-BOT.git && cd HUB-BOT && ./scripts/install.sh
+#   bash <(curl -fsSL https://raw.githubusercontent.com/bini69-oi/HUB-BOT/main/scripts/install.sh)
+#
+# (или из клона: git clone https://github.com/bini69-oi/HUB-BOT.git && cd HUB-BOT && ./scripts/install.sh)
 #
 # Asks only for the bot token (and optionally a domain); generates every secret,
 # starts the whole stack in Docker and prints the cabinet URL + admin password.
@@ -44,8 +46,26 @@ run_spin() { # run_spin "подпись" cmd...
   fi
 }
 
-cd "$(dirname "$0")/.."
-banner
+# --- bootstrap: запуск через `bash <(curl …)` вне клона — клонируем репо и перезапускаемся
+SCRIPT_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd -P || true)
+if [ -z "$SCRIPT_DIR" ] || [ ! -f "$SCRIPT_DIR/../docker/compose.prod.yml" ]; then
+  banner
+  note "запуск вне клона репозитория — забираю код"
+  if ! command -v git >/dev/null 2>&1; then
+    command -v apt-get >/dev/null 2>&1 || fail "нужен git: установите его и запустите ещё раз"
+    run_spin "ставлю git" sh -c "apt-get update -qq && apt-get install -y -qq git"
+  fi
+  if [ -d HUB-BOT/.git ]; then
+    ok "клон HUB-BOT уже есть — использую его"
+  else
+    run_spin "git clone bini69-oi/HUB-BOT" git clone --depth 1 https://github.com/bini69-oi/HUB-BOT.git HUB-BOT
+  fi
+  cd HUB-BOT
+  exec env VPNHUB_BOOTSTRAPPED=1 bash scripts/install.sh
+fi
+
+cd "$SCRIPT_DIR/.."
+[ -n "${VPNHUB_BOOTSTRAPPED:-}" ] || banner
 note "Требования: 1 vCPU / 1–2 GB RAM (создаём swap автоматически)"
 
 # --- [1/5] prerequisites --------------------------------------------------------
