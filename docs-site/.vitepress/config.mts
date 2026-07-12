@@ -49,6 +49,7 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: "Возможности", link: "/bot/" },
+          { text: "Админка в боте", link: "/bot/admin-panel" },
           { text: "Конструктор меню", link: "/bot/menu-builder" },
           { text: "Покупка, триал, смена тарифа", link: "/bot/purchase" },
           { text: "Рефералка и выводы", link: "/bot/referral" },
