@@ -1,12 +1,18 @@
 name: Release
 
-# Publish a GitHub Release whenever a version tag is pushed:
+# Publish a GitHub Release when a version tag is pushed:
 #   git tag v1.2.0 && git push origin v1.2.0
-# Release notes are generated automatically from merged PRs / commits since the
-# previous tag. Nothing is published from raw commits — only from tags.
+# Notes = the CHANGELOG section for the version + an explicit list of every commit since
+# the previous tag (nothing is published from raw commits — only from tags).
+# workflow_dispatch lets you re-generate notes for an existing tag (backfill).
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег, для которого (пере)собрать заметки, напр. v1.1.0"
+        required: true
 
 permissions:
   contents: write
@@ -17,13 +23,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # full history so notes can diff against the previous tag
+          fetch-depth: 0 # full history + tags so notes can diff against the previous tag
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
 
-      - name: Create GitHub Release
+      - name: Build release notes
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          ver="${tag#v}"
+          prev="$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)"
+          {
+            # Human summary from CHANGELOG for this version (between its heading and the next).
+            awk -v v="$ver" 'index($0,"## ["v"]")==1{p=1;next} p&&index($0,"## [")==1{exit} p{print}' CHANGELOG.md
+            echo
+            echo "## Что вошло (коммиты)"
+            if [ -n "$prev" ]; then
+              git log --no-merges --pretty='- %s (`%h`)' "${prev}..${tag}"
+              echo
+              echo "**Полный diff**: https://github.com/${GITHUB_REPOSITORY}/compare/${prev}...${tag}"
+            else
+              git log --no-merges --pretty='- %s (`%h`)' "${tag}"
+            fi
+          } > notes.md
+          echo "--- notes.md ---"; cat notes.md
+
+      - name: Publish (create or update) the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            --verify-tag
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$tag" --notes-file notes.md
+          else
+            gh release create "$tag" --title "$tag" --notes-file notes.md --verify-tag
+          fi
