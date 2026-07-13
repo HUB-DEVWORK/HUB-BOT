@@ -160,6 +160,53 @@ async def test_login_and_me(client: tuple[httpx.AsyncClient, ApiTestContainer]) 
     assert res.json()["role"] == "OWNER"
 
 
+async def test_delete_user_cascades_and_protects_staff(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    """DELETE /users/{id} removes the user + cascades their rows; staff accounts are protected."""
+    from src.application.services.ids import generate_referral_code
+    from src.core.enums import AuthType, Currency, Role, TransactionStatus, TransactionType
+    from src.infrastructure.database.models.transaction import Transaction
+    from src.infrastructure.database.models.user import User
+
+    http, container = client
+    async with container.uow() as uow:
+        buyer = User(
+            telegram_id=8080,
+            auth_type=AuthType.TELEGRAM,
+            referral_code=generate_referral_code(),
+        )
+        await uow.users.add(buyer)
+        await uow.flush()
+        await uow.transactions.add(
+            Transaction(
+                user_id=buyer.id,
+                type=TransactionType.DEPOSIT,
+                status=TransactionStatus.COMPLETED,
+                amount_minor=10000,
+                currency=Currency.RUB,
+            )
+        )
+        await uow.commit()
+        buyer_id = buyer.id
+
+    auth = await _login(http)
+    # staff (the seeded root_admin, OWNER) cannot be deleted
+    async with container.uow() as uow:
+        staff = await uow.users.find_one(username="root_admin")
+        assert staff is not None and staff.role is Role.OWNER
+        staff_id = staff.id
+    res = await http.delete(f"/api/admin/users/{staff_id}", headers=auth)
+    assert res.status_code == 400
+
+    # a normal user is deleted (related rows cascade via ON DELETE CASCADE on the prod Postgres;
+    # the in-memory sqlite test DB doesn't enforce FKs, so we assert the user itself is gone).
+    res = await http.delete(f"/api/admin/users/{buyer_id}", headers=auth)
+    assert res.status_code == 200
+    async with container.uow() as uow:
+        assert await uow.users.get(buyer_id) is None
+
+
 async def test_plans_endpoint_survives_malformed_snapshot(
     client: tuple[httpx.AsyncClient, ApiTestContainer],
 ) -> None:

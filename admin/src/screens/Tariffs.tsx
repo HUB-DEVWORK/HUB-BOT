@@ -40,7 +40,7 @@ type PlanDraft = {
 type Squad = { id: number; name: string; uuid: string };
 
 export default function Tariffs() {
-  const { t, toast } = useApp();
+  const { t, toast, confirm } = useApp();
   const qc = useQueryClient();
   const [tab, setTab] = useState<"plans" | "constructor">("plans");
   const [draft, setDraft] = useState<PlanDraft | null>(null);
@@ -107,6 +107,18 @@ export default function Tariffs() {
     await api.patch(`/api/admin/plans/${p.id}`, { is_active: on });
     void qc.invalidateQueries({ queryKey: ["plans"] });
     toast(on ? t.on : t.off);
+  }
+
+  async function removePlan(p: Plan) {
+    if (!(await confirm(t.deleteTariffConfirm))) return;
+    try {
+      await api.del(`/api/admin/plans/${p.id}`);
+      void qc.invalidateQueries({ queryKey: ["plans"] });
+      toast("✕ " + p.name);
+    } catch (e) {
+      // 409 "plan has subscriptions" surfaces here as a human-readable message.
+      toast((e as Error).message);
+    }
   }
 
   async function saveCtor() {
@@ -203,27 +215,36 @@ export default function Tariffs() {
                 {p.traffic_limit_bytes ? bytesFmt(p.traffic_limit_bytes) : t.unlimited} ·{" "}
                 {p.device_limit ?? "∞"} dev · {p.sales} {t.sales}
               </div>
-              <button
-                className="btn secondary sm"
-                onClick={() =>
-                  setDraft({
-                    id: p.id,
-                    name: p.name,
-                    description: p.description ?? "",
-                    traffic_limit_gb: p.traffic_limit_bytes
-                      ? Math.round(p.traffic_limit_bytes / 1024 ** 3)
-                      : 0,
-                    device_limit: p.device_limit ?? 3,
-                    durations: p.durations.map((d) => ({
-                      days: d.days,
-                      price_minor: d.prices.RUB ?? 0,
-                    })),
-                    internal_squads: p.internal_squads ?? [],
-                  })
-                }
-              >
-                {t.edit}
-              </button>
+              <div className="row" style={{ marginTop: 4 }}>
+                <button
+                  className="btn secondary sm"
+                  onClick={() =>
+                    setDraft({
+                      id: p.id,
+                      name: p.name,
+                      description: p.description ?? "",
+                      traffic_limit_gb: p.traffic_limit_bytes
+                        ? Math.round(p.traffic_limit_bytes / 1024 ** 3)
+                        : 0,
+                      device_limit: p.device_limit ?? 3,
+                      durations: p.durations.map((d) => ({
+                        days: d.days,
+                        price_minor: d.prices.RUB ?? 0,
+                      })),
+                      internal_squads: p.internal_squads ?? [],
+                    })
+                  }
+                >
+                  {t.edit}
+                </button>
+                <button
+                  className="btn danger sm"
+                  title={t.delete}
+                  onClick={() => void removePlan(p)}
+                >
+                  🗑
+                </button>
+              </div>
             </div>
           ))}
         </div>

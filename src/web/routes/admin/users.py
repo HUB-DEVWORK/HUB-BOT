@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import ColumnElement, Select, func, or_, select
+from sqlalchemy import delete as sa_delete
 
 from src.core.enums import (
     Role,
@@ -368,5 +370,65 @@ async def reset_traffic(
                 raise HTTPException(502, f"panel error: {exc}") from exc
         sub.traffic_used_bytes = 0
         await audit(uow, identity, "user.reset_traffic", f"user:{user_id}")
+        await uow.commit()
+    return OkOut()
+
+
+@router.post("/{user_id}/reset-devices")
+async def reset_devices(
+    user_id: int,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, Any]:
+    """Unbind every registered HWID device — the user can reconnect on the same slots."""
+    async with container.uow() as uow:
+        user = await uow.users.get(user_id)
+        if user is None or not user.current_subscription_id:
+            raise HTTPException(400, "user has no subscription")
+        sub = await uow.subscriptions.get(user.current_subscription_id)
+        uuid = sub.remnawave_uuid if sub else None
+    if uuid is None:
+        raise HTTPException(400, "subscription is not on the panel")
+    try:
+        devices = await container.remnawave_client.get_devices(uuid)
+        for d in devices:
+            await container.remnawave_client.delete_device(uuid, d.hwid)
+    except RemnawaveError as exc:
+        raise HTTPException(502, f"panel error: {exc}") from exc
+    async with container.uow() as uow:
+        await audit(uow, identity, "user.reset_devices", f"user:{user_id}", removed=len(devices))
+        await uow.commit()
+    return {"ok": True, "removed": len(devices)}
+
+
+@router.delete("/{user_id}")
+async def delete_user(
+    user_id: int,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> OkOut:
+    """Hard-delete a user: remove their panel user(s) first, then the local record (FKs cascade
+    subscriptions/transactions/tickets/…). Staff accounts are protected."""
+    async with container.uow() as uow:
+        user = await uow.users.get(user_id)
+        if user is None:
+            raise HTTPException(404, "user not found")
+        if user.role.is_staff:
+            raise HTTPException(400, "cannot delete a staff account")
+        panel_uuids = [
+            s.remnawave_uuid
+            for s in (await uow.subscriptions.list(user_id=user_id))
+            if s.remnawave_uuid is not None
+        ]
+        label = user.username or str(user.telegram_id or user_id)
+        # Panel-first, best-effort: a refunded/deleted user must not keep connecting. A panel
+        # blip shouldn't block the local delete — log and proceed (rare orphan cleanable by hand).
+        for uuid in panel_uuids:
+            with contextlib.suppress(Exception):
+                await container.remnawave_client.delete_user(uuid)
+        await audit(uow, identity, "user.delete", f"user:{label}")
+        # Direct DELETE so the DB's ON DELETE CASCADE clears subscriptions/transactions/tickets/…
+        # (session.delete would depend on relationship config and could hit a NOT NULL FK).
+        await uow.session.execute(sa_delete(User).where(User.id == user_id))
         await uow.commit()
     return OkOut()

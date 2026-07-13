@@ -14,6 +14,8 @@ import {
 import { DICTS, type Dict, type Lang } from "../i18n";
 
 type Confirm = { text: string; resolve: (ok: boolean) => void };
+type ToastAction = { label: string; onClick: () => void };
+type ToastItem = { id: number; msg: string; action?: ToastAction };
 
 interface AppState {
   theme: "dark" | "light";
@@ -21,7 +23,7 @@ interface AppState {
   lang: Lang;
   setLang: (l: Lang) => void;
   t: Dict;
-  toast: (msg: string) => void;
+  toast: (msg: string, action?: ToastAction) => void;
   confirm: (text: string) => Promise<boolean>;
 }
 
@@ -32,7 +34,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (localStorage.getItem("theme") as "dark" | "light") || "dark",
   );
   const [lang, setLangRaw] = useState<Lang>((localStorage.getItem("lang") as Lang) || "ru");
-  const [toasts, setToasts] = useState<{ id: number; msg: string }[]>([]);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [confirmState, setConfirmState] = useState<Confirm | null>(null);
   const idRef = useRef(1);
 
@@ -49,9 +51,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLangRaw(l);
   }, []);
 
-  const toast = useCallback((msg: string) => {
+  const toast = useCallback((msg: string, action?: ToastAction) => {
     const id = idRef.current++;
-    setToasts((ts) => [...ts, { id, msg }]);
+    setToasts((ts) => [...ts, { id, msg, action }]);
     setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), 2600);
   }, []);
 
@@ -74,11 +76,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider value={value}>
       {children}
       <div className="toasts">
-        {toasts.map((x) => (
-          <div key={x.id} className="toast">
-            {x.msg}
-          </div>
-        ))}
+        {toasts.map((x) => {
+          const a = x.action;
+          return (
+            <div key={x.id} className="toast">
+              {x.msg}
+              {a && (
+                <button
+                  className="btn secondary sm"
+                  style={{ marginLeft: 10 }}
+                  onClick={() => {
+                    a.onClick();
+                    setToasts((ts) => ts.filter((it) => it.id !== x.id));
+                  }}
+                >
+                  {a.label}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
       {confirmState && (
         <div

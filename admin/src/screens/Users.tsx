@@ -112,12 +112,38 @@ export default function Users() {
   const act = useMutation({
     mutationFn: ({ path, body }: { path: string; body?: unknown }) =>
       api.post(`/api/admin/users/${selId}${path}`, body),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       invalidate();
-      toast("✓");
+      // Balance changes surface their own toast (with an Undo action) via adjustBalance.
+      if (variables.path !== "/balance") toast("✓");
     },
     onError: (e) => toast(e.message),
   });
+
+  async function adjustBalance(amount_minor: number) {
+    try {
+      await act.mutateAsync({ path: "/balance", body: { amount_minor } });
+      toast(t.okDone, {
+        label: t.undo,
+        onClick: () => act.mutate({ path: "/balance", body: { amount_minor: -amount_minor } }),
+      });
+    } catch {
+      /* act.onError already surfaced the message */
+    }
+  }
+
+  async function deleteUser() {
+    if (!(await confirm(t.deleteUserConfirm))) return;
+    try {
+      await api.del(`/api/admin/users/${selId}`);
+      setSelId(null);
+      void qc.invalidateQueries({ queryKey: ["users"] });
+      toast("✕");
+    } catch (e) {
+      // Staff accounts return 400 — surface the message.
+      toast((e as Error).message);
+    }
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -317,6 +343,12 @@ export default function Users() {
                         <span className="mono">{d.subscription?.device_limit ?? "—"}</span>
                         <button
                           className="btn secondary sm"
+                          onClick={() => act.mutate({ path: "/hwid", body: { delta: -1 } })}
+                        >
+                          {t.minus1}
+                        </button>
+                        <button
+                          className="btn secondary sm"
                           onClick={() => act.mutate({ path: "/hwid", body: { delta: 1 } })}
                         >
                           +1
@@ -354,13 +386,13 @@ export default function Users() {
                     <div className="row">
                       <button
                         className="btn secondary sm"
-                        onClick={() => act.mutate({ path: "/balance", body: { amount_minor: 10000 } })}
+                        onClick={() => void adjustBalance(10000)}
                       >
                         +100 ₽
                       </button>
                       <button
                         className="btn secondary sm"
-                        onClick={() => act.mutate({ path: "/balance", body: { amount_minor: 50000 } })}
+                        onClick={() => void adjustBalance(50000)}
                       >
                         +500 ₽
                       </button>
@@ -417,6 +449,15 @@ export default function Users() {
                     </button>
                     <button
                       className="btn secondary"
+                      onClick={async () => {
+                        if (await confirm(t.resetDevicesConfirm))
+                          act.mutate({ path: "/reset-devices" });
+                      }}
+                    >
+                      {t.resetDevices}
+                    </button>
+                    <button
+                      className="btn secondary"
                       onClick={() => act.mutate({ path: "/hwid", body: { delta: 1 } })}
                     >
                       {t.extendHwid}
@@ -435,6 +476,9 @@ export default function Users() {
                         {t.unblock}
                       </button>
                     )}
+                    <button className="btn danger" onClick={() => void deleteUser()}>
+                      {t.deleteUser}
+                    </button>
                   </div>
                 )}
               </>

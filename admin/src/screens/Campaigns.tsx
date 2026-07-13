@@ -26,7 +26,7 @@ type Campaign = {
 };
 
 export default function Campaigns() {
-  const { t, toast } = useApp();
+  const { t, toast, confirm } = useApp();
   const qc = useQueryClient();
   const [modal, setModal] = useState(false);
   const [name, setName] = useState("");
@@ -58,6 +58,17 @@ export default function Campaigns() {
   async function toggle(c: Campaign, on: boolean) {
     await api.patch(`/api/admin/campaigns/${c.id}`, { is_active: on });
     void qc.invalidateQueries({ queryKey: ["campaigns"] });
+  }
+
+  async function remove(c: Campaign) {
+    if (!(await confirm(t.deleteCampaignConfirm))) return;
+    try {
+      await api.del(`/api/admin/campaigns/${c.id}`);
+      void qc.invalidateQueries({ queryKey: ["campaigns"] });
+      toast("✕ " + c.name);
+    } catch (e) {
+      toast((e as Error).message);
+    }
   }
 
   return (
@@ -94,6 +105,13 @@ export default function Campaigns() {
               <span style={{ marginLeft: "auto" }}>
                 <Toggle on={c.is_active} onChange={(v) => void toggle(c, v)} />
               </span>
+              <button
+                className="btn danger sm"
+                title={t.delete}
+                onClick={() => void remove(c)}
+              >
+                🗑
+              </button>
             </div>
             <div className="row" style={{ gap: 26, marginTop: 14, flexWrap: "wrap" }}>
               {(
