@@ -235,17 +235,19 @@ fi
 # --- [4/5] build + up ------------------------------------------------------------
 step 4 "Сборка и запуск стека"
 note "postgres · redis · web · bot · worker · scheduler · caddy"
-run_spin "docker compose build (первый раз — несколько минут)" \
-  docker compose -f docker/compose.prod.yml build
-run_spin "docker compose up -d" \
-  docker compose -f docker/compose.prod.yml up -d
+# --env-file .env is REQUIRED: with `-f docker/compose.prod.yml` Compose resolves ${VAR:?}
+# interpolation (e.g. DATABASE__PASSWORD) against the compose file's dir, not the CWD, so it
+# wouldn't find our repo-root .env and the build would fail "required variable ... is missing".
+COMPOSE="docker compose --env-file .env -f docker/compose.prod.yml"
+run_spin "docker compose build (первый раз — несколько минут)" $COMPOSE build
+run_spin "docker compose up -d" $COMPOSE up -d
 
 # --- [5/5] health ---------------------------------------------------------------
 step 5 "Миграции и здоровье"
 printf "  %s…%s жду /health " "$DIM" "$R"
 HEALTH_OK=""
 for _ in $(seq 1 90); do
-  if docker compose -f docker/compose.prod.yml exec -T web \
+  if $COMPOSE exec -T web \
        python -c "import urllib.request as u; u.urlopen('http://localhost:8080/health', timeout=3)" \
        >/dev/null 2>&1; then
     HEALTH_OK=1; break
@@ -254,7 +256,7 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 printf "\n"
-[ -n "$HEALTH_OK" ] || fail "web не поднялся за 3 минуты — смотри: docker compose -f docker/compose.prod.yml logs web"
+[ -n "$HEALTH_OK" ] || fail "web не поднялся за 3 минуты — смотри: $COMPOSE logs web"
 ok "миграции применены, /health отвечает"
 
 # --- summary ---------------------------------------------------------------------

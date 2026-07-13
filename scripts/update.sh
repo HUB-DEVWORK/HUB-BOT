@@ -35,7 +35,9 @@ run_spin() { # run_spin "подпись" cmd...
 }
 
 cd "$(dirname "$0")/.."
-COMPOSE="docker compose -f docker/compose.prod.yml"
+# --env-file .env: Compose resolves ${VAR:?} interpolation against the compose file's dir
+# (docker/), not the CWD, so without this it can't find our repo-root .env.
+COMPOSE="docker compose --env-file .env -f docker/compose.prod.yml"
 [ -f .env ] || fail ".env не найден — сначала установка: ./scripts/install.sh"
 
 printf "\n"; hr
