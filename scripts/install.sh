@@ -255,6 +255,7 @@ WEB_BIND=127.0.0.1:${WEB_PORT}
 COMPOSE_PROFILES=updater$([ -z "${PANEL_URL:-}" ] && echo ",mock")$([ "$CADDY_ON" = 1 ] && echo ",caddy")
 ENVEOF
   chmod 600 .env
+  FRESH_ENV=1  # generated new secrets -> guard against a stale postgres volume below
   ok ".env создан, права 600"
   [ -z "${PANEL_URL:-}" ] && note "панель не указана — включаю встроенную мок-панель (профиль mock)"
   if [ "$CADDY_ON" = 1 ]; then
@@ -271,6 +272,23 @@ note "postgres · redis · web · bot · worker · scheduler$([ "${CADDY_ON:-1}"
 # interpolation (e.g. DATABASE__PASSWORD) against the compose file's dir, not the CWD, so it
 # wouldn't find our repo-root .env and the build would fail "required variable ... is missing".
 COMPOSE="docker compose --env-file .env -f docker/compose.prod.yml"
+
+# A fresh .env means fresh secrets — but a pgdata volume left by a PREVIOUS (failed) install
+# was initialized with a DIFFERENT password (postgres sets it only on first init), so web
+# can't authenticate and migrations crash with "password authentication failed". Offer to
+# reset that leftover so the new password matches. Default = yes (Enter / non-interactive);
+# 'n' aborts with the manual command so real data is never wiped without consent.
+if [ "${FRESH_ENV:-0}" = 1 ] && docker volume ls -q 2>/dev/null | grep -qx vpnhub_pgdata; then
+  note "Найден том БД vpnhub_pgdata от прошлой установки."
+  note "Новый .env = новый пароль, а postgres хранит старый (ставится лишь при первом создании"
+  note "тома) — без сброса web не залогинится и миграции упадут."
+  ask "Сбросить старый том БД для чистой установки? ${DIM}[Y/n]${R} "; read -r RESET_DB || true
+  case "${RESET_DB:-Y}" in
+    [nN]*) fail "Оставил том. Верни прежний .env ИЛИ выполни '$COMPOSE down -v' и запусти снова." ;;
+    *) run_spin "сбрасываю старый том БД" $COMPOSE down -v --remove-orphans ;;
+  esac
+fi
+
 # Bake the git SHA into the image so the in-bot update checker knows what it's running.
 export GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 run_spin "docker compose build (первый раз — несколько минут)" $COMPOSE build
