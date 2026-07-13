@@ -18,6 +18,7 @@ type Node = {
   image_path: string | null;
   is_active: boolean;
   order_index?: number;
+  row_index?: number;
 };
 
 const SWATCHES = ["", "#31A24C", "#2E63E7", "#E53935", "#F59E0B", "#7C5CFF", "#111111"];
@@ -150,6 +151,10 @@ export default function BotButtons() {
         color: n.color,
         image_path: n.image_path,
         is_active: n.is_active,
+        // Round-trip row_index so an explicit row layout survives a re-save (server
+        // derives order_index from array order). The bot render also auto-wraps flat
+        // menus, so labels never truncate even when no row layout is set.
+        row_index: n.row_index ?? 0,
       }));
       const res = await api.put<{ nodes: Node[] }>("/api/admin/bot-menu", { nodes: payload });
       setNodes(res.nodes);

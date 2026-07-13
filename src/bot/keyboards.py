@@ -53,6 +53,12 @@ def _button(
     return InlineKeyboardButton(**kwargs)  # type: ignore[arg-type]
 
 
+# Telegram shrinks inline buttons to fit a row and truncates labels ("…нет") when a
+# row is crowded. Cap how many buttons ever share one physical row.
+_MAX_PER_ROW = 3  # hard ceiling even for an explicit row group
+_AUTO_GRID_WIDTH = 2  # width when no deliberate row layout exists (all same row_index)
+
+
 def menu_keyboard(
     nodes: Sequence[MenuNode],
     parent_id: int | None,
@@ -66,10 +72,16 @@ def menu_keyboard(
         key=lambda n: (n.row_index, n.order_index),
     )
     rows: list[list[InlineKeyboardButton]] = []
+    # The web constructor doesn't persist row_index yet, so a custom menu arrives with
+    # every button on row 0 — laying them all in one physical row truncates the labels.
+    # When no deliberate layout is set (a single distinct row_index), auto-wrap into a
+    # tidy grid; otherwise honour the explicit rows but still cap each at _MAX_PER_ROW.
+    deliberate_layout = len({n.row_index for n in siblings}) > 1
+    per_row = _MAX_PER_ROW if deliberate_layout else _AUTO_GRID_WIDTH
     current: int | None = None
     for n in siblings:
-        # Buttons that share a row_index sit side by side; a new value starts a new row.
-        if not rows or n.row_index != current:
+        new_group = n.row_index != current  # a new row_index always starts a new row
+        if not rows or (deliberate_layout and new_group) or len(rows[-1]) >= per_row:
             rows.append([])
             current = n.row_index
         rows[-1].append(_button(n, miniapp_url, default_color))

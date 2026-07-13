@@ -72,6 +72,36 @@ def test_menu_keyboard_groups_buttons_by_row_index() -> None:
     assert [b.text for b in markup.inline_keyboard[1]] == ["B", "C"]
 
 
+def test_menu_keyboard_auto_wraps_flat_menu() -> None:
+    # Regression: the web constructor saves every button on row_index=0. Rendering all
+    # of them in one physical row truncates the labels ("…нет"). A flat menu must be
+    # auto-laid into a tidy grid instead of one crowded row.
+    from src.bot.keyboards import menu_keyboard
+    from src.core.enums import MenuNodeKind
+
+    nodes = [_node(i, f"Кнопка {i}", MenuNodeKind.ACTION, "buy", row=0, order=i) for i in range(5)]
+    markup = menu_keyboard(nodes, None)
+    widths = [len(r) for r in markup.inline_keyboard]
+    assert max(widths) <= 2  # no crowded row -> no truncation
+    assert sum(widths) == 5  # every button still rendered
+
+
+def test_menu_keyboard_respects_explicit_rows_but_caps_width() -> None:
+    from src.bot.keyboards import menu_keyboard
+    from src.core.enums import MenuNodeKind
+
+    # Explicit 2-per-row layout (like the manual prod fix) is honoured exactly.
+    nodes = [
+        _node(1, "A", MenuNodeKind.ACTION, "buy", row=0, order=0),
+        _node(2, "B", MenuNodeKind.ACTION, "balance", row=1, order=0),
+        _node(3, "C", MenuNodeKind.ACTION, "history", row=1, order=1),
+        _node(4, "D", MenuNodeKind.ACTION, "connect", row=2, order=0),
+        _node(5, "E", MenuNodeKind.ACTION, "support", row=2, order=1),
+    ]
+    markup = menu_keyboard(nodes, None)
+    assert [len(r) for r in markup.inline_keyboard] == [1, 2, 2]
+
+
 def _node(id_: int, label: str, kind, payload, row: int = 0, order: int = 0):  # type: ignore[no-untyped-def]
     from src.infrastructure.database.models.menu_node import MenuNode
 
