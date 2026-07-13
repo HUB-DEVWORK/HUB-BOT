@@ -39,7 +39,7 @@
 Подключитесь к серверу по SSH и выполните две команды:
 
 ```bash
-git clone https://github.com/bini69-oi/HUB-BOT.git && cd HUB-BOT
+git clone https://github.com/HUB-DEVWORK/HUB-BOT.git && cd HUB-BOT
 ./scripts/install.sh
 ```
 

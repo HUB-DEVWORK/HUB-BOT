@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # VPN-HUB BOT — one-command install.
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/bini69-oi/HUB-BOT/main/scripts/install.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/HUB-DEVWORK/HUB-BOT/main/scripts/install.sh)
 #
-# (или из клона: git clone https://github.com/bini69-oi/HUB-BOT.git && cd HUB-BOT && ./scripts/install.sh)
+# (или из клона: git clone https://github.com/HUB-DEVWORK/HUB-BOT.git && cd HUB-BOT && ./scripts/install.sh)
 #
 # Asks only for the bot token (and optionally a domain); generates every secret,
 # starts the whole stack in Docker and prints the cabinet URL + admin password.
@@ -75,7 +75,7 @@ if [ -z "$SCRIPT_DIR" ] || [ ! -f "$SCRIPT_DIR/../docker/compose.prod.yml" ]; th
   if [ -d HUB-BOT/.git ]; then
     ok "клон HUB-BOT уже есть — использую его"
   else
-    run_spin "git clone bini69-oi/HUB-BOT" git clone --depth 1 https://github.com/bini69-oi/HUB-BOT.git HUB-BOT
+    run_spin "git clone HUB-DEVWORK/HUB-BOT" git clone --depth 1 https://github.com/HUB-DEVWORK/HUB-BOT.git HUB-BOT
   fi
   cd HUB-BOT
   exec env VPNHUB_BOOTSTRAPPED=1 bash scripts/install.sh

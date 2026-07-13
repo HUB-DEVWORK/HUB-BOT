@@ -326,7 +326,7 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "UPDATE_REPO",
         C.SECURITY,
         STR,
-        "bini69-oi/HUB-BOT",
+        "HUB-DEVWORK/HUB-BOT",
         "Репозиторий обновлений",
         "Update repo",
         "GitHub-репозиторий owner/name, откуда берутся обновления",

@@ -204,4 +204,4 @@ ssh user@host 'journalctl -u vpnshop-bot -f'         # логи бота
 
 ---
 
-История в git (`bini69-oi/HUB-BOT`, ветка `main`).
+История в git (`HUB-DEVWORK/HUB-BOT`, ветка `main`).

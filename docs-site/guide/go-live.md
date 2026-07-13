@@ -18,7 +18,7 @@
 ## Шаг 1. Установка
 
 ```bash
-git clone https://github.com/bini69-oi/HUB-BOT.git && cd HUB-BOT
+git clone https://github.com/HUB-DEVWORK/HUB-BOT.git && cd HUB-BOT
 ./scripts/install.sh
 ```
 

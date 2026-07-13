@@ -17,7 +17,7 @@ hero:
       link: /guide/what-is
     - theme: alt
       text: GitHub
-      link: https://github.com/bini69-oi/HUB-BOT
+      link: https://github.com/HUB-DEVWORK/HUB-BOT
 
 features:
   - icon: 🤖

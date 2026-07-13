@@ -5,13 +5,13 @@
 На чистом VPS (Ubuntu/Debian):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/bini69-oi/HUB-BOT/main/scripts/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/HUB-DEVWORK/HUB-BOT/main/scripts/install.sh)
 ```
 
 То же из клона репозитория:
 
 ```bash
-git clone https://github.com/bini69-oi/HUB-BOT.git && cd HUB-BOT
+git clone https://github.com/HUB-DEVWORK/HUB-BOT.git && cd HUB-BOT
 ./scripts/install.sh
 ```
 

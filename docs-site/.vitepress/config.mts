@@ -22,7 +22,7 @@ export default defineConfig({
     sidebarMenuLabel: "Меню",
     returnToTopLabel: "Наверх",
     socialLinks: [
-      { icon: "github", link: "https://github.com/bini69-oi/HUB-BOT" },
+      { icon: "github", link: "https://github.com/HUB-DEVWORK/HUB-BOT" },
       { icon: "telegram", link: "https://t.me/vpnhub_community" },
     ],
     nav: [
