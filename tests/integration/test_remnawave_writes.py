@@ -175,3 +175,34 @@ async def test_renew_extends_expiry_and_updates_panel_on_mock() -> None:
     assert sub.status is SubscriptionStatus.ACTIVE
     # the panel user was updated (mock recorded it under the same uuid)
     assert panel_uuid in fake.users
+
+
+async def test_set_expiry_sets_absolute_date_may_shorten_and_updates_panel() -> None:
+    """set_expiry moves the expiry to an absolute date (calendar) — can extend OR shorten."""
+    fake = FakeRemnawaveClient()
+    service = SubscriptionService(RemnawaveService(fake))
+    panel_uuid = uuid.uuid4()
+    user = User(id=1, telegram_id=5, referral_code="x", currency=Currency.RUB)
+    sub = Subscription(
+        user_id=1,
+        remnawave_uuid=panel_uuid,
+        short_id="abc",
+        status=SubscriptionStatus.ACTIVE,
+        expire_at=dt.datetime(2030, 1, 1, tzinfo=dt.UTC),
+        traffic_limit_bytes=0,
+        internal_squads=["squad-1"],
+    )
+    sub.user = user
+
+    # Shorten to an earlier (but still future) date — renew() could never do this.
+    target = dt.datetime(2027, 6, 15, 23, 59, 59, tzinfo=dt.UTC)
+    await service.set_expiry(uow=None, subscription=sub, expire_at=target)  # type: ignore[arg-type]
+    assert sub.expire_at == target
+    assert sub.status is SubscriptionStatus.ACTIVE
+    assert panel_uuid in fake.users  # pushed to the panel
+
+    # A past date flips the subscription to EXPIRED.
+    past = dt.datetime(2000, 1, 1, tzinfo=dt.UTC)
+    await service.set_expiry(uow=None, subscription=sub, expire_at=past)  # type: ignore[arg-type]
+    assert sub.expire_at == past
+    assert sub.status is SubscriptionStatus.EXPIRED
