@@ -30,6 +30,9 @@ class NodeIn(BaseModel):
     image_path: str | None = Field(None, max_length=512)
     is_active: bool = True
     row_index: int = Field(0, ge=0)  # buttons sharing a row_index sit side by side
+    # None (field omitted by an older SPA) -> fall back to array position; an explicit value
+    # (incl. 0) from the editor is honoured so reordering persists.
+    order_index: int | None = Field(None, ge=0)
 
     @field_validator("color")
     @classmethod
@@ -147,7 +150,11 @@ async def save_menu(
         await uow.menu_nodes.delete_by()
         id_map: dict[str, int] = {}
         pending = list(body.nodes)
-        order_counter: dict[str | None, int] = {}
+        # Honour the editor's explicit order_index so reordering persists instead of snapping
+        # back to creation order. move() assigns a unique 0..n-1 per parent (a swap), so
+        # `n.order_index` is authoritative — no falsy-0 fallback (that mislaid a top-moved
+        # button). array_pos is only a last resort when a client omits it entirely.
+        array_pos: dict[str | None, int] = {}
         guard = 0
         while pending:
             guard += 1
@@ -157,11 +164,11 @@ async def save_menu(
             rest: list[NodeIn] = []
             for n in pending:
                 if n.parent is None or n.parent in id_map:
-                    order = order_counter.get(n.parent, 0)
-                    order_counter[n.parent] = order + 1
+                    pos = array_pos.get(n.parent, 0)
+                    array_pos[n.parent] = pos + 1
                     row = MenuNode(
                         parent_id=id_map.get(n.parent) if n.parent else None,
-                        order_index=order,
+                        order_index=n.order_index if n.order_index is not None else pos,
                         row_index=n.row_index,
                         label=n.label,
                         kind=n.kind,

@@ -7,7 +7,7 @@ import datetime as dt
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy import delete as sa_delete
 
@@ -244,7 +244,15 @@ async def change_balance(
 
 
 class ExtendIn(BaseModel):
-    days: int = Field(..., ge=1, le=3650)
+    # Either add N days (relative), or set the expiry to an absolute date (calendar; may shorten).
+    days: int | None = Field(None, ge=1, le=3650)
+    until: dt.date | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> ExtendIn:
+        if (self.days is None) == (self.until is None):
+            raise ValueError("provide exactly one of days / until")
+        return self
 
 
 @router.post("/{user_id}/extend", response_model=OkOut)
@@ -264,14 +272,23 @@ async def extend_subscription(
         if sub is None:
             raise HTTPException(400, "subscription missing")
         try:
-            await container.subscriptions.renew(
-                uow, sub, days=body.days, telegram_id=user.telegram_id
-            )
+            if body.until is not None:
+                # End of the chosen day, UTC — so "until 5 Aug" keeps access through the 5th.
+                target = dt.datetime.combine(body.until, dt.time(23, 59, 59), tzinfo=dt.UTC)
+                await container.subscriptions.set_expiry(
+                    uow, sub, expire_at=target, telegram_id=user.telegram_id
+                )
+            else:
+                assert body.days is not None
+                await container.subscriptions.renew(
+                    uow, sub, days=body.days, telegram_id=user.telegram_id
+                )
         except RemnawaveError as exc:
             raise HTTPException(502, f"panel error: {exc}") from exc
         except DomainError as exc:
             raise HTTPException(400, str(exc)) from exc
-        await audit(uow, identity, "user.extend", f"user:{user_id}", days=body.days)
+        detail = f"until={body.until}" if body.until else f"days={body.days}"
+        await audit(uow, identity, "user.extend", f"user:{user_id}", detail=detail)
         await uow.commit()
     return OkOut()
 

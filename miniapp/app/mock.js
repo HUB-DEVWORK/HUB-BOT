@@ -86,5 +86,11 @@ window.__MOCK__ = {
       hiddify: "hiddify://import/https://sub.vpn.app/u/8fk2...",
       streisand: "streisand://import/https://sub.vpn.app/u/8fk2...",
     },
+    apps: [
+      { key: "happ", label: "Happ", deep_link: "happ://add/https://sub.vpn.app/u/8fk2..." },
+      { key: "v2raytun", label: "v2RayTun", deep_link: "v2raytun://import/https://sub.vpn.app/u/8fk2..." },
+      { key: "hiddify", label: "Hiddify", deep_link: "hiddify://import/https://sub.vpn.app/u/8fk2..." },
+      { key: "streisand", label: "Streisand", deep_link: "streisand://import/https://sub.vpn.app/u/8fk2..." },
+    ],
   },
 };

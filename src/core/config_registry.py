@@ -671,6 +671,16 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Show traffic usage",
     ),
     _p(
+        "CONNECTION_APPS",
+        C.INTERFACE,
+        STR,
+        "happ,v2raytun,hiddify,streisand",
+        "Приложения на вкладке «Подключение»",
+        "Apps on the Connect tab",
+        "Список через запятую: happ, v2raytun, hiddify, streisand. Порядок = порядок показа",
+        "Comma-separated: happ, v2raytun, hiddify, streisand. Order = display order",
+    ),
+    _p(
         "SUPPORT_MODE",
         C.INTERFACE,
         STR,

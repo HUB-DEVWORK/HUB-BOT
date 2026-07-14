@@ -141,7 +141,7 @@ export default function BotButtons() {
 
   async function save() {
     try {
-      const payload = nodes.map((n) => ({
+      const payload = nodes.map((n, i) => ({
         id: n.id,
         parent: n.parent,
         label: n.label,
@@ -151,10 +151,11 @@ export default function BotButtons() {
         color: n.color,
         image_path: n.image_path,
         is_active: n.is_active,
-        // Round-trip row_index so an explicit row layout survives a re-save (server
-        // derives order_index from array order). The bot render also auto-wraps flat
-        // menus, so labels never truncate even when no row layout is set.
+        // Persist BOTH layout axes so reordering sticks: order_index (position among
+        // siblings, set by move()) and row_index (which buttons share a row). Without
+        // order_index the server fell back to array/creation order and reorders snapped back.
         row_index: n.row_index ?? 0,
+        order_index: n.order_index ?? i,
       }));
       const res = await api.put<{ nodes: Node[] }>("/api/admin/bot-menu", { nodes: payload });
       setNodes(res.nodes);

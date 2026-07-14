@@ -17,7 +17,11 @@ from pydantic import BaseModel, Field
 from src.application.common.payments import PaymentContext, PaymentResultKind
 from src.application.dto.pricing import PurchaseRequest
 from src.application.events import UserRegistered
-from src.application.services.connection import build_deep_links
+from src.application.services.connection import (
+    build_deep_links,
+    connection_apps,
+    parse_enabled_apps,
+)
 from src.application.services.ids import generate_referral_code
 from src.application.services.promo import PromoError
 from src.core.enums import Currency, Locale, PurchaseType, UserStatus
@@ -694,15 +698,19 @@ async def connection(
             else None
         )
         hide_link = bool(await container.bot_config.value(uow, "HIDE_SUBSCRIPTION_LINK"))
+        enabled = parse_enabled_apps(str(await container.bot_config.value(uow, "CONNECTION_APPS")))
     if sub is None or not sub.status.is_usable or not sub.subscription_url:
         raise HTTPException(404, "no active subscription")
     url = sub.subscription_url
+    apps = connection_apps(url, sub.crypto_link, enabled)
     return {
         # When the owner hides the raw link, the app still imports via deep links; it just
         # doesn't render the copyable URL box (HIDE-1). Deep links stay so import keeps working.
         "subscription_url": None if hide_link else url,
         "expires_at": sub.expire_at.isoformat() if sub.expire_at else None,
-        "deep_links": build_deep_links(url, sub.crypto_link),
+        # apps = only the owner-enabled clients (ordered); deep_links kept for back-compat.
+        "apps": apps,
+        "deep_links": {a["key"]: a["deep_link"] for a in apps},
         "hide_link": hide_link,
     }
 

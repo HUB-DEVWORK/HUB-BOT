@@ -22,3 +22,24 @@ def build_deep_links(subscription_url: str, crypto_link: str | None = None) -> d
         "hiddify": f"hiddify://import/{subscription_url}",
         "streisand": f"streisand://import/{subscription_url}",
     }
+
+
+def parse_enabled_apps(raw: str | None) -> list[str]:
+    """Owner setting CONNECTION_APPS ('happ,hiddify') -> ordered list of known client keys.
+
+    Unknown/empty entries are dropped; an empty result falls back to all clients so the
+    Connect tab is never left with nothing to import into.
+    """
+    keys = [k.strip().lower() for k in (raw or "").split(",") if k.strip()]
+    enabled = [k for k in keys if k in CLIENT_LABELS]
+    return enabled or list(CLIENT_LABELS)
+
+
+def connection_apps(
+    subscription_url: str, crypto_link: str | None, enabled: list[str]
+) -> list[dict[str, str]]:
+    """Per-app entries (key, label, deep_link) for only the enabled clients, in owner order."""
+    links = build_deep_links(subscription_url, crypto_link)
+    return [
+        {"key": k, "label": CLIENT_LABELS[k], "deep_link": links[k]} for k in enabled if k in links
+    ]

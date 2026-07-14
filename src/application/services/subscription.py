@@ -134,6 +134,39 @@ class SubscriptionService:
         await self._remnawave.apply(subscription.remnawave_uuid, spec)
         return subscription
 
+    async def set_expiry(
+        self,
+        uow: UnitOfWork,
+        subscription: Subscription,
+        *,
+        expire_at: dt.datetime,
+        telegram_id: int | None = None,
+    ) -> Subscription:
+        """Set the subscription's expiry to an ABSOLUTE date (may extend OR shorten) and push it.
+
+        Unlike :meth:`renew` (which only adds days), this lets an admin move the expiry to any
+        target date — e.g. from a calendar. A date in the past marks the subscription expired.
+        """
+        if subscription.remnawave_uuid is None:
+            raise PurchaseError("cannot change a subscription with no panel user")
+        subscription.expire_at = expire_at
+        subscription.status = (
+            SubscriptionStatus.ACTIVE
+            if expire_at > dt.datetime.now(dt.UTC)
+            else SubscriptionStatus.EXPIRED
+        )
+        spec = self._remnawave.build_spec(
+            short_id=subscription.short_id,
+            telegram_id=telegram_id,
+            expire_at=subscription.expire_at,
+            traffic_limit_bytes=subscription.traffic_limit_bytes,
+            device_limit=subscription.device_limit,
+            internal_squads=tuple(subscription.internal_squads or ()),
+            external_squad=subscription.external_squad,
+        )
+        await self._remnawave.apply(subscription.remnawave_uuid, spec)
+        return subscription
+
     async def change(
         self,
         uow: UnitOfWork,

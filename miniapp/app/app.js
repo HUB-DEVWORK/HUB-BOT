@@ -189,6 +189,30 @@
     else window.open(url, "_blank");
   }
 
+  // Open a VPN-client deep link (happ://, hiddify://import/, …). location.href to a custom
+  // scheme is unreliable inside the Telegram WebView, so try the native opener first, then a
+  // synthesised anchor click (survives the user-gesture better), then location as last resort.
+  function openDeepLink(url) {
+    if (!url) return;
+    haptic();
+    try {
+      if (wa && wa.openLink) {
+        wa.openLink(url);
+        return;
+      }
+    } catch (_) {}
+    try {
+      const a = document.createElement("a");
+      a.href = url;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (_) {
+      location.href = url;
+    }
+  }
+
   // Admin custom blocks + standalone link-buttons for a given screen (home/connect/account).
   function customItems(screen) {
     const out = [];
@@ -474,17 +498,29 @@
                   conn.hide_link
                     ? null
                     : el("div", { class: "link-box mono", text: conn.subscription_url }),
-                  el("button", {
-                    class: "btn primary",
-                    style: btnStyle("open_app"),
-                    onclick: () => {
-                      haptic();
-                      const dl = conn.deep_links || {};
-                      const target = dl[plat.client] || dl.happ || conn.subscription_url;
-                      if (target) location.href = target;
-                    },
-                    text: "⚡ " + btnText("open_app", T.openApp),
-                  }),
+                  // One "Открыть в <App>" button per owner-enabled client (conn.apps). The user
+                  // taps the app they actually have installed. Falls back to the old single
+                  // button if the backend didn't send apps.
+                  ...(Array.isArray(conn.apps) && conn.apps.length
+                    ? conn.apps.map((a) =>
+                        el("button", {
+                          class: "btn primary",
+                          style: btnStyle("open_app"),
+                          onclick: () => openDeepLink(a.deep_link),
+                          text: "⚡ " + (btnText("open_app", T.openApp) + " · " + a.label),
+                        }),
+                      )
+                    : [
+                        el("button", {
+                          class: "btn primary",
+                          style: btnStyle("open_app"),
+                          onclick: () => {
+                            const dl = conn.deep_links || {};
+                            openDeepLink(dl[plat.client] || dl.happ || conn.subscription_url);
+                          },
+                          text: "⚡ " + btnText("open_app", T.openApp),
+                        }),
+                      ]),
                   conn.hide_link
                     ? null
                     : el("button", {

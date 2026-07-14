@@ -81,6 +81,8 @@ export default function Users() {
   const [filter, setFilter] = useState<"all" | "active" | "trial" | "expired" | "blocked">("all");
   const [selId, setSelId] = useState<number | null>(null);
   const [tab, setTab] = useState<"overview" | "finance" | "tickets" | "actions">("overview");
+  const [extDays, setExtDays] = useState(""); // custom "+N days"
+  const [extUntil, setExtUntil] = useState(""); // absolute expiry date (YYYY-MM-DD)
 
   useEffect(() => {
     const h = setTimeout(() => setQDebounced(q), 300);
@@ -410,6 +412,53 @@ export default function Users() {
                         onClick={() => act.mutate({ path: "/extend", body: { days: 30 } })}
                       >
                         +30
+                      </button>
+                      <button
+                        className="btn secondary sm"
+                        onClick={() => act.mutate({ path: "/extend", body: { days: 90 } })}
+                      >
+                        +90
+                      </button>
+                    </div>
+                    <div className="row" style={{ marginTop: 6 }}>
+                      <input
+                        className="inp sm"
+                        type="number"
+                        min={1}
+                        max={3650}
+                        placeholder={t.extendDaysPh}
+                        value={extDays}
+                        style={{ width: 90 }}
+                        onChange={(e) => setExtDays(e.target.value)}
+                      />
+                      <button
+                        className="btn secondary sm"
+                        disabled={!extDays || Number(extDays) < 1}
+                        onClick={() => {
+                          act.mutate({ path: "/extend", body: { days: Number(extDays) } });
+                          setExtDays("");
+                        }}
+                      >
+                        {t.extendAdd}
+                      </button>
+                    </div>
+                    <div className="row" style={{ marginTop: 6 }}>
+                      <input
+                        className="inp sm"
+                        type="date"
+                        value={extUntil}
+                        style={{ width: 150 }}
+                        onChange={(e) => setExtUntil(e.target.value)}
+                      />
+                      <button
+                        className="btn secondary sm"
+                        disabled={!extUntil}
+                        onClick={() => {
+                          act.mutate({ path: "/extend", body: { until: extUntil } });
+                          setExtUntil("");
+                        }}
+                      >
+                        {t.extendUntil}
                       </button>
                     </div>
                     <div className="caps">{t.lastTx}</div>
