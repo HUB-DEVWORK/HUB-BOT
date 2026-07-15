@@ -78,10 +78,21 @@ def _not_modified() -> TelegramBadRequest:
     return TelegramBadRequest(method=None, message="Bad Request: message is not modified")  # type: ignore[arg-type]
 
 
+def _stale_query() -> TelegramBadRequest:
+    # The exact error a slow 1 GB box throws on a late callback answer (E6004 in the wild).
+    return TelegramBadRequest(  # type: ignore[arg-type]
+        method=None,
+        message="Bad Request: query is too old and response timeout expired or query ID is invalid",
+    )
+
+
 def test_is_transient_classification() -> None:
     assert _is_transient(_retry_after()) is True
     assert _is_transient(_forbidden()) is True
     assert _is_transient(_not_modified()) is True
+    assert _is_transient(_stale_query()) is True  # stale callback — benign, not a bug
+    for msg in ("message to delete not found", "message to edit not found"):
+        assert _is_transient(TelegramBadRequest(method=None, message=msg)) is True  # type: ignore[arg-type]
     # A genuine bug and an *unrelated* bad-request must not be swallowed.
     assert _is_transient(RuntimeError("boom")) is False
     assert _is_transient(TelegramBadRequest(method=None, message="chat not found")) is False  # type: ignore[arg-type]

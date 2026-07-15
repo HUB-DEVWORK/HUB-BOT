@@ -29,14 +29,32 @@ log = get_logger(__name__)
 _USER_TEXT = "⚠️ Что-то пошло не так. Попробуйте ещё раз.\nКод ошибки: {error_id}"
 
 
+# Benign TelegramBadRequest messages: the update is stale or the target is already gone —
+# nothing the handler did wrong. Matched case-insensitively on the message text.
+_BENIGN_BAD_REQUEST = (
+    "message is not modified",
+    "query is too old",  # user tapped a stale button / answer arrived >15s late (slow box)
+    "query id is invalid",
+    "message to delete not found",
+    "message to edit not found",
+    "message can't be deleted",
+    "message can't be edited",
+    "message to be replied not found",
+)
+
+
 def _is_transient(exc: BaseException) -> bool:
     """Expected Telegram-transport hiccups, not bugs: flood-wait, the user blocked the
-    bot, or an edit that changes nothing. They must not spam telemetry/admins nor scare
-    the user with an error id — the offending handler already did its job or never could.
+    bot, a stale callback query, or an edit that changes nothing. They must not spam
+    telemetry/admins nor scare the user with an error id — the offending handler already
+    did its job or never could.
     """
     if isinstance(exc, TelegramRetryAfter | TelegramForbiddenError):
         return True
-    return isinstance(exc, TelegramBadRequest) and "message is not modified" in str(exc)
+    if isinstance(exc, TelegramBadRequest):
+        msg = str(exc).lower()
+        return any(s in msg for s in _BENIGN_BAD_REQUEST)
+    return False
 
 
 def setup_error_handler(dp: Dispatcher, container: AppContainer) -> None:

@@ -1,5 +1,9 @@
+# No `tls`/`email` directive on purpose: on the IP-only `:80` site (install without a domain)
+# a `tls` directive makes Caddy expect TLS on port 80, so plain-HTTP requests get an empty
+# response (NS_ERROR_NET_EMPTY_RESPONSE); an empty `{$ACME_EMAIL}` also breaks the directive.
+# With a real {$DOMAIN} Caddy still auto-HTTPS (account email is optional); with :80 it serves
+# plain HTTP. Set ACME_EMAIL in .env only affects nothing here — kept for future use.
 {$DOMAIN} {
 	encode gzip
 	reverse_proxy web:8080
-	tls {$ACME_EMAIL}
 }
