@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, func, select, update
+from sqlalchemy.exc import IntegrityError
 
 from src.infrastructure.database.dao.base import BaseDAO
 from src.infrastructure.database.models.user import User
@@ -15,6 +17,33 @@ class UserDAO(BaseDAO[User]):
 
     async def get_by_telegram_id(self, telegram_id: int) -> User | None:
         return await self.find_one(telegram_id=telegram_id)
+
+    async def get_or_create(self, user: User) -> tuple[User, bool]:
+        """Race-safe get-or-create keyed on ``telegram_id``; returns ``(user, created)``.
+
+        Two updates from the same brand-new user — a rapid ``/start`` burst, or the bot and
+        the mini-app landing at once — used to both see "no row" and both INSERT, and the
+        loser crashed with ``duplicate key … ix_users_telegram_id``. Here the loser catches
+        the unique violation inside a SAVEPOINT (so the outer transaction survives) and
+        re-reads the row the winner committed.
+        """
+        telegram_id = user.telegram_id
+        assert telegram_id is not None, "get_or_create requires user.telegram_id"
+        existing = await self.get_by_telegram_id(telegram_id)
+        if existing is not None:
+            return existing, False
+        try:
+            async with self.session.begin_nested():
+                self.session.add(user)
+                await self.session.flush()
+        except IntegrityError:
+            with suppress(Exception):
+                self.session.expunge(user)  # drop the INSERT that lost the race
+            existing = await self.get_by_telegram_id(telegram_id)
+            if existing is None:
+                raise  # a different constraint — not the telegram_id race
+            return existing, False
+        return user, True
 
     async def find_by_verify_token(self, token: str) -> User | None:
         """Locate a pending-verification user by the token stashed in notification_settings."""

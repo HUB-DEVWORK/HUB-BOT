@@ -596,7 +596,9 @@ async def sync_panel_nodes() -> int:
         try:
             synced = await container.panel_sync.sync_nodes(uow)
         except Exception as exc:
-            log.warning("panel nodes sync failed", error=str(exc))
+            # repr(), not str(): a bare exception (e.g. a timeout) has an empty message and
+            # used to log `error=""` — useless. repr keeps the type + any detail.
+            log.warning("panel nodes sync failed", error=repr(exc))
             return -1
         await uow.commit()
     log.info("panel nodes synced", count=synced)
@@ -1038,15 +1040,22 @@ async def run_backup() -> str | None:
     stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d_%H%M%S")
     dump_path = backups / f"db_{stamp}.sql"
 
-    proc = await asyncio.create_subprocess_exec(
-        "pg_dump",
-        "--no-owner",
-        "--format=plain",
-        f"--file={dump_path}",
-        f"--dbname=postgresql://{db.user}:{db.password}@{db.host}:{db.port}/{db.name}",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "pg_dump",
+            "--no-owner",
+            "--format=plain",
+            f"--file={dump_path}",
+            f"--dbname=postgresql://{db.user}:{db.password}@{db.host}:{db.port}/{db.name}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        # pg_dump binary missing (postgresql-client not installed). Fail soft as the
+        # docstring promises instead of crashing the scheduled task on every run.
+        log.warning("run_backup skipped: pg_dump not found — install postgresql-client")
+        dump_path.unlink(missing_ok=True)
+        return None
     _, stderr = await proc.communicate()
     if proc.returncode != 0:
         log.error("run_backup pg_dump failed", stderr=stderr.decode()[:400])

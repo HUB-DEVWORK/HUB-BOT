@@ -57,10 +57,11 @@ class ContextMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         async with self.container.uow() as uow:
-            user = await uow.users.get_by_telegram_id(tg.id)
-            created = False
-            if user is None:
-                user = User(
+            # Race-safe: a rapid /start burst delivers several updates for the same new
+            # user at once; get_or_create makes the losers re-read instead of crashing on
+            # the duplicate telegram_id.
+            user, created = await uow.users.get_or_create(
+                User(
                     telegram_id=tg.id,
                     username=tg.username,
                     first_name=tg.first_name,
@@ -68,9 +69,8 @@ class ContextMiddleware(BaseMiddleware):
                     language=Locale.EN if (tg.language_code or "ru")[:2] == "en" else Locale.RU,
                     referral_code=generate_referral_code(),
                 )
-                await uow.users.add(user)
-                created = True
-            else:
+            )
+            if not created:
                 user.username = tg.username
                 user.first_name = tg.first_name
                 user.last_name = tg.last_name

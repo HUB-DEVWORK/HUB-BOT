@@ -77,10 +77,11 @@ async def cabinet_user(request: Request, container: AppContainer = Depends(get_c
     tg_id = int(tg["id"])
 
     async with container.uow() as uow:
-        user = await uow.users.get_by_telegram_id(tg_id)
-        created = user is None
-        if user is None:
-            user = User(
+        # Race-safe: the mini-app can fire several /me calls for a brand-new user at once;
+        # get_or_create makes the losers re-read instead of crashing on the duplicate
+        # telegram_id (previously the #1 crash in telemetry — IntegrityError on /api/cabinet/me).
+        user, created = await uow.users.get_or_create(
+            User(
                 telegram_id=tg_id,
                 username=tg.get("username"),
                 first_name=tg.get("first_name"),
@@ -88,7 +89,7 @@ async def cabinet_user(request: Request, container: AppContainer = Depends(get_c
                 language=Locale.EN if (tg.get("language_code") or "ru")[:2] == "en" else Locale.RU,
                 referral_code=generate_referral_code(),
             )
-            await uow.users.add(user)
+        )
         await uow.commit()
     if created:
         # First contact came through the mini-app — same event the bot middleware emits.

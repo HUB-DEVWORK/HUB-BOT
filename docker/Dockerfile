@@ -28,6 +28,19 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     APP__BUILD_SHA=$GIT_SHA
 WORKDIR /app
+# pg_dump for the scheduled encrypted backups (run_backup). It must match the server major
+# (compose pins postgres:16) — an older pg_dump refuses to dump a newer server — and Debian
+# bookworm only ships 15, so pull postgresql-client-16 from the PGDG apt repo.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-16 \
+    && rm -rf /var/lib/apt/lists/*
 RUN groupadd -r app && useradd -r -g app app
 COPY --from=builder /app/.venv /app/.venv
 COPY . .
