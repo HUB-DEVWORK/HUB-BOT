@@ -189,30 +189,6 @@
     else window.open(url, "_blank");
   }
 
-  // Open a VPN-client deep link (happ://, hiddify://import/, …). location.href to a custom
-  // scheme is unreliable inside the Telegram WebView, so try the native opener first, then a
-  // synthesised anchor click (survives the user-gesture better), then location as last resort.
-  function openDeepLink(url) {
-    if (!url) return;
-    haptic();
-    try {
-      if (wa && wa.openLink) {
-        wa.openLink(url);
-        return;
-      }
-    } catch (_) {}
-    try {
-      const a = document.createElement("a");
-      a.href = url;
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch (_) {
-      location.href = url;
-    }
-  }
-
   // Admin custom blocks + standalone link-buttons for a given screen (home/connect/account).
   function customItems(screen) {
     const out = [];
@@ -498,26 +474,30 @@
                   conn.hide_link
                     ? null
                     : el("div", { class: "link-box mono", text: conn.subscription_url }),
-                  // One "Открыть в <App>" button per owner-enabled client (conn.apps). The user
-                  // taps the app they actually have installed. Falls back to the old single
-                  // button if the backend didn't send apps.
+                  // One "Открыть в <App>" link per owner-enabled client (conn.apps). These MUST
+                  // be real <a href="happ://…"> anchors the user taps directly: a custom app
+                  // scheme opened from JS (location.href / WebApp.openLink, which is http-only)
+                  // is blocked in the Telegram WebView, so the button did nothing. A direct
+                  // anchor tap is handed to the OS, which routes it to the installed app.
                   ...(Array.isArray(conn.apps) && conn.apps.length
                     ? conn.apps.map((a) =>
-                        el("button", {
+                        el("a", {
                           class: "btn primary",
                           style: btnStyle("open_app"),
-                          onclick: () => openDeepLink(a.deep_link),
+                          href: a.deep_link,
+                          onclick: () => haptic(),
                           text: "⚡ " + (btnText("open_app", T.openApp) + " · " + a.label),
                         }),
                       )
                     : [
-                        el("button", {
+                        el("a", {
                           class: "btn primary",
                           style: btnStyle("open_app"),
-                          onclick: () => {
-                            const dl = conn.deep_links || {};
-                            openDeepLink(dl[plat.client] || dl.happ || conn.subscription_url);
-                          },
+                          href:
+                            (conn.deep_links || {})[plat.client] ||
+                            (conn.deep_links || {}).happ ||
+                            conn.subscription_url,
+                          onclick: () => haptic(),
                           text: "⚡ " + btnText("open_app", T.openApp),
                         }),
                       ]),

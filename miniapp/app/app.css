@@ -109,9 +109,13 @@ body[data-variant="h"] .btn.primary { border: 2px solid var(--line); box-shadow:
 }
 
 .btn {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   width: 100%;
   text-align: center;
+  text-decoration: none; /* connect buttons are <a href="happ://…"> — no underline */
   border: 0;
   cursor: pointer;
   font: 600 15px/1 var(--font, system-ui);
