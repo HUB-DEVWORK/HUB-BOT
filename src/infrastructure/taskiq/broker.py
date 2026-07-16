@@ -25,12 +25,35 @@ from src.core.logging import configure_logging
 from src.infrastructure.di import AppContainer
 
 
+def _is_transient_infra(exc: BaseException) -> bool:
+    """A transient infra blip (DB / Redis / panel timeout or connection wobble). Periodic tasks
+    re-run on the next tick, so reporting these floods telemetry with noise that isn't an
+    actionable code bug (e.g. the E1402 DB-timeout / E1301 Redis-DNS storms in the dashboard)."""
+    if isinstance(exc, (TimeoutError, ConnectionError, OSError)):  # incl. asyncio.TimeoutError
+        return True
+    qualname = f"{type(exc).__module__}.{type(exc).__qualname__}"
+    return any(
+        s in qualname
+        for s in (
+            "redis.exceptions.ConnectionError",
+            "redis.exceptions.TimeoutError",
+            "httpx.TimeoutException",
+            "httpx.ConnectError",
+            "httpx.ReadTimeout",
+            "httpx.ConnectTimeout",
+            "asyncpg.exceptions.ConnectionDoesNotExistError",
+            "sqlalchemy.exc.OperationalError",
+        )
+    )
+
+
 class _TelemetryMiddleware(TaskiqMiddleware):
     """Report task crashes to the vendor telemetry (fire-and-forget, never raises).
 
     Reports only the FINAL failure: a task that SimpleRetryMiddleware will retry is
     skipped this attempt (mirrors its ``_retries + 1 < max_retries`` re-kick rule), so
-    a retrying task isn't reported once per attempt.
+    a retrying task isn't reported once per attempt. Transient infra blips are skipped
+    entirely — a periodic task heals on its next run and shouldn't be flagged as a crash.
     """
 
     def on_error(
@@ -43,6 +66,15 @@ class _TelemetryMiddleware(TaskiqMiddleware):
         max_retries = int(message.labels.get("max_retries", 5) or 5)
         if retry_on and retries + 1 < max_retries:
             return  # a later attempt will report if the task ultimately fails
+        if _is_transient_infra(exception):
+            from src.core.logging import get_logger
+
+            get_logger(__name__).warning(
+                "task transient failure (not reported)",
+                task=message.task_name,
+                error=type(exception).__name__,
+            )
+            return
         _container.telemetry.report(exception, source="worker", context={"task": message.task_name})
 
 

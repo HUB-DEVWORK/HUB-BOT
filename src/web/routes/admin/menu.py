@@ -145,11 +145,12 @@ async def save_menu(
             raise HTTPException(400, f"node {n.id}: unknown parent {n.parent}")
         if n.parent == n.id:
             raise HTTPException(400, f"node {n.id}: self-parent")
-        # An action button must point at a real bot action, or it renders as a dead button.
-        if n.kind is MenuNodeKind.ACTION and (n.payload or "") not in valid_actions:
-            raise HTTPException(
-                400, f"кнопка «{n.label}»: неизвестное действие «{n.payload or ''}»"
-            )
+        # An action button with a NON-EMPTY code must point at a real bot action (catches a typo
+        # right away). An empty payload is allowed: it's an unconfigured button that the bot
+        # renders as a harmless no-op, and rejecting it would lock an operator out of saving a
+        # menu that already contains such a placeholder (e.g. built under an older version).
+        if n.kind is MenuNodeKind.ACTION and n.payload and n.payload not in valid_actions:
+            raise HTTPException(400, f"кнопка «{n.label}»: неизвестное действие «{n.payload}»")
 
     # Insert parents-first, mapping client ids -> DB ids.
     async with container.uow() as uow:

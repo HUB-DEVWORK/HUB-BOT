@@ -106,6 +106,23 @@ def test_menu_keyboard_stacks_flat_menu_one_per_row() -> None:
     assert sum(widths) == 5  # every button rendered
 
 
+def test_menu_keyboard_miniapp_button_requires_https() -> None:
+    # A WebApp button with a non-https URL makes Telegram reject the whole message with
+    # BUTTON_TYPE_INVALID. A mis-set mini-app URL must degrade, not break the menu send.
+    from src.bot.keyboards import menu_keyboard
+    from src.core.enums import MenuNodeKind
+
+    node = _node(1, "📱 Приложение", MenuNodeKind.MINIAPP, None)
+    # https -> a real web_app button
+    ok = menu_keyboard([node], None, miniapp_url="https://app.example")
+    assert ok.inline_keyboard[0][0].web_app is not None
+    # non-https -> no web_app button (degrades to a harmless non-webapp button)
+    bad = menu_keyboard([node], None, miniapp_url="http://app.example")
+    assert bad.inline_keyboard[0][0].web_app is None
+    none = menu_keyboard([node], None, miniapp_url=None)
+    assert none.inline_keyboard[0][0].web_app is None
+
+
 def test_menu_keyboard_respects_explicit_rows_but_caps_width() -> None:
     from src.bot.keyboards import menu_keyboard
     from src.core.enums import MenuNodeKind

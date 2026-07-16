@@ -149,3 +149,19 @@ def test_install_id_is_stable_and_anonymous() -> None:
     assert a == install_id_from_token("123:ABC")
     assert a != install_id_from_token("456:DEF")
     assert "123" not in a and len(a) == 16
+
+
+def test_worker_transient_infra_not_reported() -> None:
+    # Periodic worker tasks heal on the next tick; a transient DB/Redis/panel blip must be
+    # skipped so it doesn't flood telemetry (the E1402/E1301 storms in the dashboard).
+    import asyncio
+
+    from src.infrastructure.taskiq.broker import _is_transient_infra
+
+    assert _is_transient_infra(TimeoutError())
+    assert _is_transient_infra(asyncio.TimeoutError())
+    assert _is_transient_infra(ConnectionError("redis down"))
+    assert _is_transient_infra(OSError(111, "Connection refused"))
+    # a real bug is still reported
+    assert not _is_transient_infra(ValueError("logic bug"))
+    assert not _is_transient_infra(KeyError("missing"))

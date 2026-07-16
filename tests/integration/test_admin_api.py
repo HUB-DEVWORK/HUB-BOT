@@ -363,10 +363,16 @@ async def test_menu_row_layout_and_action_validation(
     assert saved["A"]["row_index"] == 0 and saved["B"]["row_index"] == 0
     assert saved["C"]["row_index"] == 1
 
-    # An action button pointing at an unknown code is rejected — it would be a dead button.
+    # A NON-EMPTY unknown code is rejected — it would be a dead button (immediate typo feedback).
     bad = [{"id": "x", "label": "Опечатка", "kind": "action", "payload": "by"}]
     res = await http.put("/api/admin/bot-menu", headers=auth, json={"nodes": bad})
     assert res.status_code == 400
+
+    # But an EMPTY payload (an unconfigured placeholder button, common in menus built under an
+    # older version) is allowed — rejecting it would lock the operator out of saving the menu.
+    placeholder = [{"id": "p", "label": "Новая кнопка", "kind": "action", "payload": None}]
+    res = await http.put("/api/admin/bot-menu", headers=auth, json={"nodes": placeholder})
+    assert res.status_code == 200
 
 
 async def test_menu_actions_catalog(

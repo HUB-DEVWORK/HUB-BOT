@@ -40,7 +40,10 @@ def _button(
         kwargs["style"] = style
     if node.kind.value == "link" and node.payload:
         kwargs["url"] = node.payload
-    elif node.kind.value == "miniapp" and miniapp_url:
+    elif node.kind.value == "miniapp" and miniapp_url and miniapp_url.startswith("https://"):
+        # A WebApp button REQUIRES an https URL; a non-https one makes Telegram reject the whole
+        # message with BUTTON_TYPE_INVALID. Guard it so a mis-set mini-app URL degrades to a
+        # harmless dead button instead of breaking the entire menu send.
         from aiogram.types import WebAppInfo
 
         kwargs["web_app"] = WebAppInfo(url=miniapp_url)
