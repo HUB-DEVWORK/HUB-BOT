@@ -109,7 +109,7 @@ def create_app() -> FastAPI:
     app.include_router(cabinet_auth.router)
 
     @app.get("/dl", response_class=HTMLResponse)
-    async def _deep_link_redirect(to: str) -> HTMLResponse:
+    async def _deep_link_redirect(to: str, request: Request) -> HTMLResponse:
         """Hand a client-app deep link (happ://…) to the OS. Telegram's in-app WebView cannot
         open custom schemes — a direct anchor/navigation fails with ERR_UNKNOWN_URL_SCHEME — and
         WebApp.openLink() accepts http(s) only. So the mini-app opens THIS https page via
@@ -130,7 +130,14 @@ def create_app() -> FastAPI:
         )
         if not to.startswith(allowed):
             raise HTTPException(400, "scheme not allowed")
-        href = _html.escape(to, quote=True)
+        # Android (Chrome and Telegram's in-app WebView) won't launch an app from a bare
+        # `scheme://` link even on tap — it needs an Android intent:// URL. iOS/desktop open the
+        # plain scheme fine. Rewrite to intent:// only for Android so the button works everywhere.
+        launch = to
+        if "android" in request.headers.get("user-agent", "").lower():
+            scheme, _, rest = to.partition("://")
+            launch = f"intent://{rest}#Intent;scheme={scheme};end"
+        href = _html.escape(launch, quote=True)
         # Gesture-first: a browser fires a custom scheme only on a real user tap. Auto-navigating
         # (location.href) is blocked on Android/Windows and REPLACES this page with the browser's
         # ERR_UNKNOWN_URL_SCHEME error, hiding the button — so the primary action is a big tap

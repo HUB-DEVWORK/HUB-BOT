@@ -386,6 +386,15 @@ async def test_deep_link_redirect_wraps_allowed_scheme(
     assert "text/html" in res.headers["content-type"]
     assert "happ://add/https://sub.example/abc" in res.text
 
+    # Android needs an intent:// URL to launch the app from a web link; iOS/desktop use the
+    # plain scheme. The page adapts to the User-Agent.
+    droid = await http.get(
+        "/dl",
+        params={"to": "happ://add/https://sub.example/abc"},
+        headers={"user-agent": "Mozilla/5.0 (Linux; Android 14; Pixel) Chrome/126"},
+    )
+    assert "intent://add/https://sub.example/abc#Intent;scheme=happ;end" in droid.text
+
     # Disallowed schemes (open-redirect / XSS vectors) are rejected, not reflected.
     for bad in ("javascript:alert(1)", "https://evil.example", "data:text/html,x"):
         r = await http.get("/dl", params={"to": bad})
