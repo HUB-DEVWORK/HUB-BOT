@@ -385,6 +385,37 @@ async def act_history(cb: CallbackQuery | Message, container: AppContainer, db_u
     await ack(cb)
 
 
+# Owner-editable legal documents (text set in the cabinet). The owner adds a menu button with
+# the matching action (terms / privacy) in the constructor; the text renders here.
+_LEGAL_DOCS: dict[str, tuple[str, str]] = {
+    "terms": ("📄 Пользовательское соглашение", "TERMS_TEXT"),
+    "privacy": ("🔒 Политика конфиденциальности", "PRIVACY_TEXT"),
+}
+
+
+async def _show_legal(cb: CallbackQuery | Message, container: AppContainer, code: str) -> None:
+    title, key = _LEGAL_DOCS[code]
+    async with container.uow() as uow:
+        body = str(await container.bot_config.value(uow, key) or "").strip()
+    header = f"<b>{title}</b>\n\n"
+    if not body:
+        text = header + "Раздел пока не заполнен — задайте текст в кабинете → Настройки."
+    else:
+        text = header + body[: 4096 - len(header) - 1]  # Telegram caps a message at 4096 chars
+    await render_screen(cb, container, code, text, simple_keyboard([("‹ Меню", "nav:root")]))
+    await ack(cb)
+
+
+@router.callback_query(F.data.startswith("act:terms"))
+async def act_terms(cb: CallbackQuery | Message, container: AppContainer, db_user: User) -> None:
+    await _show_legal(cb, container, "terms")
+
+
+@router.callback_query(F.data.startswith("act:privacy"))
+async def act_privacy(cb: CallbackQuery | Message, container: AppContainer, db_user: User) -> None:
+    await _show_legal(cb, container, "privacy")
+
+
 @router.callback_query(F.data.startswith("act:balance"))
 async def act_balance(cb: CallbackQuery | Message, container: AppContainer, db_user: User) -> None:
     async with container.uow() as uow:

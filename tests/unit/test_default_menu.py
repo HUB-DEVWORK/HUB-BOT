@@ -22,6 +22,16 @@ def test_default_menu_non_empty_and_labelled() -> None:
         assert btn.action
 
 
+def test_legal_doc_actions_registered() -> None:
+    # Owner can add «Пользовательское соглашение» / «Политика конфиденциальности» menu buttons.
+    assert is_action("terms")
+    assert is_action("privacy")
+    from src.core.config_registry import REGISTRY
+
+    keys = {p.key for p in REGISTRY}
+    assert {"TERMS_TEXT", "PRIVACY_TEXT"} <= keys
+
+
 def test_lookup_helpers() -> None:
     assert is_action("buy")
     assert not is_action("does_not_exist")

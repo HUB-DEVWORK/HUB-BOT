@@ -681,6 +681,30 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Comma-separated: happ, v2raytun, hiddify, streisand. Order = display order",
     ),
     _p(
+        "TERMS_TEXT",
+        C.INTERFACE,
+        STR,
+        "",
+        "Пользовательское соглашение",
+        "Terms of Service",
+        "Текст показывается по кнопке «Пользовательское соглашение» — добавьте её в конструкторе "
+        "меню (действие terms). Пусто — кнопку лучше не показывать.",
+        "Shown by the «Terms of Service» button — add it in the menu builder (action terms). "
+        "Empty — better not to show the button.",
+    ),
+    _p(
+        "PRIVACY_TEXT",
+        C.INTERFACE,
+        STR,
+        "",
+        "Политика конфиденциальности",
+        "Privacy Policy",
+        "Текст показывается по кнопке «Политика конфиденциальности» — добавьте её в конструкторе "
+        "меню (действие privacy). Пусто — кнопку лучше не показывать.",
+        "Shown by the «Privacy Policy» button — add it in the menu builder (action privacy). "
+        "Empty — better not to show the button.",
+    ),
+    _p(
         "SUPPORT_MODE",
         C.INTERFACE,
         STR,
