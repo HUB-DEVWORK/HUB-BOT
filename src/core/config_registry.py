@@ -343,6 +343,18 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Branch the update check tracks",
     ),
     _p(
+        "AUTO_UPDATE_ENABLED",
+        C.SECURITY,
+        BOOL,
+        False,
+        "Автоустановка обновлений",
+        "Auto-install updates",
+        "Найденное обновление ставится само (бэкап БД → пересборка → перезапуск). "
+        "Выкл — приходит только уведомление с кнопкой «Обновить». Требует модуля updater",
+        "Apply a found update automatically (DB backup → rebuild → restart). "
+        "Off — you just get a notification with an «Update» button. Requires the updater module",
+    ),
+    _p(
         "POSTBACK_ENABLED",
         C.MAIN,
         BOOL,

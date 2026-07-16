@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 import respx
 
-from src.infrastructure.services.updater import check_for_update
+from src.infrastructure.services import updater as updater_mod
+from src.infrastructure.services.updater import check_for_update, request_update
 
 _URL = "https://api.github.com/repos/acme/bot/commits/main"
 
@@ -59,3 +62,33 @@ async def test_non_200_is_soft() -> None:
 async def test_bad_repo_is_soft() -> None:
     info = await check_for_update("", "main", "a" * 12)
     assert info.available is False and info.latest == ""
+
+
+def test_request_update_writes_marker_when_volume_mounted(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    # AUTO_UPDATE_ENABLED path: the marker is written into the mounted signals dir.
+    marker = tmp_path / "update-signals" / "request"
+    marker.parent.mkdir()
+    monkeypatch.setattr(updater_mod, "UPDATE_REQUEST_FILE", str(marker))  # type: ignore[attr-defined]
+    assert request_update() is True
+    assert marker.is_file()
+
+
+def test_request_update_soft_when_volume_missing(tmp_path: Path, monkeypatch: object) -> None:
+    # updater module not wired up (no signals volume) → no crash, caller falls back to notify.
+    marker = tmp_path / "absent" / "request"
+    monkeypatch.setattr(updater_mod, "UPDATE_REQUEST_FILE", str(marker))  # type: ignore[attr-defined]
+    assert request_update() is False
+    assert not marker.exists()
+
+
+def test_auto_update_setting_registered() -> None:
+    # Owner-facing toggle for automatic installation lives in the config registry (cabinet).
+    from src.core.config_registry import REGISTRY
+    from src.core.enums import ConfigParamType
+
+    row = next((p for p in REGISTRY if p.key == "AUTO_UPDATE_ENABLED"), None)
+    assert row is not None, "AUTO_UPDATE_ENABLED must be registered"
+    assert row.type is ConfigParamType.BOOL
+    assert row.default is False  # opt-in: never auto-install unless the owner turns it on

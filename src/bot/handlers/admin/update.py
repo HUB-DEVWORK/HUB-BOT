@@ -21,16 +21,17 @@ from src.infrastructure.services.updater import check_for_update, request_update
 router = Router(name="admin-update")
 
 
-async def _read_cfg(container: AppContainer) -> tuple[str, str]:
+async def _read_cfg(container: AppContainer) -> tuple[str, str, bool]:
     async with container.uow() as uow:
         repo = str(await container.bot_config.value(uow, "UPDATE_REPO") or "")
         branch = str(await container.bot_config.value(uow, "UPDATE_BRANCH") or "main")
-    return repo, branch
+        auto = bool(await container.bot_config.value(uow, "AUTO_UPDATE_ENABLED"))
+    return repo, branch, auto
 
 
 @router.callback_query(F.data == "admin:update")
 async def screen(cb: CallbackQuery, container: AppContainer) -> None:
-    repo, branch = await _read_cfg(container)
+    repo, branch, auto = await _read_cfg(container)
     info = await check_for_update(repo, branch, container.settings.app.build_sha)
     cur = info.current or "неизвестна (образ без build-arg)"
     if not info.latest:
@@ -48,10 +49,16 @@ async def screen(cb: CallbackQuery, container: AppContainer) -> None:
         )
         await show_screen(cb, text, back_kb())
         return
+    auto_line = (
+        "🟢 Автоустановка включена — обновление поставится само в течение 6 ч.\n\n"
+        if auto
+        else "⚪️ Автоустановка выключена (включается в кабинете: Настройки → Безопасность).\n\n"
+    )
     text = (
         "🔄 <b>Доступно обновление</b>\n\n"
         f"Текущая: <code>{hesc(cur)}</code>\nНовая: <code>{hesc(info.latest)}</code>\n"
         f"{hesc(info.message)}\n\n"
+        f"{auto_line}"
         "«Обновить» снимет бэкап БД, скачает новую версию, пересоберётся и перезапустится "
         "(пара минут)."
     )

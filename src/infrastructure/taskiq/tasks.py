@@ -334,14 +334,15 @@ async def reconcile_disabled_subs() -> int:
 
 @broker.task(schedule=[{"cron": "0 */6 * * *"}])
 async def check_for_updates() -> bool:
-    """Every 6h: compare our build SHA to GitHub; DM the owners a one-tap «Обновить» button when
-    a newer version ships. Notifies at most once per new revision (Redis dedup)."""
+    """Every 6h: compare our build SHA to GitHub. If AUTO_UPDATE_ENABLED, install the new
+    revision automatically (drops the updater marker); otherwise DM the owners a one-tap
+    «Обновить» button. Acts at most once per new revision (Redis dedup)."""
     import contextlib
 
     from aiogram import Bot
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-    from src.infrastructure.services.updater import check_for_update
+    from src.infrastructure.services.updater import check_for_update, request_update
 
     container = get_container()
     async with container.uow() as uow:
@@ -349,6 +350,7 @@ async def check_for_updates() -> bool:
             return False
         repo = str(await container.bot_config.value(uow, "UPDATE_REPO") or "")
         branch = str(await container.bot_config.value(uow, "UPDATE_BRANCH") or "main")
+        auto = bool(await container.bot_config.value(uow, "AUTO_UPDATE_ENABLED"))
     info = await check_for_update(repo, branch, container.settings.app.build_sha)
     if not info.available or not info.latest:
         return False
@@ -356,22 +358,43 @@ async def check_for_updates() -> bool:
     token = container.settings.bot.token
     if not owners or not token:
         return False
-    # Notify once per latest revision — no daily nagging about the same update.
+    # Act once per latest revision — no repeated auto-install or daily nagging about the same one.
     if not await container.redis.set(f"update:notified:{info.latest}", "1", nx=True, ex=30 * 86400):
         return False
     cur = info.current or "?"
-    text = (
-        "🆕 <b>Доступно обновление бота</b>\n\n"
-        f"Текущая версия: <code>{cur}</code>\nНовая: <code>{info.latest}</code>\n"
-        f"{info.message}\n\nНажмите «Обновить», и бот сам скачает и установит новую версию "
-        "(снимет бэкап БД, пересоберётся, перезапустится). Займёт пару минут."
-    )
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Обновить сейчас", callback_data="upd:apply")],
-            [InlineKeyboardButton(text="🔗 Что нового", url=info.url)],
-        ]
-    )
+    # Auto-install: try to drop the marker; only fall back to the manual button if the updater
+    # module isn't wired up on this host (no signals volume), so the operator is never left blind.
+    auto_started = auto and request_update()
+    if auto_started:
+        text = (
+            "🔄 <b>Автообновление запущено</b>\n\n"
+            f"Текущая версия: <code>{cur}</code>\nНовая: <code>{info.latest}</code>\n"
+            f"{info.message}\n\nБот снимет бэкап БД, обновится и перезапустится — займёт пару "
+            "минут. Отключить автоустановку можно в кабинете: Настройки → Безопасность."
+        )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🔗 Что нового", url=info.url)]]
+        )
+    else:
+        head = (
+            "🆕 <b>Доступно обновление бота</b>\n\n"
+            if not auto
+            # auto был включён, но модуль updater не подключён — обновляем вручную.
+            else "🆕 <b>Доступно обновление бота</b>\n\n⚠️ Автоустановка включена, но модуль "
+            "updater не подключён на этом сервере — обновите кнопкой ниже.\n\n"
+        )
+        text = (
+            f"{head}"
+            f"Текущая версия: <code>{cur}</code>\nНовая: <code>{info.latest}</code>\n"
+            f"{info.message}\n\nНажмите «Обновить», и бот сам скачает и установит новую версию "
+            "(снимет бэкап БД, пересоберётся, перезапустится). Займёт пару минут."
+        )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Обновить сейчас", callback_data="upd:apply")],
+                [InlineKeyboardButton(text="🔗 Что нового", url=info.url)],
+            ]
+        )
     bot = Bot(token=token)
     try:
         for owner_id in owners:
