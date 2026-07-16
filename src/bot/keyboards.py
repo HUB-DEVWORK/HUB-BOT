@@ -57,6 +57,9 @@ def _button(
 # row is crowded. Cap how many buttons ever share one physical row.
 _MAX_PER_ROW = 3  # hard ceiling even for an explicit row group
 _AUTO_GRID_WIDTH = 2  # width when no deliberate row layout exists (all same row_index)
+# Reply-keyboard captions are full words ("Личный кабинет"), which Telegram truncates
+# ("Личный каби…") sooner than inline buttons — so the bottom bar caps rows tighter.
+_REPLY_MAX_PER_ROW = 2
 
 
 def menu_keyboard(
@@ -141,6 +144,10 @@ def reply_menu_markup(
         (n for n in nodes if n.parent_id is None and n.is_active),
         key=lambda n: (n.row_index, n.order_index),
     )
+    # Honour the operator's row layout, but cap each row at two — a crammed row (e.g. the
+    # constructor's default of every button on row_index 0) wraps its overflow onto the next
+    # row instead of truncating the captions. Mirrors menu_keyboard's inline auto-wrap.
+    deliberate_layout = len({n.row_index for n in siblings}) > 1
     rows: list[list[KeyboardButton]] = []
     current: int | None = None
     for n in siblings:
@@ -152,7 +159,8 @@ def reply_menu_markup(
             button = KeyboardButton(text=n.label, web_app=WebAppInfo(url=miniapp_url or ""))
         else:
             button = KeyboardButton(text=n.label)
-        if not rows or n.row_index != current:
+        new_group = n.row_index != current
+        if not rows or (deliberate_layout and new_group) or len(rows[-1]) >= _REPLY_MAX_PER_ROW:
             rows.append([])
             current = n.row_index
         rows[-1].append(button)

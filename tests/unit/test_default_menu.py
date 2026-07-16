@@ -144,6 +144,41 @@ def test_reply_menu_markup_bottom_bar_with_web_app_button() -> None:
     assert app_btn.web_app is not None and app_btn.web_app.url == "https://app.example"
 
 
+def test_reply_menu_markup_caps_row_width_at_two() -> None:
+    # Regression: the bottom bar honoured row_index verbatim with no width cap, so an
+    # operator who put three word-labelled buttons on one row got truncated captions
+    # ("Личный каби…"). Rows must wrap at two, preserving order.
+    from src.bot.keyboards import reply_menu_markup
+    from src.core.enums import MenuNodeKind
+
+    nodes = [
+        _node(1, "📱 Открыть", MenuNodeKind.ACTION, "connect", row=0, order=0),
+        _node(2, "🛒 Купить", MenuNodeKind.ACTION, "buy", row=0, order=1),
+        _node(3, "🎁 Пробный", MenuNodeKind.ACTION, "trial", row=0, order=2),
+        _node(4, "👤 Личный кабинет", MenuNodeKind.ACTION, "cabinet", row=1, order=0),
+        _node(5, "🔌 Подключить", MenuNodeKind.ACTION, "connect", row=1, order=1),
+    ]
+    kb = reply_menu_markup(nodes, miniapp_url="")
+    assert kb is not None
+    widths = [len(r) for r in kb.keyboard]
+    assert max(widths) <= 2  # no crowded row -> no truncation
+    assert sum(widths) == 5  # every button still rendered
+    # row_index-0 overflow wraps: [Открыть, Купить] then [Пробный]; row-1 stays as its pair
+    assert [b.text for b in kb.keyboard[0]] == ["📱 Открыть", "🛒 Купить"]
+
+
+def test_reply_menu_markup_wraps_flat_menu_at_two() -> None:
+    from src.bot.keyboards import reply_menu_markup
+    from src.core.enums import MenuNodeKind
+
+    # All buttons on row_index 0 (constructor default) auto-wrap into a tidy 2-wide grid.
+    nodes = [_node(i, f"Кнопка {i}", MenuNodeKind.ACTION, "buy", row=0, order=i) for i in range(5)]
+    kb = reply_menu_markup(nodes, miniapp_url="")
+    assert kb is not None
+    assert max(len(r) for r in kb.keyboard) <= 2
+    assert sum(len(r) for r in kb.keyboard) == 5
+
+
 def test_reply_menu_markup_auto_appends_app_when_tree_has_none() -> None:
     from src.bot.keyboards import reply_menu_markup
     from src.core.enums import MenuNodeKind
