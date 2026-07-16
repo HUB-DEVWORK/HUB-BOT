@@ -85,6 +85,22 @@ else
   run_spin "docker compose up -d" $COMPOSE up -d
 fi
 
+# --- 3b. re-attach web to an external reverse-proxy network (optional) ----------
+# `docker network connect` is imperative: it's lost every time compose recreates the
+# container. A `web` fronted by an EXISTING proxy on another network (e.g. a shared Caddy
+# that already owns :443) therefore drops off the proxy on each update and its domain
+# starts 502-ing. Set WEB_PROXY_NETWORK=<external network name> in .env to have every
+# update re-attach it. No-op when unset or when the network doesn't exist.
+PROXY_NET=$(grep -E '^WEB_PROXY_NETWORK=' .env 2>/dev/null | cut -d= -f2- | xargs)
+if [ -n "${PROXY_NET:-}" ]; then
+  WEB_CID=$($COMPOSE ps -q web 2>/dev/null)
+  if [ -n "$WEB_CID" ] && docker network inspect "$PROXY_NET" >/dev/null 2>&1; then
+    docker network connect "$PROXY_NET" "$WEB_CID" 2>/dev/null \
+      && ok "web подключён к сети прокси: $PROXY_NET" \
+      || ok "web уже в сети прокси: $PROXY_NET"
+  fi
+fi
+
 # --- 4. health-gate -------------------------------------------------------------
 step 4 "Миграции и здоровье"
 printf "  %s…%s жду /health " "$DIM" "$R"
