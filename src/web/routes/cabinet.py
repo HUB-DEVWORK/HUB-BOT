@@ -150,6 +150,16 @@ async def me(
             and g.type in container.gateway_factory.supported()
             and g.type.value not in ("manual", "telegram_stars")
         ]
+        # Operator-controlled payment-method order + Balance/Stars labels (shared with the bot).
+        from src.core.payment_order import order_rank
+
+        balance_on = bool(await cfg.value(uow, "BALANCE_ENABLED"))
+        pay_balance_label = str(await cfg.value(uow, "PAYMENT_BALANCE_LABEL") or "").strip()
+        pay_stars_label = str(await cfg.value(uow, "PAYMENT_STARS_LABEL") or "").strip()
+        rank = order_rank(str(await cfg.value(uow, "PAYMENT_METHOD_ORDER") or ""))
+        payment_order = (["balance"] if balance_on else []) + ["stars"]
+        payment_order += [g["id"] for g in gateways]
+        payment_order.sort(key=rank)  # stable — unlisted methods keep default order
         await uow.commit()
     return {
         "user": {
@@ -173,7 +183,10 @@ async def me(
             "mtproto_proxy": _proxy_link(proxy_url) if proxy_enabled and proxy_url else None,
             "ui": miniapp.ui or {},
             "payment_methods": gateways,
-            "balance_enabled": bool(await container.bot_config.value(uow, "BALANCE_ENABLED")),
+            "payment_order": payment_order,
+            "pay_balance_label": pay_balance_label,
+            "pay_stars_label": pay_stars_label,
+            "balance_enabled": balance_on,
             "hide_subscription_link": hide_link,
             "show_traffic_usage": show_traffic,  # #8: honored by bot; now exposed to cabinets too
             "sales_mode": sales_mode,

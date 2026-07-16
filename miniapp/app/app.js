@@ -230,19 +230,31 @@
   // ---------- screens ----------
   function payChips(starsCount) {
     const me = state.me;
-    return el("div", { class: "chips" }, [
-      me && me.app.balance_enabled === false
-        ? null
-        : el("button", { class: `chip${state.paySel === "balance" ? " on" : ""}`, onclick: () => { state.paySel = "balance"; render(); }, text: `${T.payBalance} · ${me ? money(me.user.balance_minor) : ""}` }),
-      el("button", { class: `chip${state.paySel === "stars" ? " on" : ""}`, onclick: () => { state.paySel = "stars"; render(); }, text: `⭐ ${T.payStars} · ${starsCount}` }),
-      ...((me && me.app.payment_methods) || []).map((pm) =>
-        el("button", {
-          class: `chip${state.paySel === pm.id ? " on" : ""}`,
-          onclick: () => { state.paySel = pm.id; render(); },
-          text: `💳 ${pm.label}`,
-        }),
-      ),
-    ]);
+    const app = (me && me.app) || {};
+    const gwById = {};
+    (app.payment_methods || []).forEach((pm) => { gwById[pm.id] = pm; });
+    // Operator-controlled order (PAYMENT_METHOD_ORDER); fall back to balance/stars/gateways
+    // for an older cached response that predates the field.
+    const order = (app.payment_order && app.payment_order.length)
+      ? app.payment_order
+      : (app.balance_enabled === false ? [] : ["balance"]).concat(["stars"], (app.payment_methods || []).map((pm) => pm.id));
+    const balanceLabel = app.pay_balance_label || T.payBalance;
+    const starsLabel = app.pay_stars_label || T.payStars;
+    const chip = (id, text) => el("button", {
+      class: `chip${state.paySel === id ? " on" : ""}`,
+      onclick: () => { state.paySel = id; render(); },
+      text,
+    });
+    const chips = order.map((id) => {
+      if (id === "balance") {
+        if (app.balance_enabled === false) return null;
+        return chip("balance", `${balanceLabel} · ${me ? money(me.user.balance_minor) : ""}`);
+      }
+      if (id === "stars") return chip("stars", `⭐ ${starsLabel} · ${starsCount}`);
+      const gw = gwById[id];
+      return gw ? chip(gw.id, `💳 ${gw.label}`) : null;
+    }).filter(Boolean);
+    return el("div", { class: "chips" }, chips);
   }
 
   function orderSections(map) {

@@ -158,23 +158,36 @@ async def show_durations(cb: CallbackQuery, container: AppContainer, db_user: Us
 async def _payment_methods(
     uow: UnitOfWork, container: AppContainer, db_user: User, price_minor: int
 ) -> list[tuple[str, str]]:
-    """(label, method_code) pairs for a payment screen, respecting the config toggles."""
-    stars_rate = int(await container.bot_config.value(uow, "STARS_RATE_RUB"))
-    balance_enabled = bool(await container.bot_config.value(uow, "BALANCE_ENABLED"))
-    out: list[tuple[str, str]] = []
+    """(label, method_code) pairs for a payment screen, respecting the config toggles.
+
+    Order + the Balance/Stars labels are operator-controlled (PAYMENT_METHOD_ORDER /
+    PAYMENT_BALANCE_LABEL / PAYMENT_STARS_LABEL) and shared with the mini-app.
+    """
+    from src.core.payment_order import order_rank
+
+    cfg = container.bot_config
+    stars_rate = int(await cfg.value(uow, "STARS_RATE_RUB"))
+    balance_enabled = bool(await cfg.value(uow, "BALANCE_ENABLED"))
+    bal_label = str(await cfg.value(uow, "PAYMENT_BALANCE_LABEL") or "").strip() or "С баланса"
+    stars_label = str(await cfg.value(uow, "PAYMENT_STARS_LABEL") or "").strip() or "Telegram Stars"
+    rank = order_rank(str(await cfg.value(uow, "PAYMENT_METHOD_ORDER") or ""))
+
+    # (label, method_code, order_id) — order_id is the stable name used in PAYMENT_METHOD_ORDER.
+    entries: list[tuple[str, str, str]] = []
     if balance_enabled:
         ok = "✅" if db_user.balance_minor >= price_minor else "❌"
-        out.append((f"{ok} С баланса ({fmt_money(db_user.balance_minor)})", "bal"))
+        entries.append((f"{ok} {bal_label} ({fmt_money(db_user.balance_minor)})", "bal", "balance"))
     stars = max(1, math.ceil(price_minor / max(1, stars_rate)))
-    out.append((f"⭐ Telegram Stars · {stars} ★", "stars"))
+    entries.append((f"⭐ {stars_label} · {stars} ★", "stars", "stars"))
     for g in await uow.payment_gateways.list():
         if (
             g.is_active
             and g.type in container.gateway_factory.supported()
             and g.type.value not in ("manual", "telegram_stars")
         ):
-            out.append((f"💳 {g.display_name or g.type.value}", g.type.value))
-    return out
+            entries.append((f"💳 {g.display_name or g.type.value}", g.type.value, g.type.value))
+    entries.sort(key=lambda e: rank(e[2]))  # stable — unlisted methods keep default order
+    return [(label, code) for label, code, _order_id in entries]
 
 
 @router.callback_query(F.data.startswith("dur:"))

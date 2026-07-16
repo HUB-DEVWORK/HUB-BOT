@@ -269,6 +269,38 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Разрешить возвраты из админки",
         "Allow refunds from the cabinet",
     ),
+    _p(
+        "PAYMENT_METHOD_ORDER",
+        C.PAYMENTS,
+        STR,
+        "",
+        "Порядок способов оплаты",
+        "Payment methods order",
+        "Через запятую: balance, stars, yookassa… — что раньше в списке (бот и мини-апп). "
+        "Не указанные идут после в обычном порядке.",
+        "Comma-separated: balance, stars, yookassa… — earliest first (bot + mini-app). "
+        "Unlisted methods follow in default order.",
+    ),
+    _p(
+        "PAYMENT_BALANCE_LABEL",
+        C.PAYMENTS,
+        STR,
+        "",
+        "Название кнопки «Баланс»",
+        "Balance button label",
+        "Пусто = «С баланса»",
+        "Empty = «С баланса»",
+    ),
+    _p(
+        "PAYMENT_STARS_LABEL",
+        C.PAYMENTS,
+        STR,
+        "",
+        "Название кнопки «Stars»",
+        "Stars button label",
+        "Пусто = «Telegram Stars»",
+        "Empty = «Telegram Stars»",
+    ),
     # --- NOTIFICATIONS --------------------------------------------------------
     _p(
         "REPORT_GROUP_ID",
