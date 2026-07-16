@@ -10,9 +10,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.core.config import get_settings
@@ -107,6 +107,47 @@ def create_app() -> FastAPI:
     app.include_router(admin.router)
     app.include_router(cabinet.router)
     app.include_router(cabinet_auth.router)
+
+    @app.get("/dl", response_class=HTMLResponse)
+    async def _deep_link_redirect(to: str) -> HTMLResponse:
+        """Hand a client-app deep link (happ://…) to the OS. Telegram's in-app WebView cannot
+        open custom schemes — a direct anchor/navigation fails with ERR_UNKNOWN_URL_SCHEME — and
+        WebApp.openLink() accepts http(s) only. So the mini-app opens THIS https page via
+        openLink (external browser), which then fires the scheme; the OS routes it to the app.
+        The scheme is allow-listed so this can't be abused as an open redirect (javascript:, …)."""
+        import html as _html
+        import json as _json
+
+        allowed = (
+            "happ://",
+            "v2raytun://",
+            "hiddify://",
+            "streisand://",
+            "clash://",
+            "sing-box://",
+            "v2box://",
+            "shadowrocket://",
+            "nekobox://",
+        )
+        if not to.startswith(allowed):
+            raise HTTPException(400, "scheme not allowed")
+        js = _json.dumps(to)  # safe JS string literal
+        href = _html.escape(to, quote=True)
+        return HTMLResponse(
+            "<!doctype html><meta charset=utf-8>"
+            "<meta name=viewport content='width=device-width,initial-scale=1'>"
+            "<title>Открываю приложение…</title>"
+            "<body style='margin:0;font-family:system-ui,-apple-system,sans-serif;"
+            "background:#0f1319;color:#e6e9ef;text-align:center;padding:64px 24px'>"
+            "<p style='font-size:17px'>Открываю приложение…</p>"
+            f"<p style='margin-top:24px'><a href=\"{href}\" style='display:inline-block;"
+            "padding:14px 24px;background:#4159c7;color:#fff;border-radius:10px;"
+            "text-decoration:none;font-weight:600'>Открыть вручную</a></p>"
+            "<p style='color:#8b96a3;font-size:13px;margin-top:20px'>Если приложение не "
+            "открылось само — нажмите кнопку выше.</p>"
+            f"<script>setTimeout(function(){{location.href={js}}},60)</script>"
+        )
+
     if _ADMIN_DIST.is_dir():
         app.mount("/admin", StaticFiles(directory=_ADMIN_DIST, html=True), name="admin-spa")
     if _MINIAPP_DIR.is_dir():

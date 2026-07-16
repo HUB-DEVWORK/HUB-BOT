@@ -189,6 +189,23 @@
     else window.open(url, "_blank");
   }
 
+  // Launch a client app from its deep link. A custom scheme (happ://…) CANNOT be opened from
+  // inside the Telegram WebView — a direct anchor/navigation fails with ERR_UNKNOWN_URL_SCHEME —
+  // and WebApp.openLink() takes http(s) only. So we bounce a custom scheme through our https
+  // /dl page (openLink opens it in the EXTERNAL browser, which then hands the scheme to the OS).
+  // An https deep link (e.g. a universal link) is opened directly.
+  function openApp(link) {
+    if (!link) return;
+    haptic();
+    if (/^https?:/i.test(link)) {
+      if (wa && wa.openLink) wa.openLink(link);
+      else window.open(link, "_blank");
+      return;
+    }
+    if (wa && wa.openLink) wa.openLink(location.origin + "/dl?to=" + encodeURIComponent(link));
+    else location.href = link; // a plain browser routes the scheme to the app itself
+  }
+
   // Admin custom blocks + standalone link-buttons for a given screen (home/connect/account).
   function customItems(screen) {
     const out = [];
@@ -474,30 +491,28 @@
                   conn.hide_link
                     ? null
                     : el("div", { class: "link-box mono", text: conn.subscription_url }),
-                  // One "Открыть в <App>" link per owner-enabled client (conn.apps). These MUST
-                  // be real <a href="happ://…"> anchors the user taps directly: a custom app
-                  // scheme opened from JS (location.href / WebApp.openLink, which is http-only)
-                  // is blocked in the Telegram WebView, so the button did nothing. A direct
-                  // anchor tap is handed to the OS, which routes it to the installed app.
+                  // One "Открыть в <App>" button per owner-enabled client (conn.apps). A custom
+                  // app scheme (happ://…) can't be opened from inside the Telegram WebView, so
+                  // openApp() bounces it through the https /dl page in the external browser.
                   ...(Array.isArray(conn.apps) && conn.apps.length
                     ? conn.apps.map((a) =>
-                        el("a", {
+                        el("button", {
                           class: "btn primary",
                           style: btnStyle("open_app"),
-                          href: a.deep_link,
-                          onclick: () => haptic(),
+                          onclick: () => openApp(a.deep_link),
                           text: "⚡ " + (btnText("open_app", T.openApp) + " · " + a.label),
                         }),
                       )
                     : [
-                        el("a", {
+                        el("button", {
                           class: "btn primary",
                           style: btnStyle("open_app"),
-                          href:
-                            (conn.deep_links || {})[plat.client] ||
-                            (conn.deep_links || {}).happ ||
-                            conn.subscription_url,
-                          onclick: () => haptic(),
+                          onclick: () =>
+                            openApp(
+                              (conn.deep_links || {})[plat.client] ||
+                                (conn.deep_links || {}).happ ||
+                                conn.subscription_url,
+                            ),
                           text: "⚡ " + btnText("open_app", T.openApp),
                         }),
                       ]),

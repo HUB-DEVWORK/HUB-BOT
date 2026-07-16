@@ -375,6 +375,23 @@ async def test_menu_row_layout_and_action_validation(
     assert res.status_code == 200
 
 
+async def test_deep_link_redirect_wraps_allowed_scheme(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    http, _ = client
+    # A client-app scheme is returned inside an https page that fires it (openable from the
+    # external browser, unlike the Telegram WebView which errors on ERR_UNKNOWN_URL_SCHEME).
+    res = await http.get("/dl", params={"to": "happ://add/https://sub.example/abc"})
+    assert res.status_code == 200
+    assert "text/html" in res.headers["content-type"]
+    assert "happ://add/https://sub.example/abc" in res.text
+
+    # Disallowed schemes (open-redirect / XSS vectors) are rejected, not reflected.
+    for bad in ("javascript:alert(1)", "https://evil.example", "data:text/html,x"):
+        r = await http.get("/dl", params={"to": bad})
+        assert r.status_code == 400, bad
+
+
 async def test_menu_actions_catalog(
     client: tuple[httpx.AsyncClient, ApiTestContainer],
 ) -> None:
