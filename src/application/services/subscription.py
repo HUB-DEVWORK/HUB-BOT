@@ -38,6 +38,20 @@ class SubscriptionService:
     def __init__(self, remnawave: RemnawaveService) -> None:
         self._remnawave = remnawave
 
+    async def _fallback_squads(self, uow: UnitOfWork, *, is_trial: bool) -> tuple[str, ...]:
+        """Squads to provision with when neither the request nor the plan names one.
+
+        Without this an unconfigured plan/trial (e.g. the lazily-created ``Trial`` plan, whose
+        internal_squads is empty) provisions a squad-less panel user, and Remnawave answers its
+        subscription with the default demo hosts ("No hosts found / Check Internal Squads tab").
+        Sells every available synced squad; trials narrow to the trial-eligible ones when the
+        owner has flagged any (this is the first place ``is_trial_eligible`` is actually read).
+        """
+        rows = [s for s in await uow.server_squads.list() if s.is_available]
+        if is_trial:
+            rows = [s for s in rows if s.is_trial_eligible] or rows
+        return tuple(str(s.squad_uuid) for s in rows)
+
     async def grant(
         self,
         uow: UnitOfWork,
@@ -64,13 +78,16 @@ class SubscriptionService:
         )
         device_limit = req.device_limit if req.device_limit is not None else plan.device_limit
 
+        squads = req.internal_squads or tuple(plan.internal_squads)
+        if not squads:  # unconfigured plan/trial → don't ship a squad-less (dead) panel user
+            squads = await self._fallback_squads(uow, is_trial=is_trial)
         spec = self._remnawave.build_spec(
             short_id=short_id,
             telegram_id=user.telegram_id,
             expire_at=expire_at,
             traffic_limit_bytes=traffic_bytes,
             device_limit=device_limit,
-            internal_squads=req.internal_squads or tuple(plan.internal_squads),
+            internal_squads=squads,
             external_squad=req.external_squad or plan.external_squad,
         )
         # Panel-first: create the panel user OUTSIDE any assumption of a local commit.

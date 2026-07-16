@@ -35,7 +35,10 @@ async def _apply_bot_config(bot: Bot, container: AppContainer) -> None:
         # chat menu button + WebApp buttons appear out of the box (same value the web boot sets).
         public = (container.settings.web.public_url or "").strip().rstrip("/")
         if not miniapp_url and public.startswith("https://"):
-            miniapp_url = f"{public}/app"
+            # Trailing slash is required: the mini-app is a StaticFiles mount at /app with
+            # RELATIVE asset refs (app.css/app.js). Opened at /app (no slash) those resolve
+            # against the domain root and 404 → blank WebView; /app/ makes them resolve under it.
+            miniapp_url = f"{public}/app/"
             await cfg.set_values(uow, {"SUBSCRIPTION_MINI_APP_URL": miniapp_url})
             await uow.commit()
     if miniapp_url.startswith("https://"):
