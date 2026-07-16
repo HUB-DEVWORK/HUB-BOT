@@ -93,18 +93,17 @@ def test_menu_keyboard_groups_buttons_by_row_index() -> None:
     assert [b.text for b in markup.inline_keyboard[1]] == ["B", "C"]
 
 
-def test_menu_keyboard_auto_wraps_flat_menu() -> None:
-    # Regression: the web constructor saves every button on row_index=0. Rendering all
-    # of them in one physical row truncates the labels ("…нет"). A flat menu must be
-    # auto-laid into a tidy grid instead of one crowded row.
+def test_menu_keyboard_stacks_flat_menu_one_per_row() -> None:
+    # A flat menu (every button on row_index=0, the constructor's default) stacks one button
+    # per row — what operators expect and it never truncates. The per-row control opts into packing.
     from src.bot.keyboards import menu_keyboard
     from src.core.enums import MenuNodeKind
 
     nodes = [_node(i, f"Кнопка {i}", MenuNodeKind.ACTION, "buy", row=0, order=i) for i in range(5)]
     markup = menu_keyboard(nodes, None)
     widths = [len(r) for r in markup.inline_keyboard]
-    assert max(widths) <= 2  # no crowded row -> no truncation
-    assert sum(widths) == 5  # every button still rendered
+    assert widths == [1, 1, 1, 1, 1]  # stacked, one per row
+    assert sum(widths) == 5  # every button rendered
 
 
 def test_menu_keyboard_respects_explicit_rows_but_caps_width() -> None:
@@ -178,15 +177,16 @@ def test_reply_menu_markup_caps_row_width_at_two() -> None:
     assert [b.text for b in kb.keyboard[0]] == ["📱 Открыть", "🛒 Купить"]
 
 
-def test_reply_menu_markup_wraps_flat_menu_at_two() -> None:
+def test_reply_menu_markup_stacks_flat_menu_one_per_row() -> None:
     from src.bot.keyboards import reply_menu_markup
     from src.core.enums import MenuNodeKind
 
-    # All buttons on row_index 0 (constructor default) auto-wrap into a tidy 2-wide grid.
+    # All buttons on row_index 0 (constructor default) stack one per row — no truncation,
+    # and stacked as operators expect. The per-row control opts into a 2-wide layout.
     nodes = [_node(i, f"Кнопка {i}", MenuNodeKind.ACTION, "buy", row=0, order=i) for i in range(5)]
     kb = reply_menu_markup(nodes, miniapp_url="")
     assert kb is not None
-    assert max(len(r) for r in kb.keyboard) <= 2
+    assert [len(r) for r in kb.keyboard] == [1, 1, 1, 1, 1]
     assert sum(len(r) for r in kb.keyboard) == 5
 
 

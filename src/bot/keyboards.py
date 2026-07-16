@@ -53,12 +53,15 @@ def _button(
     return InlineKeyboardButton(**kwargs)  # type: ignore[arg-type]
 
 
-# Telegram shrinks inline buttons to fit a row and truncates labels ("…нет") when a
-# row is crowded. Cap how many buttons ever share one physical row.
+# Telegram shrinks buttons to fit a row and truncates labels ("…нет") when a row is crowded.
+# Cap how many buttons ever share one physical row.
 _MAX_PER_ROW = 3  # hard ceiling even for an explicit row group
-_AUTO_GRID_WIDTH = 2  # width when no deliberate row layout exists (all same row_index)
-# Reply-keyboard captions are full words ("Личный кабинет"), which Telegram truncates
-# ("Личный каби…") sooner than inline buttons — so the bottom bar caps rows tighter.
+# No deliberate layout (every button on the same row_index) -> one button per row (stacked).
+# This is what operators expect out of the box and never truncates; the cabinet's per-row
+# control assigns row_index to deliberately pack more buttons side by side.
+_AUTO_GRID_WIDTH = 1
+# Reply-keyboard captions are full words ("Личный кабинет") and truncate sooner than inline
+# buttons, so even a deliberate layout never packs more than two per row on the bottom bar.
 _REPLY_MAX_PER_ROW = 2
 
 
@@ -144,10 +147,11 @@ def reply_menu_markup(
         (n for n in nodes if n.parent_id is None and n.is_active),
         key=lambda n: (n.row_index, n.order_index),
     )
-    # Honour the operator's row layout, but cap each row at two — a crammed row (e.g. the
-    # constructor's default of every button on row_index 0) wraps its overflow onto the next
-    # row instead of truncating the captions. Mirrors menu_keyboard's inline auto-wrap.
+    # No deliberate layout (every button on the same row_index) -> one button per row, so a
+    # freshly built menu stacks vertically and never truncates its captions. When the operator
+    # sets rows in the cabinet's per-row control, honour that grouping but cap at two per row.
     deliberate_layout = len({n.row_index for n in siblings}) > 1
+    per_row = _REPLY_MAX_PER_ROW if deliberate_layout else 1
     rows: list[list[KeyboardButton]] = []
     current: int | None = None
     for n in siblings:
@@ -160,7 +164,7 @@ def reply_menu_markup(
         else:
             button = KeyboardButton(text=n.label)
         new_group = n.row_index != current
-        if not rows or (deliberate_layout and new_group) or len(rows[-1]) >= _REPLY_MAX_PER_ROW:
+        if not rows or (deliberate_layout and new_group) or len(rows[-1]) >= per_row:
             rows.append([])
             current = n.row_index
         rows[-1].append(button)

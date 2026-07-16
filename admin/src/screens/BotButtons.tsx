@@ -79,10 +79,13 @@ export default function BotButtons() {
           (a.row_index ?? 0) - (b.row_index ?? 0) || (a.order_index ?? 0) - (b.order_index ?? 0),
       );
 
-  // Current buttons-per-row of a screen = its widest row (1 when the menu is a flat column).
+  // Current buttons-per-row of a screen = its widest row. A flat menu (every button on the same
+  // row_index) renders stacked one-per-row in the bot, so it reads as width 1 here too.
   function rowWidth(parent: string | null): number {
+    const siblings = kids(parent);
+    if (new Set(siblings.map((n) => n.row_index ?? 0)).size <= 1) return 1;
     const counts = new Map<number, number>();
-    for (const n of kids(parent)) {
+    for (const n of siblings) {
       const r = n.row_index ?? 0;
       counts.set(r, (counts.get(r) ?? 0) + 1);
     }
@@ -198,9 +201,12 @@ export default function BotButtons() {
   }, [sel]);
   const previewScreen = nodes.find((n) => n.id === previewScreenId) ?? null;
   const previewButtons = kids(previewScreenId);
-  // Group the previewed screen's buttons into rows (by row_index) so the preview shows the
-  // exact grid the bot renders — buttons sharing a row_index sit side by side.
+  // Show the exact grid the bot renders. With no deliberate layout (every button on the same
+  // row_index) the bot stacks one per row, so the preview does too; once «В ряд 2/3» assigns
+  // distinct row_index values, group buttons by that so what you see is what the bot shows.
   const previewRows = useMemo(() => {
+    const deliberate = new Set(previewButtons.map((b) => b.row_index ?? 0)).size > 1;
+    if (!deliberate) return previewButtons.map((b) => [b]); // stacked, one per row
     const out: Node[][] = [];
     let cur: number | null = null;
     for (const b of previewButtons) {
@@ -461,29 +467,41 @@ export default function BotButtons() {
 
         {/* live preview */}
         <div className="card" style={{ flex: "1 1 300px" }}>
-          <div
-            className="row"
-            style={{ marginBottom: 10, alignItems: "center", justifyContent: "space-between" }}
-          >
-            <span className="caps">{t.livePreview}</span>
-            {previewButtons.length > 1 && (
-              <div className="row" style={{ alignItems: "center", gap: 6 }}>
-                <span className="dim" style={{ fontSize: 12 }}>
-                  {t.perRow}:
-                </span>
+          <div className="caps" style={{ marginBottom: 10 }}>
+            {t.livePreview}
+          </div>
+          {previewButtons.length > 1 && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                flexWrap: "wrap",
+                padding: "10px 12px",
+                marginBottom: 12,
+                background: "var(--panel2)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{t.perRow}:</span>
+              <div className="row" style={{ gap: 6 }}>
                 {[1, 2, 3].map((w) => (
                   <button
                     key={w}
-                    className={`btn sm ${rowWidth(previewScreenId) === w ? "primary" : "secondary"}`}
-                    style={{ minWidth: 30, padding: "4px 8px" }}
+                    className={`btn ${rowWidth(previewScreenId) === w ? "primary" : "secondary"}`}
+                    style={{ minWidth: 42, padding: "6px 12px", fontWeight: 700 }}
                     onClick={() => layoutRows(previewScreenId, w)}
                   >
                     {w}
                   </button>
                 ))}
               </div>
-            )}
-          </div>
+              <span className="dim" style={{ fontSize: 12, flexBasis: "100%" }}>
+                {t.perRowHint}
+              </span>
+            </div>
+          )}
           <div
             style={{
               background: "var(--panel2)",
