@@ -65,7 +65,8 @@ async def bootstrap_public_urls(container: AppContainer) -> None:
         cfg = container.bot_config
         updates: dict[str, str] = {}
         if not str(await cfg.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "").strip():
-            updates["SUBSCRIPTION_MINI_APP_URL"] = f"{base}/app/"  # slash: relative assets 404 at /app
+            # Trailing slash: /app serves relative assets, which 404 against the root without it.
+            updates["SUBSCRIPTION_MINI_APP_URL"] = f"{base}/app/"
         if not str(await cfg.value(uow, "CABINET_URL") or "").strip():
             updates["CABINET_URL"] = base
         if updates:

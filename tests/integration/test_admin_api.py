@@ -833,8 +833,9 @@ async def test_bootstrap_public_urls_autowires_bot_miniapp_link(
     await bootstrap_public_urls(container)
     async with container.uow() as uow:
         cfg = container.bot_config
+        # Trailing slash is required so the mini-app's relative assets resolve (see 1.2.8).
         assert (
-            str(await cfg.value(uow, "SUBSCRIPTION_MINI_APP_URL")) == "https://vpn.example.com/app"
+            str(await cfg.value(uow, "SUBSCRIPTION_MINI_APP_URL")) == "https://vpn.example.com/app/"
         )
         assert str(await cfg.value(uow, "CABINET_URL")) == "https://vpn.example.com"
         # a value the owner set by hand is never overwritten on the next boot
