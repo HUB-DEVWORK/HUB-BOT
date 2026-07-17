@@ -21,7 +21,10 @@ fail() { printf "\n  %s✗ %s%s\n" "$RED" "$*" "$R"; exit 1; }
 
 run_spin() { # run_spin "подпись" cmd...
   local label=$1; shift
-  local log; log=$(mktemp /tmp/vpnhub-update.XXXXXX.log)
+  # Template must END in X's: busybox mktemp (the updater sidecar is alpine-based) rejects a
+  # suffix after them with "mktemp: : Invalid argument". That aborted step 3 on every
+  # button-triggered update — the sidecar path — while host runs (GNU mktemp) worked fine.
+  local log; log=$(mktemp /tmp/vpnhub-update.XXXXXX)
   printf "  %s…%s %s " "$DIM" "$R" "$label"
   if "$@" >"$log" 2>&1; then
     printf "\r  %s✔%s %s%s\n" "$GREEN" "$R" "$label" "          "
@@ -39,6 +42,42 @@ cd "$(dirname "$0")/.."
 # (docker/), not the CWD, so without this it can't find our repo-root .env.
 COMPOSE="docker compose --env-file .env -f docker/compose.prod.yml"
 [ -f .env ] || fail ".env не найден — сначала установка: ./scripts/install.sh"
+
+bring_up() { # (re)create+start the stack; never recreate the updater if we ARE it
+  if [ -n "${SKIP_UPDATER_RECREATE:-}" ]; then
+    # Triggered from inside the updater container: recreate every service EXCEPT updater,
+    # else `up -d` would kill this very process mid-update. The updater keeps the old code
+    # (it's a tiny watch loop); to update it too, run ./scripts/update.sh on the host once.
+    # Naming a service on the CLI activates it even if its profile is off — on a "behind an
+    # existing proxy" install (caddy omitted from COMPOSE_PROFILES, :80/:443 already taken)
+    # that would try to start caddy, fail to bind, and abort the whole update. So include
+    # caddy only when its profile is actually enabled.
+    local svc="postgres redis web bot worker scheduler"
+    grep -qE '^COMPOSE_PROFILES=.*caddy' .env 2>/dev/null && svc="$svc caddy"
+    $COMPOSE up -d --no-deps $svc
+  else
+    $COMPOSE up -d
+  fi
+}
+
+# An update that dies half-way (dropped ssh, ^C, failed build, OOM) used to leave the stack
+# down: `up -d` creates containers before starting them, so an interrupt strands bot/worker/
+# scheduler in "Created" and the bot never comes back. Always try to put the stack back on
+# its feet — with the new image if the build got that far, otherwise the old one.
+_recovered=0
+recover() {
+  local code=$?
+  [ "$code" -eq 0 ] && return 0
+  [ "$_recovered" -eq 1 ] && return 0
+  _recovered=1
+  printf "\n  %s⚠ обновление прервано — возвращаю сервисы в строй%s\n" "$ORANGE" "$R"
+  bring_up >/dev/null 2>&1 || true
+  $COMPOSE ps 2>/dev/null | tail -n +2 | sed 's/^/    /' || true
+}
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap recover EXIT
 
 printf "\n"; hr
 printf "   %sVPN%s%s-HUB%s %sBOT%s  %s· безопасное обновление%s\n" \
@@ -76,18 +115,9 @@ step 3 "Пересборка и перезапуск"
 export GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 run_spin "docker compose build" $COMPOSE build
 if [ -n "${SKIP_UPDATER_RECREATE:-}" ]; then
-  # Triggered from inside the updater container: recreate every service EXCEPT updater,
-  # else `up -d` would kill this very process mid-update. The updater keeps the old code
-  # (it's a tiny watch loop); to update it too, run ./scripts/update.sh on the host once.
-  # Naming a service on the CLI activates it even if its profile is off — on a "behind an
-  # existing proxy" install (caddy omitted from COMPOSE_PROFILES, :80/:443 already taken)
-  # that would try to start caddy, fail to bind, and abort the whole update. So include
-  # caddy only when its profile is actually enabled.
-  _svc="postgres redis web bot worker scheduler"
-  grep -qE '^COMPOSE_PROFILES=.*caddy' .env 2>/dev/null && _svc="$_svc caddy"
-  run_spin "docker compose up -d (без updater)" $COMPOSE up -d --no-deps $_svc
+  run_spin "docker compose up -d (без updater)" bring_up
 else
-  run_spin "docker compose up -d" $COMPOSE up -d
+  run_spin "docker compose up -d" bring_up
 fi
 
 # --- 3b. re-attach web to an external reverse-proxy network (optional) ----------
