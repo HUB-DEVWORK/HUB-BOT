@@ -31,6 +31,12 @@ def style_for_hex(color: str | None) -> str | None:
     return "primary"
 
 
+def _is_valid_button_url(url: str) -> bool:
+    """Telegram inline-button URLs must carry a scheme; a scheme-less one (example.com) is
+    rejected with BUTTON_URL_INVALID and takes the whole message down."""
+    return url.startswith(("http://", "https://", "tg://"))
+
+
 def _button(
     node: MenuNode, miniapp_url: str | None, default_color: str | None = None
 ) -> InlineKeyboardButton:
@@ -38,8 +44,13 @@ def _button(
     style = style_for_hex(node.color or default_color)
     if style:
         kwargs["style"] = style
-    if node.kind.value == "link" and node.payload:
+    if node.kind.value == "link" and node.payload and _is_valid_button_url(node.payload):
         kwargs["url"] = node.payload
+    elif node.kind.value == "link":
+        # A scheme-less URL (e.g. "example.com") makes Telegram reject the WHOLE message with
+        # BUTTON_URL_INVALID — bricking the menu render (and the fallback re-sends the same bad
+        # markup). Degrade to a harmless bounce (caught by the act:* catch-all) like miniapp does.
+        kwargs["callback_data"] = f"act:noop:{node.id}"
     elif node.kind.value == "miniapp" and miniapp_url and miniapp_url.startswith("https://"):
         # A WebApp button REQUIRES an https URL; a non-https one makes Telegram reject the whole
         # message with BUTTON_TYPE_INVALID. Guard it so a mis-set mini-app URL degrades to a

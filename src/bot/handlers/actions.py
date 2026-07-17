@@ -233,9 +233,17 @@ async def autopay_card_toggle(
 
 
 @router.callback_query(F.data.startswith("act:cabinet"))
-async def act_cabinet(cb: CallbackQuery | Message, container: AppContainer, db_user: User) -> None:
+async def act_cabinet(
+    cb: CallbackQuery | Message, container: AppContainer, db_user: User, state: FSMContext
+) -> None:
     """Личный кабинет — one screen: profile, balance, subscription, referral, quick actions."""
     import datetime as dt
+
+    # The cabinet is the back-target for the promocode/support screens, which arm an FSM
+    # form (PromoForm.waiting_code) expecting the next text message. Backing out here must
+    # clear that form, else the user's next message is swallowed as a promo code (nav_root
+    # already clears; the cabinet must too, since v1.2.14 pointed those backs here).
+    await state.clear()
 
     async with container.uow() as uow:
         sub = (
