@@ -23,11 +23,15 @@ from pydantic import BaseModel, Field
 
 from src.application.services import (
     bedolaga_import,
+    jolymmiels_import,
+    minishop_import,
     remnashop_import,
     shopbot_import,
     threexui_import,
 )
 from src.application.services.bedolaga_import import BedolagaImportService
+from src.application.services.jolymmiels_import import JolymmielsImportService
+from src.application.services.minishop_import import MinishopImportService
 from src.application.services.remnashop_import import RemnashopImportService
 from src.application.services.shopbot_import import ShopbotImportService
 from src.application.services.threexui_import import ThreexuiImportService
@@ -48,7 +52,7 @@ _ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 _UPLOAD_EXTS = (".db", ".sqlite", ".sqlite3", ".sql", ".json", ".gz", ".tgz")
 
-Source = Literal["bedolaga", "remnashop", "threexui"]
+Source = Literal["bedolaga", "remnashop", "threexui", "minishop", "jolymmiels"]
 
 
 def _saved_file(file_id: str, suffix: str) -> Path:
@@ -170,13 +174,14 @@ async def _load_source(source: Source, body: SourceIn) -> tuple[dict[str, Any], 
             raise HTTPException(400, "3x-ui импортируется только из файла x-ui.db")
         if not body.dsn.startswith(("postgres://", "postgresql://")):
             raise HTTPException(400, "dsn должен быть postgres:// URL")
-        reader = (
-            bedolaga_import.read_source_dsn
-            if source == "bedolaga"
-            else remnashop_import.read_source_dsn
-        )
+        dsn_readers = {
+            "bedolaga": bedolaga_import.read_source_dsn,
+            "remnashop": remnashop_import.read_source_dsn,
+            "minishop": minishop_import.read_source_dsn,
+            "jolymmiels": jolymmiels_import.read_source_dsn,
+        }
         try:
-            return await reader(body.dsn), None
+            return await dsn_readers[source](body.dsn), None
         except Exception as exc:
             raise HTTPException(400, f"не удалось прочитать базу по DSN: {exc}") from exc
     if not body.file_id:
@@ -186,6 +191,8 @@ async def _load_source(source: Source, body: SourceIn) -> tuple[dict[str, Any], 
         "bedolaga": bedolaga_import.read_source,
         "remnashop": remnashop_import.read_source,
         "threexui": threexui_import.read_source,
+        "minishop": minishop_import.read_source,
+        "jolymmiels": jolymmiels_import.read_source,
     }
     try:
         return await asyncio.to_thread(readers[source], path), path
@@ -214,6 +221,8 @@ async def probe_source(
         "bedolaga": bedolaga_import.probe,
         "remnashop": remnashop_import.probe,
         "threexui": threexui_import.probe,
+        "minishop": minishop_import.probe,
+        "jolymmiels": jolymmiels_import.probe,
     }
     result = probes[source](data)
     if source == "threexui" and result.get("ok"):
@@ -236,6 +245,8 @@ async def run_source_import(
         "bedolaga": bedolaga_import.probe,
         "remnashop": remnashop_import.probe,
         "threexui": threexui_import.probe,
+        "minishop": minishop_import.probe,
+        "jolymmiels": jolymmiels_import.probe,
     }
     check = checks[source](data)
     if not check.get("ok"):
@@ -250,6 +261,11 @@ async def run_source_import(
             summary = await xui.run(uow, data, squad_uuid=body.squad_uuid or None)
         elif source == "bedolaga":
             summary = await BedolagaImportService(container.referrals).run(uow, data)
+        elif source == "minishop":
+            summary = await MinishopImportService(container.referrals).run(uow, data)
+        elif source == "jolymmiels":
+            joly = JolymmielsImportService(container.referrals, container.remnawave_client)
+            summary = await joly.run(uow, data)
         else:
             summary = await RemnashopImportService(container.referrals).run(uow, data)
         await audit(

@@ -26,7 +26,7 @@ const TOPIC_NAMES: Record<string, string> = {
   registrations: "Регистрации",
 };
 
-type MigSource = "shopbot" | "bedolaga" | "remnashop" | "threexui";
+type MigSource = "shopbot" | "bedolaga" | "remnashop" | "threexui" | "minishop" | "jolymmiels";
 type Squad = { uuid: string; name: string };
 
 const MIG_SOURCES: { key: MigSource; label: string }[] = [
@@ -34,6 +34,8 @@ const MIG_SOURCES: { key: MigSource; label: string }[] = [
   { key: "bedolaga", label: "Bedolaga" },
   { key: "remnashop", label: "RemnaShop" },
   { key: "threexui", label: "3x-ui" },
+  { key: "minishop", label: "remnawave-minishop" },
+  { key: "jolymmiels", label: "remnawave-telegram-shop" },
 ];
 
 const MIG_ACCEPT: Record<MigSource, string> = {
@@ -41,6 +43,8 @@ const MIG_ACCEPT: Record<MigSource, string> = {
   bedolaga: ".db,.sqlite,.sqlite3,.sql,.json,.gz,.tgz,.tar.gz",
   remnashop: ".sql,.json",
   threexui: ".db,.sqlite,.sqlite3",
+  minishop: ".sql,.json",
+  jolymmiels: ".sql,.json",
 };
 
 // Human labels for the run-summary counters (all importers share this key set).
