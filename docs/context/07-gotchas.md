@@ -112,3 +112,20 @@
   в т.ч. DURATION/SUBSCRIPTION через panel-first renew/grant. Отдельного
   «промокода в чекауте» нет: one-shot `purchase_discount` подхватится следующей покупкой.
 - Gift-диплинк `?start=gift_<CODE>` — тот же движок (лимиты/срок/уникальность на юзера).
+
+## Порядок способов оплаты (`PAYMENT_METHOD_ORDER`)
+`core/payment_order.py::order_rank` — общий стабильный сорт для бота (`purchase._payment_methods`)
+и мини-аппа (`cabinet.py` отдаёт `payment_order` + `pay_balance_label`/`pay_stars_label`). Id:
+`balance`, `stars`, `<gateway type value>`. Незаданные идут после в дефолтном порядке.
+
+## Оплата = продлить, не дублировать (1.2.14/1.4.0)
+`resolve_purchase_type`: если у юзера есть подписка с `remnawave_uuid` (даже EXPIRED/DISABLED или
+миграционная `plan_id=NULL`) — RENEW/CHANGE, а не NEW. `fulfill()` ПЕРЕ-резолвит тип под
+`lock_for_update` (не доверяет замороженному `txn.purchase_type`), иначе поздний вебхук/Stars
+плодит дубль-аккаунт на панели. Возврат подписки с баланса зачисляет деньги обратно на баланс.
+
+## Обновления: не кирпичить (1.4.0)
+Миграции с UNIQUE-индексом ОБЯЗАНЫ дедуплицировать до `create_index` (иначе `upgrade head` падает
+→ web в цикле → обновление ложится). `update.sh` не называет профильные сервисы (caddy) в `up`
+явно. Вебхук панели fail-closed при пустом секрете. `act_cabinet` чистит FSM (иначе «Промокод»→
+«Назад» съедает след. сообщение). Кнопка-ссылка без схемы деградирует в bounce, не ломает меню.
