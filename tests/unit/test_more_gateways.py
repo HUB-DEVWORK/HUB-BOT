@@ -250,3 +250,50 @@ async def test_underpaid_webhook_fails_instead_of_fulfilling(uow) -> None:  # ty
         assert moved is True  # advanced: to FAILED, not COMPLETED
         assert txn.status is TransactionStatus.FAILED
         assert (await uow.subscriptions.active_for_user(user.id)) == []
+
+
+async def _run_gate(uow, price_minor: int, paid_minor: int):  # type: ignore[no-untyped-def]
+    """Drive a single payment through the underpayment gate; return the resulting txn."""
+    from src.application.dto.pricing import PurchaseRequest
+    from src.application.services.payment import PaymentService
+    from src.application.services.pricing import PricingService
+    from src.application.services.purchase import PurchaseService
+    from src.application.services.referral import ReferralService
+    from src.application.services.remnawave import RemnawaveService
+    from src.application.services.subscription import SubscriptionService
+    from tests.factories import make_plan, make_user
+    from tests.fakes import FakeRemnawaveClient, RecordingEventBus
+
+    bus = RecordingEventBus()
+    purchase = PurchaseService(
+        PricingService(), SubscriptionService(RemnawaveService(FakeRemnawaveClient())), bus
+    )
+    payments = PaymentService(purchase, bus, ReferralService(bus))
+    user = await make_user(uow)
+    plan, _ = await make_plan(uow, price_minor=price_minor)
+    await uow.commit()
+    txn, _ = await purchase.start(
+        uow,
+        PurchaseRequest(user_id=user.id, plan_id=plan.id, duration_days=30, currency=Currency.RUB),
+    )
+    await uow.commit()
+    await payments.process(
+        uow, payment_id=txn.payment_id, status=TransactionStatus.COMPLETED, amount_minor=paid_minor
+    )
+    await uow.commit()
+    return txn
+
+
+async def test_92pct_payment_is_rejected_by_tightened_gate(uow) -> None:  # type: ignore[no-untyped-def]
+    # 92% of the invoice used to slip through the old 0.90 gate; the 0.95 gate now fails it —
+    # only YooMoney reports net (fee ≤3% → ≥97%), so 92% is an edited-down transfer, not a fee.
+    async with uow:
+        txn = await _run_gate(uow, price_minor=100_00, paid_minor=92_00)
+        assert txn.status is TransactionStatus.FAILED
+
+
+async def test_97pct_payment_still_fulfils(uow) -> None:  # type: ignore[no-untyped-def]
+    # A legitimate full YooMoney payment nets ~97% after its ≤3% fee — must still fulfil.
+    async with uow:
+        txn = await _run_gate(uow, price_minor=100_00, paid_minor=97_00)
+        assert txn.status is TransactionStatus.COMPLETED

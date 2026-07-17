@@ -259,18 +259,29 @@ async def reconcile_pending_payments() -> int:
         if result is None or result.status is TransactionStatus.PENDING:
             continue
         if result.saved_method is not None:  # webhook was lost — don't lose the card with it
-            enc = (
-                container.secret_box.encrypt(result.saved_method.method_id)
-                if container.secret_box
-                else result.saved_method.method_id
-            )
-            await _store_saved_method(
-                container, txn.payment_id, method_enc=enc, title=result.saved_method.title
-            )
+            if container.secret_box is not None:
+                enc = container.secret_box.encrypt(result.saved_method.method_id)
+                await _store_saved_method(
+                    container, txn.payment_id, method_enc=enc, title=result.saved_method.title
+                )
+            else:  # fail closed: never persist a raw charge token without a crypt key
+                log.warning("reconcile: saved method dropped, APP__CRYPT_KEY not configured")
+        # Thread the polled amount through the SAME underpayment gate the live webhook uses, so the
+        # amount cross-check is one unavoidable choke point — a gateway that is both reconcilable
+        # AND amount-editable (added later) can't slip an underpaid txn through this path. Guard by
+        # currency so a foreign-currency amount is never compared against RUB kopeks.
+        recovered_minor = (
+            result.amount.amount_minor
+            if result.amount is not None and result.amount.currency == txn.currency
+            else None
+        )
         try:
             async with container.uow() as uow:
                 moved = await container.payments.process(
-                    uow, payment_id=txn.payment_id, status=result.status
+                    uow,
+                    payment_id=txn.payment_id,
+                    status=result.status,
+                    amount_minor=recovered_minor,
                 )
                 await uow.commit()
         except Exception as exc:

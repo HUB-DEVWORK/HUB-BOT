@@ -14,10 +14,13 @@ from fastapi.responses import PlainTextResponse
 from src.application.common.payments import WebhookRequest
 from src.core.enums import PaymentGatewayType, TransactionStatus
 from src.core.exceptions import GatewayNotConfigured, NotFound, WebhookVerificationError
+from src.core.logging import get_logger
 from src.infrastructure.di import AppContainer
 from src.infrastructure.payments.crypto import decrypt_gateway_settings
 from src.infrastructure.taskiq.tasks import process_payment
 from src.web.deps import get_container
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/payments", tags=["payments"])
 
@@ -89,20 +92,27 @@ async def payment_webhook(
     # charge token must not sit plaintext in the broker; stored on the user by the worker).
     saved_method_enc = saved_method_title = None
     if result.saved_method is not None:
-        saved_method_enc = (
-            container.secret_box.encrypt(result.saved_method.method_id)
-            if container.secret_box
-            else result.saved_method.method_id
-        )
-        saved_method_title = result.saved_method.title
+        if container.secret_box is not None:
+            saved_method_enc = container.secret_box.encrypt(result.saved_method.method_id)
+            saved_method_title = result.saved_method.title
+        else:
+            # Fail closed: with no crypt key we won't drop a raw charge token into the broker/DB.
+            # (Prod refuses to boot without APP__CRYPT_KEY; this only bites a misconfigured dev.)
+            log.warning("saved payment method dropped: APP__CRYPT_KEY not configured")
 
+    # Forward the provider amount for the underpayment gate ONLY when it's in the transaction's
+    # currency — comparing a foreign-currency minor amount against RUB kopeks would be nonsense.
+    # Same-currency is the only case today; the guard just keeps the cross-check honest.
+    amount_minor = None
+    if result.amount is not None and owner is not None and result.amount.currency == owner.currency:
+        amount_minor = result.amount.amount_minor
     # Enqueue and return fast — the worker fulfils idempotently.
     await process_payment.kiq(
         str(payment_id),
         result.status.value,
         saved_method_enc=saved_method_enc,
         saved_method_title=saved_method_title,
-        amount_minor=result.amount.amount_minor if result.amount else None,
+        amount_minor=amount_minor,
     )
     if result.http_body is not None:
         # Robokassa-style providers require an exact plain-text acknowledgement.

@@ -37,11 +37,30 @@ run_spin() { # run_spin "подпись" cmd...
   fi
 }
 
+# Serialize updates: a host run and the sidecar (or the 6 h auto-check) must never
+# `docker compose build/up` the same project at once — concurrent recreation races the stack.
+# Re-exec under an flock; a second run waits up to 30 min, then gives up. Skipped if flock absent.
+if [ -z "${_VPNHUB_LOCKED:-}" ] && command -v flock >/dev/null 2>&1; then
+  exec env _VPNHUB_LOCKED=1 flock -w 1800 /tmp/vpnhub-update.lock bash "$0" "$@"
+fi
+
 cd "$(dirname "$0")/.."
 # --env-file .env: Compose resolves ${VAR:?} interpolation against the compose file's dir
 # (docker/), not the CWD, so without this it can't find our repo-root .env.
 COMPOSE="docker compose --env-file .env -f docker/compose.prod.yml"
 [ -f .env ] || fail ".env не найден — сначала установка: ./scripts/install.sh"
+
+notify_owner() { # best-effort Telegram DM of the update outcome to the owners; never fails us
+  command -v curl >/dev/null 2>&1 || return 0
+  local text=$1 token ids id
+  token=$(grep '^BOT__TOKEN=' .env | cut -d= -f2-)
+  ids=$(grep '^APP__OWNER_IDS=' .env | cut -d= -f2- | tr ',' ' ')
+  [ -n "$token" ] && [ -n "$ids" ] || return 0
+  for id in $ids; do
+    curl -fsS --max-time 8 -o /dev/null "https://api.telegram.org/bot${token}/sendMessage" \
+      --data-urlencode "chat_id=${id}" --data-urlencode "text=${text}" 2>/dev/null || true
+  done
+}
 
 bring_up() { # (re)create+start the stack; never recreate the updater if we ARE it
   if [ -n "${SKIP_UPDATER_RECREATE:-}" ]; then
@@ -73,6 +92,9 @@ recover() {
   printf "\n  %s⚠ обновление прервано — возвращаю сервисы в строй%s\n" "$ORANGE" "$R"
   bring_up >/dev/null 2>&1 || true
   $COMPOSE ps 2>/dev/null | tail -n +2 | sed 's/^/    /' || true
+  # Tell the owner it failed instead of leaving them to believe «Обновить» succeeded (the button
+  # path only logs to a volume nobody watches). Best-effort; bring_up already restored the stack.
+  notify_owner "⚠️ Обновление бота не завершилось (код $code). Сервисы возвращены в строй, бэкап БД цел. Загляни в логи обновления на сервере."
 }
 trap 'exit 129' HUP
 trap 'exit 130' INT
@@ -97,16 +119,31 @@ $COMPOSE exec -T postgres pg_dump -U "${DB_USER:-vpn}" "${DB_NAME:-vpn}" | gzip 
   || fail "бэкап не снялся — обновление отменено (стек запущен? $COMPOSE ps)"
 [ -s "$BACKUP" ] || fail "бэкап пустой — обновление отменено"
 ok "снят: $BACKUP ($(du -h "$BACKUP" | cut -f1))"
+# Keep only the 5 most recent pre-update dumps so they can't silently fill the disk over many
+# updates (a full disk would itself brick the next pg_dump/build). tail -n +6 = everything after
+# the newest 5; xargs -r no-ops on an empty list.
+ls -1t backups/pre-update-*.sql.gz 2>/dev/null | tail -n +6 | xargs -r rm -f || true
 
 # --- 2. pull ------------------------------------------------------------------
 step 2 "Обновления из git"
 git pull --ff-only >/dev/null 2>&1 || fail "git pull не прошёл — есть локальные правки? (git stash, затем повторить)"
 NEW_REV=$(git rev-parse --short HEAD)
+# Optional supply-chain guard: with UPDATE_VERIFY_SIGNATURE=1 in .env, refuse to build a commit
+# that isn't signed by a trusted key (git verify-commit uses the host's gpg keyring / allowed
+# signers). Off by default so existing installs keep updating; turn on once you sign your releases.
+if grep -qiE '^UPDATE_VERIFY_SIGNATURE=(1|true|yes)$' .env 2>/dev/null; then
+  git verify-commit HEAD >/dev/null 2>&1 \
+    || fail "подпись коммита $NEW_REV не проверена — обновление остановлено (UPDATE_VERIFY_SIGNATURE=1)"
+  ok "подпись коммита проверена"
+fi
 if [ "$OLD_REV" = "$NEW_REV" ]; then
   ok "уже последняя версия ($NEW_REV) — пересобираю на всякий случай"
 else
   ok "$OLD_REV → $NEW_REV"
-  git log --oneline "$OLD_REV..$NEW_REV" | head -8 | sed "s/^/    ${DIM}·${R} /"
+  # `|| true`: under `set -o pipefail` a large commit range makes `head` close the pipe early,
+  # SIGPIPE-killing `git log` (exit 141) and aborting the whole update AFTER the pull advanced
+  # HEAD but before the rebuild. This line is cosmetic — never let it fail the update.
+  git log --oneline "$OLD_REV..$NEW_REV" | head -8 | sed "s/^/    ${DIM}·${R} /" || true
 fi
 
 # --- 3. rebuild + restart -------------------------------------------------------
@@ -148,6 +185,7 @@ for _ in $(seq 1 90); do
     printf "\n"; hr
     printf "   %s🎉 Обновлено до %s%s  %s(бэкап: %s)%s\n" "$GREEN$B" "$NEW_REV" "$R" "$DIM" "$BACKUP" "$R"
     hr
+    notify_owner "✅ Бот обновлён до ${NEW_REV} и снова в строю. Бэкап БД: ${BACKUP}."
     exit 0
   fi
   printf "."

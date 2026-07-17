@@ -42,6 +42,22 @@ def request_update() -> bool:
         return False
 
 
+def _is_same_commit(a: str, b: str) -> bool:
+    """True when two git SHAs denote the same commit, tolerating different abbreviation widths.
+
+    The build SHA baked into the image is a 7-char ``git rev-parse --short`` (install.sh/update.sh),
+    while GitHub returns the full 40-char sha. A plain ``!=`` between a 7-char and a 12-char string
+    is therefore ALWAYS true — even on the identical commit — so the checker used to report an
+    update forever (the "you're up to date" branch was unreachable, and auto-update re-armed every
+    6 h). Compare on the shorter length's prefix — exactly how git resolves an abbreviated SHA.
+    """
+    a, b = a.strip().lower(), b.strip().lower()
+    if not a or not b:
+        return False
+    n = min(len(a), len(b))
+    return a[:n] == b[:n]
+
+
 @dataclass(frozen=True, slots=True)
 class UpdateInfo:
     current: str  # short SHA we're running (build_sha), or "" if unknown
@@ -77,8 +93,9 @@ async def check_for_update(
     if not latest:
         return empty
     # Unknown local SHA (image built without the build-arg) → surface the update so the operator
-    # can still act, but we can't claim it's strictly newer.
-    available = (not current) or (current != latest)
+    # can still act, but we can't claim it's strictly newer. Compare against the full sha via a
+    # width-tolerant prefix match so a 7-char build SHA is correctly seen as "same" (not "behind").
+    available = (not current) or not _is_same_commit(current, latest_full)
     compare = (
         f"https://github.com/{repo}/compare/{current}...{latest}"
         if current

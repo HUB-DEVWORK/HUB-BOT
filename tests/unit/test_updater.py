@@ -37,6 +37,26 @@ async def test_no_update_when_sha_matches() -> None:
 
 
 @respx.mock
+async def test_no_update_when_short_build_sha_matches() -> None:
+    # Real deploys bake a 7-char `git rev-parse --short HEAD`, but GitHub returns the full 40-char
+    # sha (we keep its 12-char prefix). A width-naive `!=` would report an update forever even on
+    # the identical commit; the checker must recognise the 7-char prefix as the same commit.
+    full = "7f9d6d9ed44c22e57eb9f4d610376d704c0d38e4"
+    respx.get(_URL).mock(return_value=httpx.Response(200, json=_commit(full)))
+    info = await check_for_update("acme/bot", "main", "7f9d6d9")
+    assert info.available is False
+    assert info.current == "7f9d6d9"
+
+
+@respx.mock
+async def test_update_available_when_short_build_sha_differs() -> None:
+    full = "abcdef01234556789abcdef01234556789abcdef"
+    respx.get(_URL).mock(return_value=httpx.Response(200, json=_commit(full)))
+    info = await check_for_update("acme/bot", "main", "7f9d6d9")
+    assert info.available is True
+
+
+@respx.mock
 async def test_unknown_local_sha_surfaces_update() -> None:
     # An image built without the build-arg (build_sha="") should still surface an update.
     respx.get(_URL).mock(return_value=httpx.Response(200, json=_commit("c" * 40)))

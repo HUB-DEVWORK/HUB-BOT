@@ -36,9 +36,12 @@ class PaymentService:
         self._events = event_bus
         self._referrals = referrals
 
-    # Received amount may be net of provider fees (YooMoney deducts up to ~3%); anything
-    # below this share of the invoice is treated as a tampered/underpaid transfer.
-    UNDERPAYMENT_TOLERANCE = 0.90
+    # Received amount may be net of provider fees. Only YooMoney reports net — a personal-wallet
+    # quickpay whose sum the payer can EDIT (the abuse vector) — and its receiver fee is ≤3%, so a
+    # legitimate full payment still nets ≥97%. Every OTHER gateway reports the gross charged amount
+    # (== invoice, ratio 1.0). 0.95 keeps a 5% floor: it clears YooMoney's ≤3% fee with margin yet
+    # rejects a payer who edited the sum down. The old 0.90 let them skim ~10% off every purchase.
+    UNDERPAYMENT_TOLERANCE = 0.95
 
     async def process(
         self,

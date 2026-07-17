@@ -99,6 +99,17 @@ async def test_yookassa_webhook_refetch_failure_rejects() -> None:
         await gateway.handle_webhook(WebhookRequest(body=body, headers={}))
 
 
+async def test_yookassa_webhook_rejects_malformed_id_before_refetch() -> None:
+    # The unsigned webhook's object.id lands in the path of an authenticated GET — a caller must
+    # not be able to inject path segments. A malformed id is rejected before any HTTP call (no
+    # respx route registered, so a refetch attempt would itself error).
+    gateway = YookassaGateway({"shop_id": "123", "secret_key": "sk"})
+    for bad in ("../me", "yk/../../secret", "a b", "x" * 100):
+        body = json.dumps({"object": {"id": bad, "status": "succeeded"}}).encode()
+        with pytest.raises(WebhookVerificationError):
+            await gateway.handle_webhook(WebhookRequest(body=body, headers={}))
+
+
 @respx.mock
 async def test_yookassa_create_saves_method_only_when_recurrent_enabled() -> None:
     route = respx.post("https://api.yookassa.ru/v3/payments").mock(

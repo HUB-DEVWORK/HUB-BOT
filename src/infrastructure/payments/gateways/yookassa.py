@@ -13,6 +13,7 @@ with ``save_payment_method`` so the card can be charged later without the user
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -37,6 +38,12 @@ from src.infrastructure.payments.base import BasePaymentGateway
 log = get_logger(__name__)
 
 API = "https://api.yookassa.ru/v3"
+
+# The webhook is unsigned and public: its ``object.id`` is fed into the path of an authenticated
+# GET to the YooKassa API. Real payment ids are UUIDs (hex + hyphen), so restrict to that charset —
+# it admits no ``.``, ``/`` or spaces, which blocks path injection (``../``, extra segments) into
+# that authenticated request. Length is bounded generously to tolerate id-format drift.
+_PAYMENT_ID_RE = re.compile(r"^[A-Za-z0-9-]{4,64}$")
 
 _STATUS_MAP = {
     "succeeded": TransactionStatus.COMPLETED,
@@ -190,6 +197,9 @@ class YookassaGateway(BasePaymentGateway):
         external_id = str(obj.get("id") or "")
         if not external_id:
             raise WebhookVerificationError("YooKassa: no payment id in webhook")
+        if not _PAYMENT_ID_RE.match(external_id):
+            # Reject before it reaches the authenticated GET's URL path (anti path-injection).
+            raise WebhookVerificationError("YooKassa: malformed payment id")
 
         # The webhook is unsigned: refetch the payment and trust ONLY the API response.
         try:
