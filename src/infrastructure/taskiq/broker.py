@@ -25,10 +25,12 @@ from src.core.logging import configure_logging
 from src.infrastructure.di import AppContainer
 
 
-def _is_transient_infra(exc: BaseException) -> bool:
+def is_transient_infra(exc: BaseException) -> bool:
     """A transient infra blip (DB / Redis / panel timeout or connection wobble). Periodic tasks
     re-run on the next tick, so reporting these floods telemetry with noise that isn't an
-    actionable code bug (e.g. the E1402 DB-timeout / E1301 Redis-DNS storms in the dashboard)."""
+    actionable code bug (e.g. the E1402 DB-timeout / E1301 Redis-DNS storms in the dashboard).
+    Also drives the in-task payment backoff (tasks.process_payment): only these are worth
+    sleeping on — a domain error won't heal by waiting."""
     if isinstance(exc, (TimeoutError, ConnectionError, OSError)):  # incl. asyncio.TimeoutError
         return True
     qualname = f"{type(exc).__module__}.{type(exc).__qualname__}"
@@ -43,8 +45,16 @@ def _is_transient_infra(exc: BaseException) -> bool:
             "httpx.ConnectTimeout",
             "asyncpg.exceptions.ConnectionDoesNotExistError",
             "sqlalchemy.exc.OperationalError",
+            # The panel client wraps httpx timeouts/5xx into this before they reach us.
+            "src.core.exceptions.RemnawaveTransientError",
         )
     )
+
+
+# One-shot payment-critical tasks: their FINAL failure means "customer paid, nothing
+# delivered" — report it even when the error looks like an infra blip, or a persistent
+# panel 5xx on the fulfilment path would be invisible outside worker logs.
+_REPORT_FINAL_EVEN_IF_TRANSIENT = frozenset({"process_payment", "panel_write_retry"})
 
 
 class _TelemetryMiddleware(TaskiqMiddleware):
@@ -66,7 +76,9 @@ class _TelemetryMiddleware(TaskiqMiddleware):
         max_retries = int(message.labels.get("max_retries", 5) or 5)
         if retry_on and retries + 1 < max_retries:
             return  # a later attempt will report if the task ultimately fails
-        if _is_transient_infra(exception):
+        # task_name is "module.path:func" — match on the bare function name.
+        payment_critical = message.task_name.rsplit(":", 1)[-1] in _REPORT_FINAL_EVEN_IF_TRANSIENT
+        if not payment_critical and is_transient_infra(exception):
             from src.core.logging import get_logger
 
             get_logger(__name__).warning(

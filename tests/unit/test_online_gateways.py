@@ -93,10 +93,55 @@ async def test_yookassa_webhook_refetches_and_trusts_api_only() -> None:
 @respx.mock
 async def test_yookassa_webhook_refetch_failure_rejects() -> None:
     gateway = YookassaGateway({"shop_id": "123", "secret_key": "sk"})
-    respx.get("https://api.yookassa.ru/v3/payments/yk-1").mock(return_value=httpx.Response(404))
+    route = respx.get("https://api.yookassa.ru/v3/payments/yk-1").mock(
+        return_value=httpx.Response(404)
+    )
     body = json.dumps({"object": {"id": "yk-1", "status": "succeeded"}}).encode()
     with pytest.raises(WebhookVerificationError):
         await gateway.handle_webhook(WebhookRequest(body=body, headers={}))
+    assert route.call_count == 1  # 4xx won't heal — no retry, reject at once
+
+
+@respx.mock
+async def test_yookassa_webhook_refetch_retries_transient_5xx(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A blip of the YooKassa API must not 403 a real payment into the reconciler's
+    minutes-long recovery path — transport errors and 5xx are retried inline."""
+    from src.infrastructure.payments.gateways import yookassa as yk_mod
+
+    monkeypatch.setattr(yk_mod, "_REFETCH_BACKOFF", (0.0,))
+    gateway = YookassaGateway({"shop_id": "123", "secret_key": "sk"})
+    pid = uuid.uuid4()
+    route = respx.get("https://api.yookassa.ru/v3/payments/yk-1").mock(
+        side_effect=[
+            httpx.Response(502),
+            httpx.Response(
+                200,
+                json={
+                    "id": "yk-1",
+                    "status": "succeeded",
+                    "amount": {"value": "199.00", "currency": "RUB"},
+                    "metadata": {"payment_id": str(pid)},
+                },
+            ),
+        ]
+    )
+    body = json.dumps({"object": {"id": "yk-1", "status": "succeeded"}}).encode()
+    result = await gateway.handle_webhook(WebhookRequest(body=body, headers={}))
+    assert result.status is TransactionStatus.COMPLETED
+    assert result.payment_id == pid
+    assert route.call_count == 2
+
+
+def test_can_poll_status_reflects_fetch_status_override() -> None:
+    # The webhook route uses this to decide: enqueue failed -> ack (reconciler recovers)
+    # vs 503 (provider must redeliver). Wrong answer = a lost payment.
+    from src.infrastructure.payments.gateways.manual import ManualGateway
+
+    assert YookassaGateway.can_poll_status() is True
+    assert CryptobotGateway.can_poll_status() is True
+    assert ManualGateway.can_poll_status() is False
 
 
 async def test_yookassa_webhook_rejects_malformed_id_before_refetch() -> None:

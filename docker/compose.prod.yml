@@ -97,6 +97,10 @@ services:
 
   worker:
     <<: *app
+    # The broker acks on pickup, so a SIGKILL mid-task LOSES the message (a verified payment).
+    # taskiq waits for in-flight tasks on SIGTERM; give it room to outlast the payment task's
+    # in-task backoff (~85s worst case) instead of docker's default 10s.
+    stop_grace_period: 120s
     depends_on:
       postgres:
         condition: service_healthy

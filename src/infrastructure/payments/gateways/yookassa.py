@@ -13,6 +13,7 @@ with ``save_payment_method`` so the card can be charged later without the user
 
 from __future__ import annotations
 
+import asyncio
 import re
 from decimal import Decimal
 from typing import Any
@@ -51,6 +52,9 @@ _STATUS_MAP = {
     "waiting_for_capture": TransactionStatus.PENDING,
     "pending": TransactionStatus.PENDING,
 }
+
+# Sleeps between webhook-refetch attempts (transport error / 5xx from the YooKassa API).
+_REFETCH_BACKOFF: tuple[float, ...] = (0.5, 2.0)
 
 
 class YookassaGateway(BasePaymentGateway):
@@ -202,12 +206,26 @@ class YookassaGateway(BasePaymentGateway):
             raise WebhookVerificationError("YooKassa: malformed payment id")
 
         # The webhook is unsigned: refetch the payment and trust ONLY the API response.
-        try:
-            async with httpx.AsyncClient(timeout=20) as http:
-                res = await http.get(f"{API}/payments/{external_id}", auth=self._auth())
-        except httpx.HTTPError as exc:
+        # A blip of the YooKassa API here used to 403 the webhook outright, parking the
+        # payment until the reconciler (minutes of customer wait) — so retry transport
+        # errors and 5xx briefly before giving up. 4xx won't heal and rejects at once.
+        res: httpx.Response | None = None
+        last_exc: httpx.HTTPError | None = None
+        for pause in (*_REFETCH_BACKOFF, None):
+            try:
+                async with httpx.AsyncClient(timeout=10) as http:
+                    res = await http.get(f"{API}/payments/{external_id}", auth=self._auth())
+            except httpx.HTTPError as exc:
+                res, last_exc = None, exc
+            if res is not None and res.status_code < 500:
+                break
+            if pause is not None:
+                await asyncio.sleep(pause)
+        if res is None:
             # Non-2xx makes YooKassa resend the webhook later — no payment is lost.
-            raise WebhookVerificationError(f"YooKassa: payment refetch failed: {exc}") from exc
+            raise WebhookVerificationError(
+                f"YooKassa: payment refetch failed: {last_exc}"
+            ) from last_exc
         if res.status_code != 200:
             raise WebhookVerificationError(f"YooKassa: payment refetch failed {res.status_code}")
         return self._map_payment(res.json())

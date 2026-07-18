@@ -106,6 +106,88 @@ async def test_config_cache_expires_between_processes(uow: UnitOfWork) -> None:
         assert int(await cfg.value(uow, "TRIAL_DURATION_DAYS")) == 9
 
 
+async def test_process_backoff_survives_panel_blip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A transient panel error during fulfilment must be retried in-task, not parked
+    until the reconciler (the '10 minutes until my subscription updated' complaint)."""
+    import uuid
+    from types import SimpleNamespace
+
+    from src.core.exceptions import RemnawaveTransientError
+    from src.infrastructure.taskiq import tasks
+
+    monkeypatch.setattr(tasks, "PROCESS_BACKOFF", (0.0, 0.0))
+
+    class FlakyPayments:
+        calls = 0
+
+        async def process(self, uow: object, **kw: object) -> bool:
+            FlakyPayments.calls += 1
+            if FlakyPayments.calls <= 2:
+                raise RemnawaveTransientError("panel 502")
+            return True
+
+    class NoopUow:
+        async def __aenter__(self) -> NoopUow:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def commit(self) -> None:
+            return None
+
+    container = SimpleNamespace(uow=NoopUow, payments=FlakyPayments())
+    moved = await tasks._process_with_backoff(
+        container,  # type: ignore[arg-type]
+        payment_id=uuid.uuid4(),
+        status=TransactionStatus.COMPLETED,
+        amount_minor=None,
+    )
+    assert moved is True
+    assert FlakyPayments.calls == 3
+
+
+async def test_process_backoff_raises_domain_errors_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only infra blips are worth sleeping on — a domain error (bad state, missing txn)
+    must fail fast so the middleware/telemetry sees the real bug immediately."""
+    import uuid
+    from types import SimpleNamespace
+
+    from src.core.exceptions import NotFound
+    from src.infrastructure.taskiq import tasks
+
+    monkeypatch.setattr(tasks, "PROCESS_BACKOFF", (0.0, 0.0))
+
+    class BrokenPayments:
+        calls = 0
+
+        async def process(self, uow: object, **kw: object) -> bool:
+            BrokenPayments.calls += 1
+            raise NotFound("transaction gone")
+
+    class NoopUow:
+        async def __aenter__(self) -> NoopUow:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def commit(self) -> None:
+            return None
+
+    container = SimpleNamespace(uow=NoopUow, payments=BrokenPayments())
+    with pytest.raises(NotFound):
+        await tasks._process_with_backoff(
+            container,  # type: ignore[arg-type]
+            payment_id=uuid.uuid4(),
+            status=TransactionStatus.COMPLETED,
+            amount_minor=None,
+        )
+    assert BrokenPayments.calls == 1
+
+
 async def test_list_stuck_pending_picks_only_gateway_pendings(uow: UnitOfWork) -> None:
     now = dt.datetime.now(dt.UTC)
     async with uow:

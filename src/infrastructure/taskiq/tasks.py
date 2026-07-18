@@ -2,18 +2,61 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from src.core.enums import PurchaseType, TransactionStatus, TransactionType
 from src.core.logging import get_logger
-from src.infrastructure.taskiq.broker import broker, get_container
+from src.infrastructure.taskiq.broker import broker, get_container, is_transient_infra
 
 if TYPE_CHECKING:
     from src.infrastructure.di import AppContainer
 
 log = get_logger(__name__)
+
+# Sleeps between in-task fulfilment attempts on a transient failure (panel blip, DB/Redis
+# wobble). SimpleRetryMiddleware re-kicks with NO delay, so its 5 attempts alone burn within
+# seconds and can't outlive even a 30s panel outage — which then parks the payment until the
+# reconciler, i.e. minutes of user-visible delay. Sleeping in-task gives each run ~20s of
+# breathing room; the middleware re-kicks multiply that. Durable backstop stays the reconciler.
+PROCESS_BACKOFF: tuple[float, ...] = (5.0, 15.0)
+
+
+async def _process_with_backoff(
+    container: AppContainer,
+    *,
+    payment_id: UUID,
+    status: TransactionStatus,
+    amount_minor: int | None,
+) -> bool:
+    """CAS + fulfil with short in-task backoff on transient errors. Each attempt opens a
+    fresh UoW, so no DB locks are held across the sleeps. Non-transient errors raise at once."""
+    for delay in PROCESS_BACKOFF:
+        try:
+            async with container.uow() as uow:
+                moved = await container.payments.process(
+                    uow, payment_id=payment_id, status=status, amount_minor=amount_minor
+                )
+                await uow.commit()
+            return moved
+        except Exception as exc:
+            if not is_transient_infra(exc):
+                raise
+            log.warning(
+                "process_payment transient failure, retrying in-task",
+                payment_id=str(payment_id),
+                delay=delay,
+                error=str(exc),
+            )
+            await asyncio.sleep(delay)
+    async with container.uow() as uow:
+        moved = await container.payments.process(
+            uow, payment_id=payment_id, status=status, amount_minor=amount_minor
+        )
+        await uow.commit()
+    return moved
 
 
 @broker.task(retry_on_error=True, max_retries=5)
@@ -34,11 +77,9 @@ async def process_payment(
     """
     container = get_container()
     pid = UUID(payment_id)
-    async with container.uow() as uow:
-        moved = await container.payments.process(
-            uow, payment_id=pid, status=TransactionStatus(status), amount_minor=amount_minor
-        )
-        await uow.commit()
+    moved = await _process_with_backoff(
+        container, payment_id=pid, status=TransactionStatus(status), amount_minor=amount_minor
+    )
     log.info("process_payment", payment_id=payment_id, status=status, advanced=moved)
 
     if saved_method_enc:  # a duplicate webhook still carries a valid token; store is idempotent
@@ -219,28 +260,97 @@ async def worker_heartbeat() -> None:
         await container.redis.set("worker:heartbeat", str(int(_time.time())), ex=300)
 
 
-@broker.task(schedule=[{"cron": "*/5 * * * *"}])
-async def reconcile_pending_payments() -> int:
+_RECONCILE_PAGE = 50  # rows per sweep, matches list_stuck_pending's default limit
+
+
+@broker.task(schedule=[{"cron": "* * * * *"}])
+async def reconcile_pending_payments(window_minutes: int | None = None) -> int:
     """Recover paid-but-stuck gateway transactions by polling the provider.
 
     Covers both real-world failure modes of webhook delivery: the webhook never
     arrived (proxy/CDN ate it, wrong URL) and the fulfilment crashed after we had
     already answered 200 (panel outage). Polling is idempotent — PaymentService
     CAS-guards the transition, so a race with a late webhook is harmless.
+
+    Two-tier cadence in one cron (was */5, i.e. 3-8 min of user-visible delay for a
+    stuck payment): most ticks sweep only RECENT txns, so a payment whose fast path
+    just died is recovered while the buyer is still looking at the bot, and per-minute
+    provider polling stays cheap; roughly every 5th tick widens to the 24h tail (proxy
+    ate the webhook hours ago). The wide tier keys off a persisted last-run marker, not
+    minute arithmetic — a lock-skip or slow pickup postpones the tail sweep, never loses it.
     """
-    import datetime as dt
+    import contextlib
+    import time
+    from uuid import uuid4
+
+    container = get_container()
+    # Best-effort non-overlap guard: a degraded sweep (serial polls, 15-20s timeouts each) can
+    # outlast its tick, and stacked sweeps would hammer the providers. Correctness never
+    # depends on this lock — the CAS transition makes double-polling harmless.
+    token = uuid4().hex
+    if not await container.redis.set("reconcile:pending:lock", token, nx=True, ex=300):
+        log.info("reconcile sweep skipped, lock held")
+        return 0
+    try:
+        full = False
+        if window_minutes is None:
+            last_full: float | None = None
+            with contextlib.suppress(Exception):
+                raw = await container.redis.get("reconcile:pending:last_full")
+                last_full = float(raw) if raw else None
+            full = last_full is None or time.time() - last_full >= 300
+            window_minutes = 24 * 60 if full else 30
+        recovered = await _reconcile_pending(container, window_minutes, paginate=full)
+        if full:
+            with contextlib.suppress(Exception):
+                await container.redis.set("reconcile:pending:last_full", str(time.time()))
+        return recovered
+    finally:
+        with contextlib.suppress(Exception):
+            # Release only OUR lock — a sweep that outlived the TTL must not delete the
+            # lock of the sweep that acquired it after expiry.
+            if await container.redis.get("reconcile:pending:lock") == token:
+                await container.redis.delete("reconcile:pending:lock")
+
+
+async def _reconcile_pending(
+    container: AppContainer, window_minutes: int, *, paginate: bool = False
+) -> int:
+    import contextlib
 
     from src.infrastructure.payments.crypto import decrypt_gateway_settings
 
-    container = get_container()
     now = dt.datetime.now(dt.UTC)
+    floor = now - dt.timedelta(minutes=window_minutes)
+    newer_than = floor
+    if paginate:
+        # Walk cursor: a >50-row backlog of abandoned invoices would otherwise pin every
+        # wide sweep to the identical oldest-50 page and starve the rest of the window.
+        with contextlib.suppress(Exception):
+            raw = await container.redis.get("reconcile:pending:cursor")
+            if raw:
+                cursor = dt.datetime.fromisoformat(raw)
+                if cursor > floor:
+                    newer_than = cursor
     recovered = 0
     async with container.uow() as uow:
+        # 90s age gate: the fast path normally settles in seconds, so anything PENDING
+        # this long is genuinely stuck — and the minute cron picks it up on its next tick
+        # (was: 3 min gate + */5 cron = 3-8 min of user-visible delay, the exact complaint).
         stuck = await uow.transactions.list_stuck_pending(
-            older_than=now - dt.timedelta(minutes=3),
-            newer_than=now - dt.timedelta(hours=24),
+            older_than=now - dt.timedelta(seconds=90),
+            newer_than=newer_than,
+            limit=_RECONCILE_PAGE,
         )
         rows = {g.type: g for g in await uow.payment_gateways.list() if g.is_active}
+    if paginate:
+        with contextlib.suppress(Exception):
+            if len(stuck) == _RECONCILE_PAGE:  # more behind — next wide sweep continues here
+                await container.redis.set(
+                    "reconcile:pending:cursor", stuck[-1].created_at.isoformat()
+                )
+            else:  # window exhausted — wrap to its start next time
+                await container.redis.delete("reconcile:pending:cursor")
     for txn in stuck:
         gtype = txn.gateway_type
         if gtype is None:  # filtered by the query, but keep mypy honest

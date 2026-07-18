@@ -6,6 +6,8 @@ No fulfilment happens inline (gotcha #6).
 
 from __future__ import annotations
 
+import asyncio
+import datetime as dt
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -23,6 +25,9 @@ from src.web.deps import get_container
 log = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/payments", tags=["payments"])
+
+# Pauses between enqueue attempts (a verified payment must not be dropped on a Redis blip).
+_ENQUEUE_PAUSES = (0.2, 1.0, 0.0)
 
 
 @router.post("/{gateway_type}")
@@ -106,14 +111,46 @@ async def payment_webhook(
     amount_minor = None
     if result.amount is not None and owner is not None and result.amount.currency == owner.currency:
         amount_minor = result.amount.amount_minor
-    # Enqueue and return fast — the worker fulfils idempotently.
-    await process_payment.kiq(
-        str(payment_id),
-        result.status.value,
-        saved_method_enc=saved_method_enc,
-        saved_method_title=saved_method_title,
-        amount_minor=amount_minor,
-    )
+    # Enqueue and return fast — the worker fulfils idempotently. The kiq is the route's only
+    # Redis touch: a broker blip here must not turn a VERIFIED payment into a customer wait.
+    enqueue_error: Exception | None = None
+    for pause in _ENQUEUE_PAUSES:
+        try:
+            await process_payment.kiq(
+                str(payment_id),
+                result.status.value,
+                saved_method_enc=saved_method_enc,
+                saved_method_title=saved_method_title,
+                amount_minor=amount_minor,
+            )
+            enqueue_error = None
+            break
+        except Exception as exc:
+            enqueue_error = exc
+            if pause:
+                await asyncio.sleep(pause)
+    if enqueue_error is not None:
+        # Defer to the reconciler ONLY when it will actually sweep this txn: the provider is
+        # pollable AND the local row sits inside the widest sweep window (created_at > now-24h
+        # in list_stuck_pending; 23h leaves headroom for the 5-min wide-sweep cadence).
+        # Otherwise an ack here would strand a verified payment forever.
+        reconciler_covers = (
+            gateway.can_poll_status()
+            and owner is not None
+            and owner.created_at > dt.datetime.now(dt.UTC) - dt.timedelta(hours=23)
+        )
+        if reconciler_covers:
+            # Ack the webhook so the provider stops retrying a delivery we already verified —
+            # the reconciler polls this provider and recovers the payment within minutes.
+            log.error(
+                "webhook enqueue failed, deferring to reconciler",
+                gateway=gt.value,
+                payment_id=str(payment_id),
+                error=str(enqueue_error),
+            )
+        else:
+            # No durable fallback — make the provider redeliver the webhook.
+            raise HTTPException(status_code=503, detail="enqueue failed") from enqueue_error
     if result.http_body is not None:
         # Robokassa-style providers require an exact plain-text acknowledgement.
         return PlainTextResponse(result.http_body)  # type: ignore[return-value]

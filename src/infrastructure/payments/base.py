@@ -62,6 +62,12 @@ class BasePaymentGateway(ABC):
         """
         return None
 
+    @classmethod
+    def can_poll_status(cls) -> bool:
+        """True when the gateway overrides :meth:`fetch_status` — i.e. the reconciler can
+        recover this gateway's payment even if the verified webhook never gets enqueued."""
+        return cls.fetch_status is not BasePaymentGateway.fetch_status
+
     # --- shared helpers ---------------------------------------------------
     @staticmethod
     def verify_hmac(body: bytes, signature: str, secret: str, *, algo: str = "sha256") -> None:

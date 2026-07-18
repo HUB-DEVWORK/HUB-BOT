@@ -155,12 +155,15 @@ def test_worker_transient_infra_not_reported() -> None:
     # Periodic worker tasks heal on the next tick; a transient DB/Redis/panel blip must be
     # skipped so it doesn't flood telemetry (the E1402/E1301 storms in the dashboard).
 
-    from src.infrastructure.taskiq.broker import _is_transient_infra
+    from src.core.exceptions import RemnawaveError, RemnawaveTransientError
+    from src.infrastructure.taskiq.broker import is_transient_infra
 
-    assert _is_transient_infra(TimeoutError())
-    assert _is_transient_infra(TimeoutError())
-    assert _is_transient_infra(ConnectionError("redis down"))
-    assert _is_transient_infra(OSError(111, "Connection refused"))
+    assert is_transient_infra(TimeoutError())
+    assert is_transient_infra(ConnectionError("redis down"))
+    assert is_transient_infra(OSError(111, "Connection refused"))
+    # the panel client wraps httpx timeouts/5xx into this — a blip, not a bug
+    assert is_transient_infra(RemnawaveTransientError("panel 502"))
     # a real bug is still reported
-    assert not _is_transient_infra(ValueError("logic bug"))
-    assert not _is_transient_infra(KeyError("missing"))
+    assert not is_transient_infra(ValueError("logic bug"))
+    assert not is_transient_infra(KeyError("missing"))
+    assert not is_transient_infra(RemnawaveError("panel 400: bad payload"))

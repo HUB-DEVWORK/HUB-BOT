@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import hmac
 import json
 import sqlite3
 import time
 import urllib.parse
+import uuid as uuid_mod
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,13 @@ import pytest_asyncio
 from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from src.application.common.payments import (
+    GatewayCapabilities,
+    PaymentContext,
+    PaymentResult,
+    WebhookRequest,
+    WebhookResult,
+)
 from src.application.services.bot_config import BotConfigService
 from src.application.services.panel_sync import PanelSyncService
 from src.application.services.payment import PaymentService
@@ -28,9 +37,21 @@ from src.application.services.referral import ReferralService
 from src.application.services.remnawave import RemnawaveService
 from src.application.services.subscription import SubscriptionService
 from src.core.config import get_settings
+from src.core.enums import (
+    Currency,
+    PaymentGatewayType,
+    TransactionStatus,
+    TransactionType,
+)
 from src.core.security import hash_password
+from src.infrastructure.database.models.payment_gateway import (
+    PaymentGateway as PaymentGatewayModel,
+)
+from src.infrastructure.database.models.transaction import Transaction
+from src.infrastructure.database.models.user import User
 from src.infrastructure.database.uow import UnitOfWork
 from src.infrastructure.events import InProcessEventBus
+from src.infrastructure.payments.base import BasePaymentGateway
 from src.infrastructure.payments.crypto import SecretBox
 from src.infrastructure.payments.factory import GatewayFactory
 from src.infrastructure.services.telemetry import TelemetryReporter
@@ -1115,3 +1136,133 @@ async def test_unhandled_error_returns_500_with_error_id(
         # A real 4xx (HTTPException) is NOT swallowed into a 500 by the catch-all handler.
         assert (await raw.get("/api/admin/dashboard")).status_code == 401
         assert (await raw.get("/api/nonexistent-route-xyz")).status_code == 404
+
+
+# --- payment webhook route: enqueue-failure fallback ------------------------------------
+
+
+class _StubGatewayBase(BasePaymentGateway):
+    """Route-facing stub: webhook verification always succeeds with a canned result."""
+
+    gateway_type = PaymentGatewayType.YOOKASSA
+
+    def __init__(self, result: WebhookResult) -> None:
+        super().__init__({})
+        self._result = result
+
+    @property
+    def capabilities(self) -> GatewayCapabilities:
+        return GatewayCapabilities(currencies=frozenset({Currency.RUB}))
+
+    async def create_payment(self, ctx: PaymentContext) -> PaymentResult:
+        raise NotImplementedError
+
+    async def handle_webhook(self, request: WebhookRequest) -> WebhookResult:
+        return self._result
+
+
+class _PollableStubGateway(_StubGatewayBase):
+    async def fetch_status(self, external_id: str) -> WebhookResult | None:
+        return None  # overriding fetch_status marks the gateway reconciler-pollable
+
+
+class _StubFactory:
+    def __init__(self, gateway: BasePaymentGateway) -> None:
+        self._gateway = gateway
+
+    def create(self, gt: PaymentGatewayType, settings: dict) -> BasePaymentGateway:
+        return self._gateway
+
+    def supported(self) -> set[PaymentGatewayType]:
+        return {PaymentGatewayType.YOOKASSA}
+
+
+async def _seed_webhook_txn(
+    container: ApiTestContainer, *, age: dt.timedelta = dt.timedelta(seconds=0)
+) -> uuid_mod.UUID:
+    from src.application.services.ids import generate_referral_code
+    from src.core.enums import AuthType, Role
+
+    async with container.uow() as uow:
+        user = await uow.users.add(
+            User(
+                telegram_id=987654,
+                auth_type=AuthType.TELEGRAM,
+                role=Role.USER,
+                referral_code=generate_referral_code(),
+            )
+        )
+        await uow.flush()
+        txn = Transaction(
+            user_id=user.id,
+            type=TransactionType.DEPOSIT,
+            status=TransactionStatus.PENDING,
+            amount_minor=10000,
+            currency=Currency.RUB,
+            gateway_type=PaymentGatewayType.YOOKASSA,
+            external_id=f"wh-{uuid_mod.uuid4().hex[:8]}",
+            created_at=dt.datetime.now(dt.UTC) - age,
+        )
+        uow.session.add(txn)
+        gw = PaymentGatewayModel(type=PaymentGatewayType.YOOKASSA, is_active=True, settings={})
+        uow.session.add(gw)
+        await uow.commit()
+        return txn.payment_id
+
+
+async def _post_webhook_with_dead_broker(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    pollable: bool,
+    txn_age: dt.timedelta = dt.timedelta(seconds=0),
+) -> tuple[httpx.Response, int]:
+    """Seed a txn, break the broker enqueue, POST the webhook; returns (response, kiq calls)."""
+    import src.web.routes.payments as payments_route
+
+    http, container = client
+    payment_id = await _seed_webhook_txn(container, age=txn_age)
+    result = WebhookResult(status=TransactionStatus.COMPLETED, payment_id=payment_id)
+    stub = _PollableStubGateway(result) if pollable else _StubGatewayBase(result)
+    monkeypatch.setattr(container, "gateway_factory", _StubFactory(stub))
+    monkeypatch.setattr(payments_route, "_ENQUEUE_PAUSES", (0.0, 0.0, 0.0))
+
+    calls = 0
+
+    async def _kiq_down(*args: object, **kwargs: object) -> None:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr(payments_route.process_payment, "kiq", _kiq_down)
+    res = await http.post("/api/v1/payments/yookassa", content=b"{}")
+    return res, calls
+
+
+async def test_webhook_enqueue_failure_defers_to_reconciler_for_pollable_gateway(
+    client: tuple[httpx.AsyncClient, ApiTestContainer], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    res, calls = await _post_webhook_with_dead_broker(client, monkeypatch, pollable=True)
+    assert res.status_code == 200
+    assert res.json() == {"accepted": True}
+    assert calls == 3  # all three enqueue attempts were made before deferring
+
+
+async def test_webhook_enqueue_failure_503_for_non_pollable_gateway(
+    client: tuple[httpx.AsyncClient, ApiTestContainer], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # No status API to poll -> the provider must redeliver; acking would lose the payment.
+    res, calls = await _post_webhook_with_dead_broker(client, monkeypatch, pollable=False)
+    assert res.status_code == 503
+    assert calls == 3
+
+
+async def test_webhook_enqueue_failure_503_when_txn_outside_reconciler_window(
+    client: tuple[httpx.AsyncClient, ApiTestContainer], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Pollable gateway BUT the txn is older than the reconciler's 24h sweep -> ack would
+    # strand the payment forever, so the provider must redeliver.
+    res, _ = await _post_webhook_with_dead_broker(
+        client, monkeypatch, pollable=True, txn_age=dt.timedelta(hours=25)
+    )
+    assert res.status_code == 503
