@@ -15,6 +15,7 @@ from html import escape as hesc
 from typing import TYPE_CHECKING
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
 
 from src.application.dto.pricing import PurchaseRequest
@@ -271,7 +272,25 @@ async def pay(cb: CallbackQuery, container: AppContainer, db_user: User) -> None
 async def _start_payment(
     cb: CallbackQuery, container: AppContainer, req: PurchaseRequest, method: str
 ) -> None:
-    """Dispatch a built PurchaseRequest to the chosen payment method (plans + constructor)."""
+    """Dispatch a built PurchaseRequest to the chosen payment method (plans + constructor).
+
+    Guarded by a short per-user lock: aiogram runs updates concurrently, so a double-tap
+    would double-debit the wallet or spawn duplicate invoices. Released on completion,
+    expires by TTL if the handler dies mid-flight.
+    """
+    if not await container.redis.set(f"paylock:{req.user_id}", "1", nx=True, ex=15):
+        await cb.answer("Платёж уже обрабатывается — секунду…", show_alert=True)
+        return
+    try:
+        await _start_payment_locked(cb, container, req, method)
+    finally:
+        with contextlib.suppress(Exception):
+            await container.redis.delete(f"paylock:{req.user_id}")
+
+
+async def _start_payment_locked(
+    cb: CallbackQuery, container: AppContainer, req: PurchaseRequest, method: str
+) -> None:
     if method == "bal":
         await _pay_with_balance(cb, container, req)
         return
@@ -301,13 +320,26 @@ async def _start_payment(
 
     stars = max(1, math.ceil(amount_minor / max(1, stars_rate)))
     if cb.message is not None:
-        await cb.message.answer_invoice(  # type: ignore[union-attr,unused-ignore]
-            title=f"{title} · {req.duration_days} дн.",
-            description="Оплата VPN-подписки",
-            payload=payment_id,
-            currency="XTR",
-            prices=[LabeledPrice(label="VPN", amount=stars)],
-        )
+        try:
+            await cb.message.answer_invoice(  # type: ignore[union-attr,unused-ignore]
+                title=f"{title} · {req.duration_days} дн.",
+                description="Оплата VPN-подписки",
+                payload=payment_id,
+                currency="XTR",
+                prices=[LabeledPrice(label="VPN", amount=stars)],
+            )
+        except TelegramBadRequest as exc:
+            # Invoice refused — close the orphan PENDING txn instead of stranding it.
+            from uuid import UUID
+
+            log.warning("stars invoice failed", amount_minor=amount_minor, error=str(exc))
+            async with container.uow() as uow:
+                await uow.transactions.transition_status(
+                    UUID(payment_id), TransactionStatus.CANCELED, (TransactionStatus.PENDING,)
+                )
+                await uow.commit()
+            await cb.answer("Не удалось создать счёт — попробуй другой способ", show_alert=True)
+            return
     await cb.answer()
 
 
@@ -504,6 +536,11 @@ async def _pay_with_gateway(
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=f"💳 Оплатить · {label}", url=pay_url)],
+            [
+                InlineKeyboardButton(
+                    text="🔄 Проверить оплату", callback_data=f"paycheck:{txn.payment_id}"
+                )
+            ],
             [InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")],
         ]
     )
@@ -512,7 +549,8 @@ async def _pay_with_gateway(
         container,
         "payment",
         "<b>💳 Счёт создан</b>\n\n"
-        "Оплати по кнопке ниже — подписка активируется автоматически сразу после оплаты ⚡",
+        "Оплати по кнопке ниже — подписка активируется автоматически сразу после оплаты ⚡\n"
+        "Если оплатил, а подписки нет — жми «Проверить оплату».",
         markup,
     )
     await cb.answer()
@@ -566,22 +604,41 @@ async def _pay_with_balance(
             await uow.commit()
 
     if insufficient:
+        # Show the actual numbers — «не хватает средств» without the shortfall forces the
+        # user to guess how much to top up (and guess wrong, stranding the auto-purchase).
+        async with container.uow() as uow:
+            user = await uow.users.get(req.user_id)
+            balance = user.balance_minor if user else 0
+            price: int | None = None
+            with contextlib.suppress(Exception):
+                price = (await container.pricing.quote(uow, req)).final.amount_minor
+        lines = ["<b>💳 Не хватает средств</b>", ""]
+        if price is not None:
+            lines.append(f"Цена: <b>{fmt_money(price)}</b> · На балансе: {fmt_money(balance)}")
+            if price > balance:
+                lines.append(f"Не хватает: <b>{fmt_money(price - balance)}</b>")
         if auto:
             # Stash the intent — the deposit path auto-completes it after a top-up.
             from src.infrastructure.services.cart import save_cart
 
             await save_cart(container.redis, req, ttl)
-            await render_screen(
-                cb,
-                container,
-                "balance",
-                "<b>💳 Не хватает средств</b>\n\n"
-                "Пополни баланс — и подписка оформится сама сразу после зачисления ⚡",
-                simple_keyboard([("⭐ Пополнить", "topup:menu"), ("‹ Меню", "nav:root")]),
+            hours = max(1, ttl // 3600)
+            lines.append("")
+            lines.append(
+                "Пополни баланс — и подписка оформится сама сразу после зачисления ⚡\n"
+                f"Резерв покупки действует ещё ~{hours} ч."
             )
-            await cb.answer()
         else:
-            await cb.answer("Недостаточно средств на балансе", show_alert=True)
+            lines.append("")
+            lines.append("Пополни баланс и вернись к оплате.")
+        await render_screen(
+            cb,
+            container,
+            "balance",
+            "\n".join(lines),
+            simple_keyboard([("⭐ Пополнить", "topup:menu"), ("‹ Меню", "nav:root")]),
+        )
+        await cb.answer()
         return
 
     await _show_activated(cb, container, req.user_id)
@@ -719,6 +776,11 @@ _TOPUP_PRESETS_RUB = (100, 250, 500, 1000)
 @router.callback_query(F.data == "topup:menu")
 async def topup_menu(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
     async with container.uow() as uow:
+        if not bool(await container.bot_config.value(uow, "BALANCE_ENABLED")):
+            # Old messages / custom menus keep the button alive after the owner turns
+            # the wallet off — refuse here, or money lands in a wallet nothing accepts.
+            await cb.answer("Пополнение баланса отключено", show_alert=True)
+            return
         min_dep = int(await container.bot_config.value(uow, "MIN_DEPOSIT_AMOUNT"))
         stars_rate = int(await container.bot_config.value(uow, "STARS_RATE_RUB"))
     amounts_minor = [r * 100 for r in _TOPUP_PRESETS_RUB if r * 100 >= min_dep] or [min_dep]
@@ -745,11 +807,17 @@ async def topup_amount(cb: CallbackQuery, container: AppContainer, db_user: User
         await cb.answer("Некорректная сумма", show_alert=True)
         return
     amount_minor = int(parts[1])
-    if amount_minor <= 0:
-        await cb.answer("Некорректная сумма", show_alert=True)
+    async with container.uow() as uow:
+        if not bool(await container.bot_config.value(uow, "BALANCE_ENABLED")):
+            await cb.answer("Пополнение баланса отключено", show_alert=True)
+            return
+        min_dep = int(await container.bot_config.value(uow, "MIN_DEPOSIT_AMOUNT"))
+        stars_rate = int(await container.bot_config.value(uow, "STARS_RATE_RUB"))
+    # Callback data is forgeable — re-validate against the config, not the button.
+    if amount_minor < max(1, min_dep):
+        await cb.answer(f"Минимальное пополнение — {fmt_money(min_dep)}", show_alert=True)
         return
     async with container.uow() as uow:
-        stars_rate = int(await container.bot_config.value(uow, "STARS_RATE_RUB"))
         txn = Transaction(
             user_id=db_user.id,
             type=TransactionType.DEPOSIT,
@@ -762,14 +830,123 @@ async def topup_amount(cb: CallbackQuery, container: AppContainer, db_user: User
         payment_id = str(txn.payment_id)
     stars = max(1, math.ceil(amount_minor / max(1, stars_rate)))
     if cb.message is not None:
-        await cb.message.answer_invoice(  # type: ignore[union-attr,unused-ignore]
-            title="Пополнение баланса",
-            description=f"Пополнение на {fmt_money(amount_minor)}",
-            payload=payment_id,
-            currency="XTR",
-            prices=[LabeledPrice(label="Баланс", amount=stars)],
-        )
+        try:
+            await cb.message.answer_invoice(  # type: ignore[union-attr,unused-ignore]
+                title="Пополнение баланса",
+                description=f"Пополнение на {fmt_money(amount_minor)}",
+                payload=payment_id,
+                currency="XTR",
+                prices=[LabeledPrice(label="Баланс", amount=stars)],
+            )
+        except TelegramBadRequest as exc:
+            # Invoice refused (amount out of Telegram's limits etc.) — close the orphan
+            # PENDING txn so it doesn't haunt the history as an eternal «⏳ Пополнение».
+            log.warning("topup invoice failed", amount_minor=amount_minor, error=str(exc))
+            async with container.uow() as uow:
+                await uow.transactions.transition_status(
+                    txn.payment_id, TransactionStatus.CANCELED, (TransactionStatus.PENDING,)
+                )
+                await uow.commit()
+            await cb.answer("Не удалось создать счёт — попробуй другую сумму", show_alert=True)
+            return
     await cb.answer()
+
+
+# --- on-demand payment check ----------------------------------------------------
+
+
+@router.callback_query(F.data.startswith("paycheck:"))
+async def check_payment(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
+    """«Проверить оплату»: on-demand provider poll through the same idempotent pipeline
+    the reconciler uses — a lost webhook becomes one tap instead of a minutes-long wait."""
+    from uuid import UUID
+
+    from src.infrastructure.payments.crypto import decrypt_gateway_settings
+
+    parts = (cb.data or "").split(":")
+    try:
+        payment_id = UUID(parts[1])
+    except (IndexError, ValueError):
+        await cb.answer("Счёт не найден", show_alert=True)
+        return
+    async with container.uow() as uow:
+        txn = await uow.transactions.get_by_payment_id(payment_id)
+    if txn is None or txn.user_id != db_user.id:
+        await cb.answer("Счёт не найден", show_alert=True)
+        return
+    if txn.status is TransactionStatus.COMPLETED:
+        await cb.answer("Оплата уже зачислена ✅", show_alert=True)
+        return
+    if txn.status is not TransactionStatus.PENDING:
+        await cb.answer("Счёт закрыт (отменён или не прошёл) — создай новый.", show_alert=True)
+        return
+    # Gentle with the provider API: one live poll per invoice per 10 seconds.
+    if not await container.redis.set(f"paycheck:{payment_id}", "1", nx=True, ex=10):
+        await cb.answer("Уже проверяю — попробуй через пару секунд", show_alert=True)
+        return
+    gtype, external_id = txn.gateway_type, txn.external_id
+    if gtype is None or external_id is None:
+        await cb.answer(
+            "Оплата ещё не поступила. Если оплатил — подожди минуту и проверь снова.",
+            show_alert=True,
+        )
+        return
+    async with container.uow() as uow:
+        row = await uow.payment_gateways.get_active(gtype)
+    if row is None or gtype not in container.gateway_factory.supported():
+        await cb.answer("Способ оплаты сейчас недоступен — напиши в поддержку", show_alert=True)
+        return
+    gateway = container.gateway_factory.create(
+        gtype, decrypt_gateway_settings(container.secret_box, dict(row.settings))
+    )
+    if not gateway.can_poll_status():
+        await cb.answer(
+            "Этот способ подтверждается провайдером — зачислится автоматически.",
+            show_alert=True,
+        )
+        return
+    try:
+        result = await gateway.fetch_status(str(external_id))
+    except Exception as exc:
+        log.warning("paycheck poll failed", payment_id=str(payment_id), error=str(exc))
+        await cb.answer("Не удалось проверить — попробуй через минуту", show_alert=True)
+        return
+    if result is None or result.status is TransactionStatus.PENDING:
+        await cb.answer(
+            "Провайдер пока не видит оплату. Если оплатил — подожди минуту и проверь снова.",
+            show_alert=True,
+        )
+        return
+    amount_minor = (
+        result.amount.amount_minor
+        if result.amount is not None and result.amount.currency == txn.currency
+        else None
+    )
+    try:
+        async with container.uow() as uow:
+            await container.payments.process(
+                uow, payment_id=payment_id, status=result.status, amount_minor=amount_minor
+            )
+            await uow.commit()
+    except (DomainError, RemnawaveError) as exc:
+        log.error("paycheck fulfilment failed", payment_id=str(payment_id), error=str(exc))
+        await cb.answer(
+            "Оплата найдена! Зачисление завершится автоматически в течение пары минут.",
+            show_alert=True,
+        )
+        return
+    async with container.uow() as uow:
+        settled = await uow.transactions.get_by_payment_id(payment_id)
+    if settled is not None and settled.status is TransactionStatus.COMPLETED:
+        if settled.type is TransactionType.DEPOSIT:
+            from src.infrastructure.taskiq.tasks import _try_auto_purchase
+
+            await cb.answer("✅ Оплата зачислена на баланс!", show_alert=True)
+            await _try_auto_purchase(container, payment_id)
+        else:
+            await _show_activated(cb, container, txn.user_id)
+        return
+    await cb.answer("Платёж не прошёл (отменён или отклонён провайдером).", show_alert=True)
 
 
 # --- Telegram Stars settlement -------------------------------------------------
@@ -867,7 +1044,9 @@ async def successful_payment(message: Message, container: AppContainer, db_user:
 
     async with container.uow() as uow:
         txn = await uow.transactions.get_by_payment_id(payment_id)
-        user = await uow.users.get(db_user.id)
+        # The txn owner, not the payer: a forwarded invoice can be paid by another chat,
+        # and the credit lands on the owner's wallet — show the owner's numbers.
+        user = await uow.users.get(txn.user_id if txn is not None else db_user.id)
         sub = (
             await uow.subscriptions.get(user.current_subscription_id)
             if user and user.current_subscription_id
@@ -914,7 +1093,25 @@ async def successful_payment(message: Message, container: AppContainer, db_user:
 
         await _try_auto_purchase(container, payment_id)
         return
-    text = "✅ <b>Оплата получена — подписка активирована!</b>"
-    if sub is not None and sub.subscription_url:
+
+    # Owner-editable template per purchase kind — the same mapping the webhook path uses,
+    # so a renewal says «продлена», not a generic "activated" (toggle only swaps the text).
+    from src.web.routes.admin.notifications import notification_text
+
+    event = "purchase"
+    if txn is not None and txn.purchase_type is PurchaseType.RENEW:
+        event = "renewal"
+    elif txn is not None and txn.purchase_type is PurchaseType.CHANGE:
+        event = "plan_changed"
+    elif txn is not None and txn.purchase_type is PurchaseType.TRAFFIC_TOPUP:
+        event = "traffic_topup"
+    plan_name = str((sub.plan_snapshot or {}).get("name") or "") if sub else ""
+    expire = sub.expire_at.strftime("%d.%m.%Y") if sub and sub.expire_at else ""
+    async with container.uow() as uow:
+        text = await notification_text(
+            uow, event, name=(user.first_name if user else "") or "", plan=plan_name, expire=expire
+        )
+    text = text or "✅ <b>Оплата получена — подписка активирована!</b>"
+    if sub is not None and sub.subscription_url and event != "traffic_topup":
         text += f"\n\nСсылка подписки:\n<code>{sub.subscription_url}</code>"
     await message.answer(text, parse_mode="HTML")

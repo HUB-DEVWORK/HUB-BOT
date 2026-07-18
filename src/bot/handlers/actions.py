@@ -429,6 +429,11 @@ async def act_privacy(cb: CallbackQuery | Message, container: AppContainer, db_u
 @router.callback_query(F.data.startswith("act:balance"))
 async def act_balance(cb: CallbackQuery | Message, container: AppContainer, db_user: User) -> None:
     async with container.uow() as uow:
+        if not bool(await container.bot_config.value(uow, "BALANCE_ENABLED")):
+            # Reachable from old messages / custom menus after the owner turned the
+            # wallet off — depositing into a wallet nothing accepts strands the money.
+            await ack(cb, "Баланс отключён", alert=True)
+            return
         min_dep = int(await container.bot_config.value(uow, "MIN_DEPOSIT_AMOUNT"))
     text = (
         "<b>💳 Баланс</b>\n\n"
