@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from typing import Any
 
 import pytest
 
@@ -14,7 +15,7 @@ from src.application.services.referral import ReferralService
 from src.application.services.remnawave import RemnawaveService
 from src.application.services.subscription import SubscriptionService
 from src.core.constants import BYTES_PER_GB
-from src.core.enums import Currency, PurchaseType, TransactionStatus
+from src.core.enums import Currency, PurchaseType, SubscriptionStatus, TransactionStatus
 from src.infrastructure.database.models.constructor import TrafficPack
 from src.infrastructure.database.uow import UnitOfWork
 from tests.factories import make_plan, make_user
@@ -98,6 +99,108 @@ async def test_change_credit_zero_for_missing_subscription(uow: UnitOfWork) -> N
     pricing = PricingService()
     async with uow:
         assert await pricing._change_credit(uow, 99999) == 0
+
+
+async def _change(
+    purchase: PurchaseService, uow: UnitOfWork, user_id: int, plan_id: int, days: int
+) -> tuple[Any, Any]:
+    """Buy a DIFFERENT/same plan on an existing sub (auto-resolves RENEW/CHANGE); returns
+    (purchase_type, quote)."""
+    ptype, sub_id = await purchase.resolve_purchase_type(uow, user_id, plan_id)
+    req = PurchaseRequest(
+        user_id=user_id,
+        plan_id=plan_id,
+        duration_days=days,
+        currency=Currency.RUB,
+        purchase_type=ptype,
+        subscription_id=sub_id,
+    )
+    quote = await purchase._pricing.quote(uow, req)
+    txn, _ = await purchase.start(uow, req)
+    await uow.transactions.transition_status(
+        txn.payment_id, TransactionStatus.COMPLETED, (TransactionStatus.PENDING,)
+    )
+    await purchase.fulfill(uow, txn)
+    await uow.commit()
+    return ptype, quote
+
+
+async def test_user_reported_plan_change_scenarios(uow: UnitOfWork) -> None:
+    """Proof for every case in the bug report: switching/renewing NEVER resets the term, and the
+    price is the full list price of the new period (unused value carries over as bonus days)."""
+    purchase, _ = _services()
+    async with uow:
+        user = await make_user(uow, balance_minor=100_000_000)
+        a, _ = await make_plan(uow, price_minor=30000, days=30, public_code="A", name="A")  # 300₽
+        a2, _ = await make_plan(
+            uow, price_minor=30000, days=30, public_code="A2", name="A2"
+        )  # 300₽
+        b, _ = await make_plan(uow, price_minor=60000, days=30, public_code="B", name="B")  # 600₽
+        c, _ = await make_plan(uow, price_minor=15000, days=30, public_code="C", name="C")  # 150₽
+        await uow.commit()
+
+        def days_left(s: object) -> int:
+            return round((s.expire_at - dt.datetime.now(dt.UTC)).total_seconds() / 86400)  # type: ignore[attr-defined]
+
+        async def fresh_sub_with(days_remaining: int) -> object:
+            # A clean 30-day A purchase, then force the remaining days to the scenario's value.
+            for s in await uow.subscriptions.active_for_user(user.id):
+                s.status = SubscriptionStatus.DELETED
+            user.current_subscription_id = None
+            await uow.commit()
+            await _buy(purchase, uow, user.id, a.id, 30)
+            s = (await uow.subscriptions.active_for_user(user.id))[0]
+            s.expire_at = dt.datetime.now(dt.UTC) + dt.timedelta(days=days_remaining)
+            await uow.commit()
+            return s
+
+        # [1] 60 дней A -> переход на дороже B(30д): НЕ сброс до 30, цена ПОЛНАЯ 600₽.
+        s = await fresh_sub_with(60)
+        ptype, q = await _change(purchase, uow, user.id, b.id, 30)
+        s = await uow.subscriptions.get(s.id)  # type: ignore[attr-defined]
+        print(
+            f"\n[1] 60д A → B(30д): {ptype.value} цена={q.final.amount_minor // 100}₽ "
+            f"бонус={q.components.get('change_bonus_days')}д срок={days_left(s)}д (было бы 30)"
+        )
+        assert ptype is PurchaseType.CHANGE
+        assert q.final.amount_minor == 60000  # полная цена B, без «кредита»
+        assert 59 <= days_left(s) <= 60  # 30 куплено + 30 бонус; НЕ сброс до 30
+        assert s.plan_id == b.id  # type: ignore[attr-defined]
+
+        # [2] 60 дней A -> переход на дешевле C(30д): цена ПОЛНАЯ 150₽, остаток даёт больше дней.
+        s = await fresh_sub_with(60)
+        ptype, q = await _change(purchase, uow, user.id, c.id, 30)
+        s = await uow.subscriptions.get(s.id)  # type: ignore[attr-defined]
+        print(
+            f"[2] 60д A → C(30д, дешевле): {ptype.value} цена={q.final.amount_minor // 100}₽ "
+            f"бонус={q.components.get('change_bonus_days')}д срок={days_left(s)}д"
+        )
+        assert q.final.amount_minor == 15000  # полная цена C (никакой «доплаты»)
+        assert days_left(s) >= 120  # остаток 600₽ по цене C = много дней
+
+        # [3] 10 дней A -> ПРОДЛЕНИЕ тем же тарифом(30д): срок 40 (10+30), цена полная 300₽.
+        s = await fresh_sub_with(10)
+        ptype, q = await _change(purchase, uow, user.id, a.id, 30)
+        s = await uow.subscriptions.get(s.id)  # type: ignore[attr-defined]
+        print(
+            f"[3] 10д A → продление A(30д): {ptype.value} цена={q.final.amount_minor // 100}₽ "
+            f"срок={days_left(s)}д (должно 40, не 30)"
+        )
+        assert ptype is PurchaseType.RENEW
+        assert q.final.amount_minor == 30000  # полная цена, не «за 20 дней»
+        assert 39 <= days_left(s) <= 40  # 10 + 30 = 40, НЕ сброс до 30
+
+        # [4] 10 дней A -> смена на равный по цене A2(30д): срок 40, цена полная 300₽.
+        s = await fresh_sub_with(10)
+        ptype, q = await _change(purchase, uow, user.id, a2.id, 30)
+        s = await uow.subscriptions.get(s.id)  # type: ignore[attr-defined]
+        print(
+            f"[4] 10д A → смена на A2(30д, та же цена): {ptype.value} цена={q.final.amount_minor // 100}₽ "
+            f"бонус={q.components.get('change_bonus_days')}д срок={days_left(s)}д"
+        )
+        assert ptype is PurchaseType.CHANGE
+        assert q.final.amount_minor == 30000
+        assert 39 <= days_left(s) <= 40  # 10 остаток -> 10 бонус + 30 куплено = 40
 
 
 async def test_traffic_topup_adds_bytes_and_pushes_panel(uow: UnitOfWork) -> None:

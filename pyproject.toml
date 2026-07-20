@@ -82,6 +82,8 @@ ignore = ["B008"]  # FastAPI Depends() in defaults
 "tests/unit/test_error_codes.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_telemetry_server.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_telemetry_reporter.py" = ["RUF001", "RUF002", "RUF003"]
+# RU scenario print-outs that mirror the user's bug report, verbatim.
+"tests/unit/test_change_and_topup.py" = ["RUF001", "RUF002", "RUF003", "E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
