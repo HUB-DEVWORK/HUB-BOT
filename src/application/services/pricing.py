@@ -54,13 +54,14 @@ class PricingService:
         final = base_total.apply_discount(discount_pct)
 
         if req.purchase_type is PurchaseType.CHANGE and req.subscription_id is not None:
-            # Plan switch: unused days of the current period become a price credit,
-            # valued at what the user ACTUALLY paid (frozen txn amount), not list price.
-            credit = await self._change_credit(uow, req.subscription_id)
-            credit = min(credit, final.amount_minor)
-            if credit > 0:
-                components["change_credit"] = -credit
-                final = Money(final.amount_minor - credit, req.currency)
+            # Plan switch (proration): the unused value of the current period is preserved as
+            # BONUS DAYS on the new plan — converted at the new period's daily rate — instead of a
+            # price discount. So the user never loses time, pays the full list price of the new
+            # period, and their remaining money value carries over fairly across differently
+            # priced plans. Purely informational for the quote; provisioning recomputes it.
+            bonus = await self.change_bonus_days(uow, req)
+            if bonus > 0:
+                components["change_bonus_days"] = bonus
 
         return PriceQuote(
             base=base_total,
@@ -96,6 +97,27 @@ class PricingService:
             components={"pack": pack.price_minor},
         )
 
+    async def change_bonus_days(self, uow: UnitOfWork, req: PurchaseRequest) -> int:
+        """Plan-change proration: the current period's unused value expressed as whole DAYS of
+        the NEW plan (0 when there's nothing to carry over). ``value / new_period_daily_rate``,
+        so a remainder worth V roubles buys ``V / (price_per_day)`` days on the target plan —
+        fair across differently priced plans, and the user keeps their money's worth as time."""
+        if req.subscription_id is None:
+            return 0
+        value = await self._change_credit(uow, req.subscription_id)
+        if value <= 0:
+            return 0
+        # New period's list price sets the conversion rate (plan price, or constructor period+pack).
+        if req.constructor_period_id is not None:
+            period, pack = await self.resolve_constructor(uow, req)
+            base = period.price_minor + pack.price_minor
+        else:
+            plan = await uow.plans.get(req.plan_id)
+            base = await self._base_price_minor(uow, plan, req) if plan is not None else 0
+        if base <= 0 or req.duration_days <= 0:
+            return 0
+        return round(value * req.duration_days / base)
+
     async def _change_credit(self, uow: UnitOfWork, subscription_id: int) -> int:
         """Remaining value of the current period in minor units (0 when unknown).
 
@@ -113,9 +135,13 @@ class PricingService:
         txns = await uow.transactions.list_recent(sub.user_id, limit=50)
         for txn in txns:
             pricing = txn.pricing or {}
-            linked = pricing.get("subscription_id") == subscription_id or (
-                # historical/imported payments predate the subscription_id link
-                pricing.get("subscription_id") is None and pricing.get("plan_id") == sub.plan_id
+            # Value the remainder from the last payment for the CURRENT (pre-change) plan — its
+            # plan_id must match the subscription's. This also excludes the in-flight CHANGE
+            # payment (already COMPLETED and linked to this sub, but for the NEW plan), which
+            # would otherwise be picked as the "remaining value" and inflate the carry-over.
+            linked = pricing.get("plan_id") == sub.plan_id and pricing.get("subscription_id") in (
+                subscription_id,
+                None,  # historical/imported payments predate the subscription_id link
             )
             if (
                 txn.type is TransactionType.SUBSCRIPTION_PAYMENT
@@ -125,7 +151,10 @@ class PricingService:
             ):
                 paid_days = int(pricing.get("duration_days") or 0)
                 if paid_days > 0:
-                    return int(txn.amount_minor * min(remaining, paid_days) / paid_days)
+                    # Value ALL remaining days at the paid daily rate — a fair carry-over that
+                    # doesn't cap the remainder at a single period (a user who renewed to 60 days
+                    # keeps the value of all 60, not just the last 30).
+                    return round(txn.amount_minor * remaining / paid_days)
         return 0
 
     async def resolve_constructor(

@@ -199,19 +199,21 @@ class SubscriptionService:
         plan: Plan,
         req: PurchaseRequest,
         carryover_trial: bool = False,
+        bonus_days: int = 0,
     ) -> Subscription:
-        """Switch the subscription to another plan: same panel user, new period from now.
+        """Switch the subscription to another plan: same panel user, new period.
 
-        A PAID old period's remainder is already monetized as a price credit
-        (PricingService); a TRIAL remainder is carried over as bonus days when
-        ``carryover_trial`` is set. Panel-first like every other write.
+        The new expiry is the purchased duration PLUS the value carried over from the old period,
+        so the user never loses time on a switch: ``bonus_days`` is a PAID remainder converted to
+        days of the new plan (PricingService.change_bonus_days), and a TRIAL remainder is carried
+        over whole when ``carryover_trial`` is set. Panel-first like every other write.
         """
         if subscription.remnawave_uuid is None:
             raise PurchaseError("cannot change a subscription with no panel user")
-        bonus = 0
+        bonus = bonus_days
         if carryover_trial and subscription.is_trial and subscription.expire_at is not None:
             remaining = (subscription.expire_at - dt.datetime.now(dt.UTC)).total_seconds()
-            bonus = max(0, math.ceil(remaining / 86400))  # don't lose a partial day
+            bonus += max(0, math.ceil(remaining / 86400))  # don't lose a partial trial day
         subscription.plan_id = plan.id
         subscription.plan_snapshot = _plan_snapshot(plan)
         subscription.is_trial = False

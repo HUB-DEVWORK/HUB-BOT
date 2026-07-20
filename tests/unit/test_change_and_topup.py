@@ -70,10 +70,12 @@ async def test_change_prorates_and_keeps_panel_user(uow: UnitOfWork) -> None:
             subscription_id=sub.id,
         )
         quote = await purchase._pricing.quote(uow, req)
-        # Full period remains -> the whole 300 ₽ is credited against the 600 ₽ price.
-        credit = -quote.components["change_credit"]
-        assert 29000 <= credit <= 30000
-        assert quote.final.amount_minor == 60000 - credit
+        # Proration: pay the FULL 600 ₽ list price of the new period (no discount credit); the
+        # remaining 300 ₽ of plan A carries over as bonus days on plan B (600 ₽/30 дн.):
+        # 300 ₽ buys 15 days at plan B's rate.
+        assert "change_credit" not in quote.components
+        assert quote.final.amount_minor == 60000
+        assert 14 <= quote.components["change_bonus_days"] <= 15
 
         txn, _ = await purchase.start(uow, req)
         await uow.transactions.transition_status(
@@ -89,7 +91,7 @@ async def test_change_prorates_and_keeps_panel_user(uow: UnitOfWork) -> None:
         assert (sub.plan_snapshot or {}).get("name") == "Premium"
         assert sub.expire_at is not None
         left = (sub.expire_at - dt.datetime.now(dt.UTC)).days
-        assert 29 <= left <= 30  # new period starts now
+        assert 44 <= left <= 45  # 30 purchased + ~15 carried over from plan A's remainder
 
 
 async def test_change_credit_zero_for_missing_subscription(uow: UnitOfWork) -> None:

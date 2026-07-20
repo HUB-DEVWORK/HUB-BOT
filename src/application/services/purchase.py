@@ -302,8 +302,17 @@ class PurchaseService:
             carryover = True
             if self._config is not None:
                 carryover = bool(await self._config.value(uow, "TRIAL_CARRYOVER_DAYS"))
+            # Proration: the paid remainder of the current period carries over as bonus days on
+            # the new plan (computed here, at fulfilment, so it reflects the up-to-date remaining).
+            bonus_days = await self._pricing.change_bonus_days(uow, req)
             return await self._subscriptions.change(
-                uow, sub, user=user, plan=plan, req=req, carryover_trial=carryover
+                uow,
+                sub,
+                user=user,
+                plan=plan,
+                req=req,
+                carryover_trial=carryover,
+                bonus_days=bonus_days,
             )
         if req.purchase_type is PurchaseType.TRAFFIC_TOPUP:
             if req.subscription_id is None or req.traffic_pack_id is None:

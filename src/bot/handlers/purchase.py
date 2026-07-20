@@ -214,9 +214,9 @@ async def choose_payment(cb: CallbackQuery, container: AppContainer, db_user: Us
         rows.append(("🎟 У меня промокод", "act:promocode"))
     rows.append(("‹ Назад", f"plan:{plan_id}"))
     discount = f" (−{quote.discount_pct}%)" if quote.discount_pct else ""
-    credit = -quote.components.get("change_credit", 0)
-    if credit > 0:
-        discount += f"\nЗачтён остаток текущего тарифа: −{fmt_money(credit)}"
+    bonus = quote.components.get("change_bonus_days", 0)
+    if bonus > 0:
+        discount += f"\n+{bonus} дн. от остатка текущего тарифа"
     await render_screen(
         cb,
         container,
@@ -438,9 +438,9 @@ async def constructor_payment(cb: CallbackQuery, container: AppContainer, db_use
     rows = [(label, f"cpay:{period_id}:{pack_id}:{code}") for label, code in methods]
     rows.append(("‹ Назад", f"cper:{period_id}"))
     discount = f" (−{quote.discount_pct}%)" if quote.discount_pct else ""
-    credit = -quote.components.get("change_credit", 0)
-    if credit > 0:
-        discount += f"\nЗачтён остаток текущего тарифа: −{fmt_money(credit)}"
+    bonus = quote.components.get("change_bonus_days", 0)
+    if bonus > 0:
+        discount += f"\n+{bonus} дн. от остатка текущего тарифа"
     summary = f"{_period_label(req.duration_days)} · " + (f"{traffic_gb} ГБ" if traffic_gb else "∞")
     await render_screen(
         cb,
