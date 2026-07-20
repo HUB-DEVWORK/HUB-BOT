@@ -259,12 +259,26 @@ export default function Tariffs() {
             <div className="grid" style={{ gap: 8 }}>
               {ctor.periods.map((p, i) => (
                 <div key={i} className="row">
-                  <span className="mono" style={{ width: 70 }}>
-                    {p.days} {t.days}
-                  </span>
                   <input
                     className="input num"
-                    style={{ width: 110 }}
+                    style={{ width: 62 }}
+                    value={p.days}
+                    type="number"
+                    onChange={(e) =>
+                      patchCtor((c) => ({
+                        ...c,
+                        periods: c.periods.map((x, j) =>
+                          j === i
+                            ? { ...x, days: Math.max(1, Math.round(Number(e.target.value))) }
+                            : x,
+                        ),
+                      }))
+                    }
+                  />
+                  <span className="dim">{t.days}</span>
+                  <input
+                    className="input num"
+                    style={{ width: 96, marginLeft: "auto" }}
                     value={p.price_minor / 100}
                     type="number"
                     onChange={(e) =>
@@ -277,19 +291,37 @@ export default function Tariffs() {
                     }
                   />
                   <span className="dim">₽</span>
-                  <span style={{ marginLeft: "auto" }}>
-                    <Toggle
-                      on={p.is_active}
-                      onChange={(v) =>
-                        patchCtor((c) => ({
-                          ...c,
-                          periods: c.periods.map((x, j) => (j === i ? { ...x, is_active: v } : x)),
-                        }))
-                      }
-                    />
-                  </span>
+                  <Toggle
+                    on={p.is_active}
+                    onChange={(v) =>
+                      patchCtor((c) => ({
+                        ...c,
+                        periods: c.periods.map((x, j) => (j === i ? { ...x, is_active: v } : x)),
+                      }))
+                    }
+                  />
+                  <button
+                    className="btn danger sm"
+                    title={t.delete}
+                    onClick={() =>
+                      patchCtor((c) => ({ ...c, periods: c.periods.filter((_, j) => j !== i) }))
+                    }
+                  >
+                    ✕
+                  </button>
                 </div>
               ))}
+              <button
+                className="btn secondary sm"
+                onClick={() =>
+                  patchCtor((c) => ({
+                    ...c,
+                    periods: [...c.periods, { id: 0, days: 30, price_minor: 0, is_active: true }],
+                  }))
+                }
+              >
+                + {t.add}
+              </button>
             </div>
           </div>
           <div className="card" style={{ flex: "1 1 320px" }}>
@@ -299,12 +331,24 @@ export default function Tariffs() {
             <div className="grid" style={{ gap: 8 }}>
               {ctor.traffic_packs.map((p, i) => (
                 <div key={i} className="row">
-                  <span className="mono" style={{ width: 70 }}>
-                    {p.gb === 0 ? "∞" : `${p.gb} ГБ`}
-                  </span>
                   <input
                     className="input num"
-                    style={{ width: 110 }}
+                    style={{ width: 62 }}
+                    value={p.gb}
+                    type="number"
+                    onChange={(e) =>
+                      patchCtor((c) => ({
+                        ...c,
+                        traffic_packs: c.traffic_packs.map((x, j) =>
+                          j === i ? { ...x, gb: Math.max(0, Math.round(Number(e.target.value))) } : x,
+                        ),
+                      }))
+                    }
+                  />
+                  <span className="dim">{p.gb === 0 ? "∞" : "ГБ"}</span>
+                  <input
+                    className="input num"
+                    style={{ width: 96, marginLeft: "auto" }}
                     value={p.price_minor / 100}
                     type="number"
                     onChange={(e) =>
@@ -317,21 +361,48 @@ export default function Tariffs() {
                     }
                   />
                   <span className="dim">₽</span>
-                  <span style={{ marginLeft: "auto" }}>
-                    <Toggle
-                      on={p.is_active}
-                      onChange={(v) =>
-                        patchCtor((c) => ({
-                          ...c,
-                          traffic_packs: c.traffic_packs.map((x, j) =>
-                            j === i ? { ...x, is_active: v } : x,
-                          ),
-                        }))
-                      }
-                    />
-                  </span>
+                  <Toggle
+                    on={p.is_active}
+                    onChange={(v) =>
+                      patchCtor((c) => ({
+                        ...c,
+                        traffic_packs: c.traffic_packs.map((x, j) =>
+                          j === i ? { ...x, is_active: v } : x,
+                        ),
+                      }))
+                    }
+                  />
+                  <button
+                    className="btn danger sm"
+                    title={t.delete}
+                    onClick={() =>
+                      patchCtor((c) => ({
+                        ...c,
+                        traffic_packs: c.traffic_packs.filter((_, j) => j !== i),
+                      }))
+                    }
+                  >
+                    ✕
+                  </button>
                 </div>
               ))}
+              <button
+                className="btn secondary sm"
+                onClick={() =>
+                  patchCtor((c) => ({
+                    ...c,
+                    traffic_packs: [
+                      ...c.traffic_packs,
+                      { id: 0, gb: 0, price_minor: 0, is_active: true },
+                    ],
+                  }))
+                }
+              >
+                + {t.add}
+              </button>
+              <div className="dim" style={{ fontSize: 12, marginTop: 2 }}>
+                0 ГБ = безлимит
+              </div>
             </div>
           </div>
         </div>
