@@ -59,6 +59,51 @@ async def _process_with_backoff(
     return moved
 
 
+async def _deadletter_payment(
+    container: object,
+    payment_id: UUID,
+    status: TransactionStatus,
+    *,
+    amount_minor: int | None,
+    error: Exception,
+) -> None:
+    """A verified payment could not be fulfilled by a non-transient error. Surface it to admins
+    instead of letting taskiq drop it after its retries expire. The transaction is intentionally
+    left in place (not forced terminal) so it stays manually recoverable. The alert is deduped per
+    payment for 24h so a periodic reconciler re-kick that hits the same error can't spam admins.
+    """
+    import contextlib
+    from typing import cast
+
+    from src.infrastructure.di import AppContainer
+
+    c = cast(AppContainer, container)
+    log.error(
+        "process_payment dead-letter (non-transient)",
+        payment_id=str(payment_id),
+        status=status.value,
+        error=str(error),
+    )
+    user_id: int | None = None
+    with contextlib.suppress(Exception):
+        async with c.uow() as uow:
+            txn = await uow.transactions.get_by_payment_id(payment_id)
+            user_id = txn.user_id if txn else None
+
+    fresh = True
+    with contextlib.suppress(Exception):
+        fresh = bool(await c.redis.set(f"pay:deadletter:{payment_id}", "1", nx=True, ex=86400))
+    if not fresh:
+        return  # already alerted within the last day
+    with contextlib.suppress(Exception):
+        await c.notifier.notify_admins(
+            f"\U0001f6d1 Платёж не удалось провести (payment_id={payment_id}, user_id={user_id}, "
+            f"статус={status.value}): {error}. Нужна ручная проверка: деньги могли списаться, "
+            f"а подписка не выдана.",
+            topic="payments",
+        )
+
+
 @broker.task(retry_on_error=True, max_retries=5)
 async def process_payment(
     payment_id: str,
@@ -77,9 +122,20 @@ async def process_payment(
     """
     container = get_container()
     pid = UUID(payment_id)
-    moved = await _process_with_backoff(
-        container, payment_id=pid, status=TransactionStatus(status), amount_minor=amount_minor
-    )
+    try:
+        moved = await _process_with_backoff(
+            container, payment_id=pid, status=TransactionStatus(status), amount_minor=amount_minor
+        )
+    except Exception as exc:
+        if is_transient_infra(exc):
+            raise  # transient: let SimpleRetryMiddleware re-kick; the reconciler is the backstop
+        # Non-transient fulfilment error — retrying can't fix it. Dead-letter instead of burning
+        # five silent retries and stranding a captured payment unseen: alert admins (deduped so a
+        # reconciler re-kick can't spam them) and leave the txn recoverable for a manual re-run.
+        await _deadletter_payment(
+            container, pid, TransactionStatus(status), amount_minor=amount_minor, error=exc
+        )
+        return False
     log.info("process_payment", payment_id=payment_id, status=status, advanced=moved)
 
     if saved_method_enc:  # a duplicate webhook still carries a valid token; store is idempotent

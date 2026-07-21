@@ -339,3 +339,56 @@ async def test_list_stuck_pending_picks_only_gateway_pendings(uow: UnitOfWork) -
             newer_than=now - dt.timedelta(hours=24),
         )
     assert [t.external_id for t in rows] == ["yk-1"]
+
+
+async def test_deadletter_alerts_admins_once_then_dedupes(uow: UnitOfWork) -> None:
+    """A non-transient fulfilment error used to strand a captured payment silently once
+    taskiq's retries expired. Now admins get exactly one alert per payment (deduped for 24h
+    so a reconciler re-kick hitting the same error can't spam them)."""
+    from types import SimpleNamespace
+
+    from src.infrastructure.taskiq.tasks import _deadletter_payment
+
+    class NxRedis:
+        def __init__(self) -> None:
+            self.store: dict[str, str] = {}
+
+        async def set(self, k: str, v: str, ex: int = 0, nx: bool = False) -> bool:
+            if nx and k in self.store:
+                return False
+            self.store[k] = v
+            return True
+
+    async with uow:
+        user = await make_user(uow, telegram_id=71071)
+        txn = Transaction(
+            user_id=user.id,
+            type=TransactionType.SUBSCRIPTION_PAYMENT,
+            status=TransactionStatus.PENDING,
+            amount_minor=19900,
+            currency=Currency.RUB,
+            gateway_type=PaymentGatewayType.YOOMONEY,
+            external_id="dl-1",
+        )
+        uow.session.add(txn)
+        await uow.commit()
+        payment_id = txn.payment_id
+        user_id = user.id
+
+    notifier = _RecordingNotifier()
+    redis = NxRedis()
+    container = SimpleNamespace(uow=lambda: uow, notifier=notifier, redis=redis)
+    err = RuntimeError("boom in fulfilment")
+
+    await _deadletter_payment(
+        container, payment_id, TransactionStatus.COMPLETED, amount_minor=19900, error=err
+    )
+    assert len(notifier.admin_msgs) == 1
+    assert str(user_id) in notifier.admin_msgs[0]
+    assert "boom in fulfilment" in notifier.admin_msgs[0]
+
+    # a reconciler re-kick hits the same non-transient error -> still just one alert
+    await _deadletter_payment(
+        container, payment_id, TransactionStatus.COMPLETED, amount_minor=19900, error=err
+    )
+    assert len(notifier.admin_msgs) == 1
