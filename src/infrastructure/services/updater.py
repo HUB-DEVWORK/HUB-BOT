@@ -23,17 +23,34 @@ _GITHUB_API = "https://api.github.com"
 # The «Обновить» / restart buttons write this marker; the updater sidecar watches it, acts on
 # the first line, then removes it. It's a volume mounted in both the app and the updater.
 UPDATE_REQUEST_FILE = "/app/update-signals/request"
+_HEARTBEAT_FILE = "/app/update-signals/.alive"
+_HEARTBEAT_MAX_AGE = 60  # the sidecar touches it every ~10s
 
 _RESTARTABLE = ("bot", "web", "worker", "scheduler", "all")
 
 
+def _updater_alive() -> bool:
+    """True only when the updater SIDECAR is actually running. The signals volume is mounted into
+    every app container regardless, so directory existence alone would falsely report 'connected'
+    when the updater profile is off or the sidecar crash-looped — the marker would then rot unread.
+    The sidecar refreshes a heartbeat file each loop; we trust it only while it's fresh."""
+    import time
+    from pathlib import Path
+
+    try:
+        st = Path(_HEARTBEAT_FILE).stat()
+    except OSError:
+        return False
+    return (time.time() - st.st_mtime) < _HEARTBEAT_MAX_AGE
+
+
 def _write_marker(content: str) -> bool:
-    """Drop a request marker for the updater sidecar. Returns False when the signals volume isn't
-    mounted (updater not enabled) so the caller can tell the operator to act by hand."""
+    """Drop a request marker for the updater sidecar. Returns False when the sidecar isn't running
+    (so the caller honestly tells the operator to act by hand) or the write fails."""
     from pathlib import Path
 
     path = Path(UPDATE_REQUEST_FILE)
-    if not path.parent.is_dir():
+    if not path.parent.is_dir() or not _updater_alive():
         return False
     try:
         path.write_text(content + "\n")

@@ -18,8 +18,12 @@ git config --global --add safe.directory "$REPO" 2>/dev/null || true
 COMPOSE="docker compose --env-file $REPO/.env -f $REPO/docker/compose.prod.yml"
 _RESTARTABLE="bot web worker scheduler"
 
+HEARTBEAT="$(dirname "$MARKER")/.alive"
 echo "updater: watching $MARKER"
 while true; do
+  # Liveness beacon: the app checks this file's freshness before promising "update started" —
+  # the signal volume exists in every container even when this sidecar isn't running.
+  touch "$HEARTBEAT" 2>/dev/null || true
   if [ -f "$MARKER" ]; then
     req="$(head -n1 "$MARKER" 2>/dev/null)"
     rm -f "$MARKER"
@@ -46,8 +50,13 @@ while true; do
           echo "updater: update FAILED — see $LOG"
         fi
         # git ran as root here; hand the repo back to its host owner so a later manual
-        # ./scripts/update.sh (run as that user) isn't blocked by root-owned objects.
-        chown -R "$(stat -c '%u:%g' "$REPO" 2>/dev/null || echo 0:0)" "$REPO" 2>/dev/null || true
+        # ./scripts/update.sh (run as that user) isn't blocked by root-owned objects. PRUNE the
+        # signal volume: it's bind-mounted inside the repo but written by the non-root app user,
+        # and a recursive chown to root would make future markers unwritable — silently disabling
+        # the updater after the first run.
+        owner="$(stat -c '%u:%g' "$REPO" 2>/dev/null || echo 0:0)"
+        find "$REPO" -path "$REPO/update-signals" -prune -o -exec chown "$owner" {} + 2>/dev/null \
+          || true
         ;;
     esac
   fi

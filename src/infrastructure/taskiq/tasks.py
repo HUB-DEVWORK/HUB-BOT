@@ -580,7 +580,11 @@ async def check_for_updates() -> bool:
     from aiogram import Bot
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-    from src.infrastructure.services.updater import check_for_update, request_update
+    from src.infrastructure.services.updater import (
+        _updater_alive,
+        check_for_update,
+        request_update,
+    )
 
     container = get_container()
     async with container.uow() as uow:
@@ -596,16 +600,18 @@ async def check_for_updates() -> bool:
     token = container.settings.bot.token
     if not owners or not token:
         return False
-    # Act once per latest revision. Auto-installs re-arm each check cycle (6 h) so a FAILED
-    # install retries instead of going silent for 30 days (the marker is consumed with no
-    # retry of its own); a manual-button notice is shown once — the owner already saw it.
-    notify_ttl = 6 * 3600 if auto else 30 * 86400
+    # Will an auto-install actually run? Only if enabled AND the updater sidecar is live. This
+    # drives the re-notify cadence: a real auto-install re-arms every 6h so a FAILED install
+    # retries; a manual notice (incl. auto-enabled-but-no-updater) is shown once per 30 days,
+    # not nagged every 6h.
+    will_auto = auto and _updater_alive()
+    notify_ttl = 6 * 3600 if will_auto else 30 * 86400
     if not await container.redis.set(f"update:notified:{info.latest}", "1", nx=True, ex=notify_ttl):
         return False
     cur = info.current or "?"
-    # Auto-install: try to drop the marker; only fall back to the manual button if the updater
-    # module isn't wired up on this host (no signals volume), so the operator is never left blind.
-    auto_started = auto and request_update()
+    # Drop the marker (guarded by the same liveness check); falls back to the manual button when
+    # the updater isn't wired up, so the operator is never left blind.
+    auto_started = will_auto and request_update()
     if auto_started:
         text = (
             "🔄 <b>Автообновление запущено</b>\n\n"
@@ -1338,7 +1344,9 @@ async def run_backup() -> str | None:
 
     async with container.uow() as uow:
         password = str(await container.bot_config.value(uow, "BACKUP_ENCRYPTION_PASSWORD") or "")
-        keep = int(await container.bot_config.value(uow, "BACKUP_KEEP_LAST"))
+        # Never below 1 — keep=0 would slice [0:] and delete every archive, including the one
+        # just made, on each run.
+        keep = max(1, int(await container.bot_config.value(uow, "BACKUP_KEEP_LAST")))
     out = backups / f"backup_{stamp}.zip"
     # Local disk copy always exists (fall back to a derived key for at-rest encryption).
     create_encrypted_zip([dump_path], out, password or container.settings.app.jwt_secret[:16])

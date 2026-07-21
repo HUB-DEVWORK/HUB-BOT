@@ -22,8 +22,12 @@ rsync -az --delete \
   --exclude 'backups' --exclude 'uploads' --exclude 'scripts/mock_panel_state.json' \
   ./ "$HOST:$APP_DIR/"
 
-echo "==> sync deps + migrate + restart"
+SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+echo "==> sync deps + migrate + restart (build $SHA)"
+# Stamp the deployed revision into .env so the version check reports the true current version;
+# without it build_sha="" and the bot forever shows "update available / версия неизвестна".
 ssh "$HOST" "cd $APP_DIR \
+  && (grep -q '^APP__BUILD_SHA=' .env && sed -i 's/^APP__BUILD_SHA=.*/APP__BUILD_SHA=$SHA/' .env || echo 'APP__BUILD_SHA=$SHA' >> .env) \
   && ~/.local/bin/uv sync --frozen --no-dev >/dev/null \
   && .venv/bin/alembic upgrade head \
   && systemctl restart vpnshop-web vpnshop-worker vpnshop-scheduler vpnshop-bot vpnshop-mockpanel \

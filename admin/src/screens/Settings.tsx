@@ -29,6 +29,7 @@ const CAT_META: Record<string, { icon: string; ru: string; en: string }> = {
   sec: { icon: "🛡️", ru: "Чёрный список, обязательный канал, HWID", en: "Blacklist, required channel, HWID" },
   backup: { icon: "💾", ru: "Расписание и хранение бэкапов", en: "Backup schedule and retention" },
   ui: { icon: "🤖", ru: "Кнопки бота, прокси, поддержка", en: "Bot buttons, proxy, support" },
+  support: { icon: "💬", ru: "ИИ-поддержка: модель и база знаний", en: "AI support: model and knowledge base" },
 };
 
 export default function Settings() {

@@ -41,7 +41,9 @@ run_spin() { # run_spin "подпись" cmd...
 # `docker compose build/up` the same project at once — concurrent recreation races the stack.
 # Re-exec under an flock; a second run waits up to 30 min, then gives up. Skipped if flock absent.
 if [ -z "${_VPNHUB_LOCKED:-}" ] && command -v flock >/dev/null 2>&1; then
-  exec env _VPNHUB_LOCKED=1 flock -w 1800 /tmp/vpnhub-update.lock bash "$0" "$@"
+  # Lock in the repo (bind-mounted identically on host and in the updater sidecar) so a host-run
+  # update and the sidecar/6h auto-run actually serialize — /tmp is NOT shared between them.
+  exec env _VPNHUB_LOCKED=1 flock -w 1800 "$(dirname "$0")/../.update.lock" bash "$0" "$@"
 fi
 
 cd "$(dirname "$0")/.."

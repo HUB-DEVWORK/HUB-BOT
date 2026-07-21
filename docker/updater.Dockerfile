@@ -2,8 +2,9 @@
 # It bind-mounts the host repo and docker socket to run scripts/update.sh on the host daemon.
 FROM docker:27-cli
 
-# curl: so update.sh can DM the owner the update's outcome (success/failure) via the Bot API.
-RUN apk add --no-cache bash git curl
+# curl: DM the owner the update's outcome via the Bot API. gnupg: `git verify-commit` when
+# UPDATE_VERIFY_SIGNATURE=1 (without it, signature checks fail even for correctly-signed commits).
+RUN apk add --no-cache bash git curl gnupg
 
 COPY scripts/updater.sh /usr/local/bin/updater.sh
 RUN chmod +x /usr/local/bin/updater.sh

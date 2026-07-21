@@ -74,7 +74,9 @@ class ReferralService:
         default_pct = DEFAULT_COMMISSION_PERCENT
         if self._config is not None:
             default_pct = int(await self._config.value(uow, "REFERRAL_PERCENT") or default_pct)
-        percent = referrer.referral_commission_percent or default_pct
+        # Clamp to [0,100] — a fat-fingered REFERRAL_PERCENT (150 instead of 15) would otherwise
+        # credit the referrer MORE than the user actually paid, bleeding real money from the shop.
+        percent = min(100, max(0, referrer.referral_commission_percent or default_pct))
         reward = self.commission(amount_minor, percent)
         if reward <= 0:
             return None

@@ -84,15 +84,29 @@ async def test_bad_repo_is_soft() -> None:
     assert info.available is False and info.latest == ""
 
 
-def test_request_update_writes_marker_when_volume_mounted(
+def test_request_update_writes_marker_when_sidecar_alive(
     tmp_path: Path, monkeypatch: object
 ) -> None:
-    # AUTO_UPDATE_ENABLED path: the marker is written into the mounted signals dir.
+    # AUTO_UPDATE_ENABLED path: with a FRESH sidecar heartbeat, the marker is written.
+    marker = tmp_path / "update-signals" / "request"
+    marker.parent.mkdir()
+    heartbeat = marker.parent / ".alive"
+    heartbeat.touch()  # fresh -> updater considered alive
+    monkeypatch.setattr(updater_mod, "UPDATE_REQUEST_FILE", str(marker))  # type: ignore[attr-defined]
+    monkeypatch.setattr(updater_mod, "_HEARTBEAT_FILE", str(heartbeat))  # type: ignore[attr-defined]
+    assert request_update() is True
+    assert marker.is_file()
+
+
+def test_request_update_soft_when_sidecar_not_running(tmp_path: Path, monkeypatch: object) -> None:
+    # Volume mounted but NO fresh heartbeat (updater profile off / crash-looped) -> honest False,
+    # so the caller falls back to the manual notice instead of a fake "started".
     marker = tmp_path / "update-signals" / "request"
     marker.parent.mkdir()
     monkeypatch.setattr(updater_mod, "UPDATE_REQUEST_FILE", str(marker))  # type: ignore[attr-defined]
-    assert request_update() is True
-    assert marker.is_file()
+    monkeypatch.setattr(updater_mod, "_HEARTBEAT_FILE", str(marker.parent / ".alive"))  # type: ignore[attr-defined]
+    assert request_update() is False
+    assert not marker.exists()
 
 
 def test_request_update_soft_when_volume_missing(tmp_path: Path, monkeypatch: object) -> None:
