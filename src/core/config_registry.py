@@ -743,6 +743,18 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "clash, singbox. Order = display order, first = the wizard's primary app",
     ),
     _p(
+        "CABINET_BUTTONS",
+        C.INTERFACE,
+        STR,
+        "subscription,balance,history,referral,promocode,support",
+        "Кнопки в «Личном кабинете»",
+        "Buttons on the «Account» screen",
+        "Список через запятую: subscription, balance, history, referral, promocode, support. "
+        "Убери лишние или поменяй порядок — так меняется экран «Личный кабинет» в боте",
+        "Comma-separated: subscription, balance, history, referral, promocode, support. "
+        "Drop the ones you don't need or reorder — controls the bot's «Account» screen",
+    ),
+    _p(
         "TERMS_TEXT",
         C.INTERFACE,
         STR,

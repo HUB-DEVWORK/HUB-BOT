@@ -256,6 +256,7 @@ async def act_cabinet(
         balance_on = bool(await container.bot_config.value(uow, "BALANCE_ENABLED"))
         referral_on = bool(await container.bot_config.value(uow, "REFERRAL_ENABLED"))
         show_traffic = bool(await container.bot_config.value(uow, "SHOW_TRAFFIC_USAGE"))
+        cabinet_cfg = str(await container.bot_config.value(uow, "CABINET_BUTTONS") or "")
 
     name = hesc(db_user.first_name or db_user.username or "друг")
     lines = [
@@ -301,16 +302,14 @@ async def act_cabinet(
     # The cabinet is the account hub — everything about the user's account, and the one
     # place «Поддержка» lives (the main menu stays lean). «Подключить»/«Купить» are the
     # primary actions up in the main menu, so they're not duplicated here.
-    # A disabled feature must not show its button here — gate by the same flags the
-    # feature checks, so «отключил в настройках» actually hides it. The grid reflows.
-    entries: list[tuple[str, str]] = [("🔑 Моя подписка", "act:subscription:0")]
-    if balance_on:
-        entries.append(("💰 Баланс", "act:balance:0"))
-    entries.append(("🧾 История", "act:history:0"))
-    if referral_on:
-        entries.append(("🎁 Рефералка", "act:referral:0"))
-    entries.append(("🎟 Промокод", "act:promocode"))
-    entries.append(("🆘 Поддержка", "act:support:0"))
+    # Owner-configurable button set (CABINET_BUTTONS): order + which buttons show. A disabled
+    # feature (balance/referral) is still skipped even when listed, so «отключил в настройках»
+    # actually hides it. The grid reflows. See src/bot/cabinet_menu.py.
+    from src.bot.cabinet_menu import cabinet_buttons
+
+    entries = cabinet_buttons(
+        cabinet_cfg, flags={"BALANCE_ENABLED": balance_on, "REFERRAL_ENABLED": referral_on}
+    )
     kb: list[list[InlineKeyboardButton]] = [
         [InlineKeyboardButton(text=t, callback_data=c) for t, c in entries[i : i + 2]]
         for i in range(0, len(entries), 2)

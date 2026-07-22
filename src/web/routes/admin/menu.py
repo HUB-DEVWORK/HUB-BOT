@@ -215,6 +215,50 @@ async def list_actions() -> dict[str, Any]:
     }
 
 
+@router.get("/cabinet")
+async def get_cabinet_buttons(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
+    """Catalogue of «Личный кабинет» buttons + which are enabled, in owner order."""
+    from src.bot.cabinet_menu import CABINET_BUTTONS, parse_cabinet_buttons
+
+    async with container.uow() as uow:
+        raw = str(await container.bot_config.value(uow, "CABINET_BUTTONS") or "")
+    enabled = parse_cabinet_buttons(raw)
+    catalogue = {b.key: b for b in CABINET_BUTTONS}
+    # enabled first (in owner order), then the rest (disabled) in catalogue order
+    ordered_keys = enabled + [b.key for b in CABINET_BUTTONS if b.key not in enabled]
+    return {
+        "buttons": [
+            {
+                "key": k,
+                "label": catalogue[k].label,
+                "enabled": k in enabled,
+                "gated": catalogue[k].gate is not None,
+            }
+            for k in ordered_keys
+        ]
+    }
+
+
+class CabinetButtonsIn(BaseModel):
+    order: list[str] = Field(default_factory=list)  # enabled keys, in display order
+
+
+@router.put("/cabinet")
+async def save_cabinet_buttons(
+    body: CabinetButtonsIn,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, Any]:
+    from src.bot.cabinet_menu import parse_cabinet_buttons
+
+    csv = ",".join(parse_cabinet_buttons(",".join(body.order)))  # validate + drop unknowns
+    async with container.uow() as uow:
+        await container.bot_config.set_values(uow, {"CABINET_BUTTONS": csv})
+        await audit(uow, identity, "menu.cabinet_buttons", None, value=csv)
+        await uow.commit()
+    return {"ok": True, "order": csv.split(",") if csv else []}
+
+
 @router.post("/reset-default")
 async def reset_default(
     identity: AdminIdentity = Depends(require_admin),

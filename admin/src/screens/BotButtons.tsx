@@ -4,8 +4,90 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, getToken } from "../api/client";
-import { Field, Seg } from "../components/ui";
+import { Field, Seg, Toggle } from "../components/ui";
 import { useApp } from "../state/app";
+
+/* Buttons of the built-in «Личный кабинет» screen — a separate, fixed catalogue (not the
+   free-form tree). The owner toggles which show and reorders them; saved to CABINET_BUTTONS. */
+type CabBtn = { key: string; label: string; enabled: boolean; gated: boolean };
+function CabinetButtonsCard() {
+  const { t, toast } = useApp();
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ["cabinet-buttons"],
+    queryFn: () => api.get<{ buttons: CabBtn[] }>("/api/admin/bot-menu/cabinet"),
+  });
+  const [items, setItems] = useState<CabBtn[] | null>(null);
+  const list = items ?? q.data?.buttons ?? [];
+
+  function update(next: CabBtn[]) {
+    setItems(next);
+  }
+  function move(i: number, dir: -1 | 1) {
+    const j = i + dir;
+    if (j < 0 || j >= list.length) return;
+    const next = [...list];
+    [next[i], next[j]] = [next[j], next[i]];
+    update(next);
+  }
+  async function save() {
+    const order = list.filter((b) => b.enabled).map((b) => b.key);
+    try {
+      await api.put("/api/admin/bot-menu/cabinet", { order });
+      setItems(null);
+      void qc.invalidateQueries({ queryKey: ["cabinet-buttons"] });
+      toast(t.saved);
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 4 }}>
+        <div className="caps">{t.cabinetButtonsTitle}</div>
+        <button className="btn primary sm" onClick={save}>
+          {t.saveApply}
+        </button>
+      </div>
+      <div className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
+        {t.cabinetButtonsHint}
+      </div>
+      <div className="grid" style={{ gap: 6, maxWidth: 460 }}>
+        {list.map((b, i) => (
+          <div
+            key={b.key}
+            className="row"
+            style={{
+              justifyContent: "space-between",
+              padding: "8px 10px",
+              border: "1px solid var(--border2)",
+              borderRadius: 8,
+              opacity: b.enabled ? 1 : 0.5,
+            }}
+          >
+            <span className="row" style={{ gap: 8 }}>
+              <Toggle
+                on={b.enabled}
+                onChange={(v) => update(list.map((x) => (x.key === b.key ? { ...x, enabled: v } : x)))}
+              />
+              <b style={{ fontWeight: 500 }}>{b.label}</b>
+              {b.gated && <span className="cap-pill dim">{t.cabinetButtonGated}</span>}
+            </span>
+            <span className="row" style={{ gap: 4 }}>
+              <button className="btn secondary sm" onClick={() => move(i, -1)}>
+                ↑
+              </button>
+              <button className="btn secondary sm" onClick={() => move(i, 1)}>
+                ↓
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 type Node = {
   id: string;
@@ -564,6 +646,7 @@ export default function BotButtons() {
           </div>
         </div>
       </div>
+      <CabinetButtonsCard />
     </>
   );
 }

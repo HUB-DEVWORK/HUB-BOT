@@ -223,6 +223,10 @@ const ru = {
   deleteCampaignConfirm: "Удалить кампанию?",
   // menu constructor
   menuTree: "Дерево меню",
+  cabinetButtonsTitle: "Кнопки «Личного кабинета»",
+  cabinetButtonsHint:
+    "Экран «Личный кабинет» в боте. Выключи лишние кнопки тумблером и поменяй порядок стрелками.",
+  cabinetButtonGated: "если включено в настройках",
   addButton: "+ Добавить кнопку",
   buttonText: "Текст кнопки",
   buttonType: "Тип",
@@ -635,6 +639,10 @@ const en: typeof ru = {
   deletePromoConfirm: "Delete promo code?",
   deleteCampaignConfirm: "Delete this campaign?",
   menuTree: "Menu tree",
+  cabinetButtonsTitle: "«Account» screen buttons",
+  cabinetButtonsHint:
+    "The bot's «Account» screen. Toggle off the buttons you don't need and reorder with the arrows.",
+  cabinetButtonGated: "if enabled in settings",
   addButton: "+ Add button",
   buttonText: "Button label",
   buttonType: "Type",
