@@ -47,14 +47,14 @@
 2. Поднимите только Postgres и залейте дамп:
 
    ```bash
-   docker compose -f docker/compose.prod.yml up -d postgres
-   cat db_*.sql | docker compose -f docker/compose.prod.yml exec -T postgres psql -U vpn -d vpn
+   ./scripts/dc.sh up -d postgres
+   cat db_*.sql | ./scripts/dc.sh exec -T postgres psql -U vpn -d vpn
    ```
 
 3. Поднимите остальной стек:
 
    ```bash
-   docker compose -f docker/compose.prod.yml up -d
+   ./scripts/dc.sh up -d
    ```
 
 Откат после неудачного обновления проще: `update.sh` при провале сам печатает готовые команды — checkout прежней ревизии и заливку pre-update-дампа. Подробности — в [Обновлении](/guide/update).

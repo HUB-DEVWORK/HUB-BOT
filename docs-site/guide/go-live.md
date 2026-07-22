@@ -144,10 +144,10 @@ https://ваш-домен/api/v1/payments/<касса>
 # 1) распаковать архив (спросит пароль шифрования)
 unzip backup_YYYYMMDD_HHMMSS.zip        # → db_YYYYMMDD_HHMMSS.sql
 # 2) поднять только БД и залить дамп
-docker compose -f docker/compose.prod.yml up -d postgres
-cat db_*.sql | docker compose -f docker/compose.prod.yml exec -T postgres psql -U vpn -d vpn
+./scripts/dc.sh up -d postgres
+cat db_*.sql | ./scripts/dc.sh exec -T postgres psql -U vpn -d vpn
 # 3) поднять остальной стек
-docker compose -f docker/compose.prod.yml up -d
+./scripts/dc.sh up -d
 ```
 
 ### Мониторинг здоровья
@@ -160,7 +160,7 @@ docker compose -f docker/compose.prod.yml up -d
 
 | Симптом | В чём дело / что делать |
 |---|---|
-| Кабинет не открылся сразу | Старт занимает ~15–20 секунд. Если долго — `docker compose -f docker/compose.prod.yml logs web`. |
+| Кабинет не открылся сразу | Старт занимает ~15–20 секунд. Если долго — `./scripts/dc.sh logs web`. |
 | «Ошибка VPN-сервера» при покупке | К тарифу не привязан сквод панели. «Тарифы» → тариф → поле «сквады». Проверьте, что в «Серверы» ноды синхронизированы и отмечены «в продаже». |
 | Касса не появилась в боте | Не активна или не заполнены поля. «Платежи»: тумблер + все ключи, кнопка «Тест» подскажет, чего не хватает. |
 | Мало памяти / сборка падает | На 1 GB RAM установщик сам поднимает 2 GB swap. Если ставили руками или swap не создался — добавьте его и повторите `./scripts/install.sh` (скрипт идемпотентен). |

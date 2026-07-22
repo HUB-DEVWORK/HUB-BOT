@@ -17,19 +17,23 @@ cd HUB-BOT && ./scripts/update.sh
 
 ## Если обновление не поднялось
 
-Скрипт не молчит — печатает три готовые команды (с вашими реальными ревизией и именем бэкапа):
+Скрипт не молчит — печатает три готовые команды (с вашими реальными ревизией и именем бэкапа). Все команды для стека запускайте через обёртку `./scripts/dc.sh` — она сама добавляет `--env-file .env` (см. предупреждение ниже):
 
 ```bash
 # логи
-docker compose -f docker/compose.prod.yml logs --tail 100 web
+./scripts/dc.sh logs --tail 100 web
 
 # откат кода на ревизию до обновления
-git checkout <старая-ревизия> && docker compose -f docker/compose.prod.yml up -d --build
+git checkout <старая-ревизия> && ./scripts/dc.sh up -d --build
 
 # восстановление БД из снятого бэкапа
 gunzip -c backups/pre-update-<штамп>.sql.gz | \
-  docker compose -f docker/compose.prod.yml exec -T postgres psql -U vpn vpn
+  ./scripts/dc.sh exec -T postgres psql -U vpn vpn
 ```
+
+::: warning «required variable DATABASE__PASSWORD is missing a value»
+Голый `docker compose -f docker/compose.prod.yml …` ищет `.env` для подстановки `${…}` в папке compose-файла (`docker/`), а не в корне репозитория — и падает с этой ошибкой. Поэтому запускайте команды через `./scripts/dc.sh` (или добавляйте `--env-file .env` вручную из папки `HUB-BOT`). Если ошибка осталась и через обёртку — значит переменной действительно нет в `.env`; восстановите её из работающего контейнера: `docker exec vpnhub-postgres-1 printenv POSTGRES_PASSWORD`, и впишите значение в `.env` как `DATABASE__PASSWORD=…`.
+:::
 
 ::: tip
 Бэкап снимается **до** каких-либо изменений, поэтому откат кода + восстановление дампа возвращают систему ровно в состояние перед обновлением.

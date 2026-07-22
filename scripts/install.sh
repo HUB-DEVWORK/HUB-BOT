@@ -355,4 +355,6 @@ printf "   %s(в кабинете → Обслуживание можно зад
 printf "\n"
 printf "   %sДальше всё в кабинете: тарифы, платёжки, меню бота, мини-аппа.%s\n" "$DIM" "$R"
 printf "   %sОбновление в одну команду: ./scripts/update.sh%s\n" "$DIM" "$R"
+printf "   %sЛоги/статус: ./scripts/dc.sh logs -f web   ·   ./scripts/dc.sh ps%s\n" "$DIM" "$R"
+printf "   %s(обычный docker compose требует «--env-file .env» — обёртка добавляет его сама)%s\n" "$DIM" "$R"
 hr

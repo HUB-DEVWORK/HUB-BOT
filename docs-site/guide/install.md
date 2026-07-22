@@ -61,6 +61,6 @@ git clone https://github.com/HUB-DEVWORK/HUB-BOT.git && cd HUB-BOT
 Если `.env` уже существует, скрипт использует его и не задаёт вопросов — установку можно безопасно перезапускать. Для чистой установки удалите `.env`.
 :::
 
-Если что-то пошло не так, скрипт печатает хвост лога и путь к полному логу; логи стека — `docker compose -f docker/compose.prod.yml logs web`.
+Если что-то пошло не так, скрипт печатает хвост лога и путь к полному логу; логи стека — `./scripts/dc.sh logs web`.
 
 Дальше: настройка до первых продаж — [Запуск в прод](/guide/go-live), обновление — [`./scripts/update.sh`](/guide/update). Кто хочет без Docker — [деплой на VPS через systemd](/guide/deploy-vps).
