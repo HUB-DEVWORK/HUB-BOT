@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import base64
 from typing import Any
+from urllib.parse import quote
 
 # Import schemes for the popular clients. Keys are stable identifiers used by both surfaces.
 CLIENT_LABELS: dict[str, str] = {
     "happ": "Happ",
+    "incy": "INCY",
     "v2raytun": "v2RayTun",
     "hiddify": "Hiddify",
     "streisand": "Streisand",
+    "shadowrocket": "Shadowrocket",
+    "v2box": "V2Box",
+    "clash": "Clash Meta",
+    "singbox": "sing-box",
 }
 
 # Official per-platform download pages for each client. The Connect tab's "download the
@@ -25,6 +32,14 @@ CLIENT_STORES: dict[str, dict[str, str]] = {
         "linux": "https://github.com/Happ-proxy/happ-desktop/releases/latest",
         "default": "https://happ.su/",
     },
+    "incy": {
+        "ios": "https://apps.apple.com/app/incy/id6756943388",
+        "macos": "https://apps.apple.com/app/incy/id6756943388",
+        "android": "https://play.google.com/store/apps/details?id=llc.itdev.incy",
+        "windows": "https://incy.work/skachat/",
+        "linux": "https://incy.work/skachat/",
+        "default": "https://incy.work/",
+    },
     "v2raytun": {
         "ios": "https://apps.apple.com/app/v2raytun/id6476628951",
         "macos": "https://apps.apple.com/app/v2raytun/id6476628951",
@@ -39,6 +54,26 @@ CLIENT_STORES: dict[str, dict[str, str]] = {
         "macos": "https://apps.apple.com/app/streisand/id6450534064",
         "default": "https://apps.apple.com/app/streisand/id6450534064",
     },
+    "shadowrocket": {
+        "ios": "https://apps.apple.com/app/shadowrocket/id932747118",
+        "macos": "https://apps.apple.com/app/shadowrocket/id932747118",
+        "default": "https://apps.apple.com/app/shadowrocket/id932747118",
+    },
+    "v2box": {
+        "ios": "https://apps.apple.com/app/v2box-v2ray-client/id6446814690",
+        "macos": "https://apps.apple.com/app/v2box-v2ray-client/id6446814690",
+        "default": "https://apps.apple.com/app/v2box-v2ray-client/id6446814690",
+    },
+    "clash": {
+        "windows": "https://github.com/clash-verge-rev/clash-verge-rev/releases/latest",
+        "macos": "https://github.com/clash-verge-rev/clash-verge-rev/releases/latest",
+        "linux": "https://github.com/clash-verge-rev/clash-verge-rev/releases/latest",
+        "android": "https://github.com/MetaCubeX/ClashMetaForAndroid/releases/latest",
+        "default": "https://github.com/clash-verge-rev/clash-verge-rev/releases/latest",
+    },
+    "singbox": {
+        "default": "https://sing-box.sagernet.org/clients/",
+    },
 }
 
 
@@ -50,13 +85,22 @@ def store_links(client: str) -> dict[str, str]:
 def build_deep_links(subscription_url: str, crypto_link: str | None = None) -> dict[str, str]:
     """One-tap import links per client from a Remnawave subscription URL.
 
-    Happ prefers the panel-provided crypto (happ) link when present.
+    Happ prefers the panel-provided crypto (happ) link when present. Schemes that take
+    the URL as a path segment (happ/incy/v2raytun/…) get it verbatim; query-parameter
+    schemes (clash/sing-box/v2box) get it percent-encoded; Shadowrocket wants base64.
     """
+    b64 = base64.b64encode(subscription_url.encode()).decode()
+    q = quote(subscription_url, safe="")
     return {
         "happ": crypto_link or f"happ://add/{subscription_url}",
+        "incy": f"incy://add/{subscription_url}",
         "v2raytun": f"v2raytun://import/{subscription_url}",
         "hiddify": f"hiddify://import/{subscription_url}",
         "streisand": f"streisand://import/{subscription_url}",
+        "shadowrocket": f"shadowrocket://add/sub://{b64}",
+        "v2box": f"v2box://install-sub?url={q}",
+        "clash": f"clash://install-config?url={q}",
+        "singbox": f"sing-box://import-remote-profile?url={q}",
     }
 
 

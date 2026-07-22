@@ -100,7 +100,9 @@ async def set_banner(message: Message, command: CommandObject, container: AppCon
     arg = _screen_arg(command)
     # A misspelled screen (e.g. "subscribtion") silently maps to BANNER_DEFAULT and would
     # overwrite the global banner for ALL screens. Reject an unknown non-empty name instead.
-    if arg and arg not in SCREEN_KEYS:
+    # 'default'/'all' (and the empty arg, which _screen_arg maps to 'default') are valid —
+    # they set the global default banner, so they must pass this guard, not be rejected.
+    if arg not in SCREEN_KEYS and arg not in ("default", "all"):
         await message.answer(
             f"Неизвестный экран «{arg}». Доступные: {', '.join(SCREEN_KEYS)}. "
             "Пусто — баннер по умолчанию для всех.",

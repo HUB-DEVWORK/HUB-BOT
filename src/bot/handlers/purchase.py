@@ -1083,7 +1083,10 @@ async def successful_payment(message: Message, container: AppContainer, db_user:
             text = await notification_text(
                 uow,
                 "balance_topup",
-                name=(user.first_name if user else "") or "",
+                # Escaped: a Telegram first_name with <, > or & would make the HTML template
+                # invalid, Telegram would 400 the message, and the buyer would see a generic
+                # error instead of the confirmation — after the money already moved.
+                name=hesc((user.first_name if user else "") or ""),
                 amount=fmt_money(txn.amount_minor),
                 balance=balance,
             )
@@ -1112,7 +1115,14 @@ async def successful_payment(message: Message, container: AppContainer, db_user:
     expire = sub.expire_at.strftime("%d.%m.%Y") if sub and sub.expire_at else ""
     async with container.uow() as uow:
         text = await notification_text(
-            uow, event, name=(user.first_name if user else "") or "", plan=plan_name, expire=expire
+            uow,
+            event,
+            # Escape user- and owner-supplied values interpolated into an HTML template:
+            # a name/plan with <, > or & would make Telegram 400 the confirmation after
+            # the charge already settled (see balance_topup above).
+            name=hesc((user.first_name if user else "") or ""),
+            plan=hesc(plan_name),
+            expire=expire,
         )
     text = text or "✅ <b>Оплата получена — подписка активирована!</b>"
     if sub is not None and sub.subscription_url and event != "traffic_topup":

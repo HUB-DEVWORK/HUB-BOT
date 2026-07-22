@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from src.core.enums import TransactionStatus, TransactionType
 from src.infrastructure.database.models.campaign import Campaign
@@ -66,8 +66,14 @@ async def _metrics(uow: Any, campaign_ids: list[int]) -> dict[int, dict[str, int
             .where(
                 User.campaign_id.in_(campaign_ids),
                 Transaction.status == TransactionStatus.COMPLETED,
-                Transaction.type.in_(
-                    (TransactionType.DEPOSIT, TransactionType.SUBSCRIPTION_PAYMENT)
+                # External money only — a balance-funded SUBSCRIPTION_PAYMENT (gateway_type
+                # NULL) is an internal transfer already counted as the DEPOSIT that funded it.
+                # Summing both inflated campaign revenue/ROI/avg-check (same fix as the
+                # dashboard's _EXTERNAL_MONEY).
+                or_(
+                    Transaction.type == TransactionType.DEPOSIT,
+                    (Transaction.type == TransactionType.SUBSCRIPTION_PAYMENT)
+                    & Transaction.gateway_type.is_not(None),
                 ),
             )
             .group_by(User.campaign_id)

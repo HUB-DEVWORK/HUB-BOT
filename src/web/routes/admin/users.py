@@ -62,7 +62,9 @@ def _list_stmt(status_filter: str, q: str) -> Select[Any]:
             func.lower(func.coalesce(User.first_name, "")).like(needle),
             func.lower(func.coalesce(User.last_name, "")).like(needle),
         ]
-        if q.isdigit():
+        # `q.isascii()` guards int(): unicode digits like '²' pass str.isdigit() but
+        # int('²') raises ValueError, which would 500 the whole user search.
+        if q.isascii() and q.isdigit():
             clauses.append(User.telegram_id == int(q))
         stmt = stmt.where(or_(*clauses))
     return stmt

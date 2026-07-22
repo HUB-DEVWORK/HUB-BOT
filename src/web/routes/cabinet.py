@@ -465,6 +465,11 @@ async def purchase(
     async with container.uow() as uow:
         try:
             txn, quote = await container.purchase.start(uow, req)
+        except RemnawaveError as exc:
+            # A 100%-discount purchase fulfils inline and hits the panel; a panel blip must map
+            # to 502 (retryable), never a 400 that leaks the raw panel response body to the user.
+            log.error("cabinet free provision failed", error=str(exc))
+            raise HTTPException(502, "provisioning temporarily unavailable") from exc
         except DomainError as exc:
             raise HTTPException(400, str(exc)) from exc
         if quote.is_free:
@@ -515,6 +520,9 @@ async def _pay_with_gateway(
         settings = decrypt_gateway_settings(container.secret_box, dict(row.settings))
         try:
             txn, quote = await container.purchase.start(uow, req)
+        except RemnawaveError as exc:
+            log.error("cabinet free provision failed", error=str(exc))
+            raise HTTPException(502, "provisioning temporarily unavailable") from exc
         except DomainError as exc:
             raise HTTPException(400, str(exc)) from exc
         if quote.is_free:
@@ -658,6 +666,14 @@ async def activate_trial(
         u = await uow.users.lock_for_update(user.id)
         if u is None or not u.is_trial_available:
             raise HTTPException(400, "trial already used")
+        # A trial grant() creates a NEW panel user and overwrites current_subscription_id, so
+        # activating it over a live (usually paid) subscription orphans that subscription and
+        # hides its remaining days. Refuse while a usable subscription exists (buy-first users
+        # keep is_trial_available=True, so the flag alone doesn't guard this).
+        if u.current_subscription_id is not None:
+            existing = await uow.subscriptions.get(u.current_subscription_id)
+            if existing is not None and existing.status.is_usable:
+                raise HTTPException(409, "already have an active subscription")
         days = int(await cfg.value(uow, "TRIAL_DURATION_DAYS"))
         traffic_gb = int(await cfg.value(uow, "TRIAL_TRAFFIC_GB"))
         devices = int(await cfg.value(uow, "TRIAL_DEVICE_LIMIT"))

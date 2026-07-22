@@ -31,6 +31,10 @@ async def _read_cfg(container: AppContainer) -> tuple[str, str, bool]:
 
 @router.callback_query(F.data == "admin:update")
 async def screen(cb: CallbackQuery, container: AppContainer) -> None:
+    # Ack up front: this handler makes a network call to GitHub before any show_screen, and
+    # show_screen never answers the callback — without this the button spins for the whole
+    # GitHub round-trip (tens of seconds on a timeout). Every other admin screen acks too.
+    await cb.answer()
     repo, branch, auto = await _read_cfg(container)
     info = await check_for_update(repo, branch, container.settings.app.build_sha)
     cur = info.current or "неизвестна (образ без build-arg)"

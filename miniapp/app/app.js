@@ -36,6 +36,30 @@
     version: "v2 · VLESS", loading: "Загрузка…",
     period: "Срок", traffic: "Трафик", unlimited: "∞ безлимит",
     soon: "Тарифы скоро появятся", soonSub: "Мы уже готовим планы — загляните позже.",
+    wizTitle: (os) => `Настройка на ${os}`,
+    wizIntroSub: "Настройка VPN происходит\nв 3 шага и занимает пару минут",
+    wizStart: "Начать настройку на этом устройстве",
+    wizOther: "Установить на другом устройстве",
+    wizThisDevice: "Настроить это устройство",
+    wizPickPlatform: "Какое устройство настраиваем?",
+    wizPickApp: "Приложение",
+    wizAppTitle: "Приложение",
+    wizAppSub: (a) => `Установите приложение ${a}\nи вернитесь к этому экрану`,
+    wizInstall: "Установить приложение",
+    wizNext: "Следующий шаг",
+    wizSubTitle: "Подписка",
+    wizSubSub: (a) => `Добавьте подписку в приложение\n${a} с помощью кнопки ниже`,
+    wizAddSub: "Добавить подписку",
+    wizDoneTitle: "Готово!",
+    wizDoneSub: (a) => `Нажмите на круглую кнопку\nвключения VPN в приложении ${a}`,
+    wizFinish: "Завершить настройку",
+    wizBack: "Назад",
+    wizCopyHint: "Или добавьте подписку вручную — скопируйте ссылку и вставьте её в приложении:",
+    wizOtherSub: (a) => `Установите ${a} на нужном устройстве, затем откройте эту ссылку там или вставьте её в приложение`,
+    wizNeedSub: "Для подключения нужна подписка",
+    wizToPlans: "К тарифам",
+    wizRetry: "Повторить",
+    wizSetupBtn: "Установка и настройка",
     siteLogin: "Вход на сайте", siteLinked: (m) => `Почта ${m} привязана — на сайте входи по ней`,
     siteHint: "Привяжи почту и пароль — сможешь заходить в кабинет с любого браузера, даже когда Telegram недоступен.",
     linkEmailBtn: "Привязать почту", emailPh: "you@example.com", passPh: "Пароль (мин. 8 символов)",
@@ -68,6 +92,30 @@
     loading: "Loading…",
     period: "Period", traffic: "Traffic", unlimited: "∞ unlimited",
     soon: "Plans coming soon", soonSub: "We're setting up plans — check back later.",
+    wizTitle: (os) => `Setup on ${os}`,
+    wizIntroSub: "VPN setup takes 3 steps\nand a couple of minutes",
+    wizStart: "Start setup on this device",
+    wizOther: "Install on another device",
+    wizThisDevice: "Set up this device",
+    wizPickPlatform: "Which device are we setting up?",
+    wizPickApp: "App",
+    wizAppTitle: "The app",
+    wizAppSub: (a) => `Install the ${a} app\nand come back to this screen`,
+    wizInstall: "Install the app",
+    wizNext: "Next step",
+    wizSubTitle: "Subscription",
+    wizSubSub: (a) => `Add the subscription to ${a}\nusing the button below`,
+    wizAddSub: "Add subscription",
+    wizDoneTitle: "Done!",
+    wizDoneSub: (a) => `Tap the round VPN power\nbutton in the ${a} app`,
+    wizFinish: "Finish setup",
+    wizBack: "Back",
+    wizCopyHint: "Or add it manually — copy the link and paste it into the app:",
+    wizOtherSub: (a) => `Install ${a} on the target device, then open this link there or paste it into the app`,
+    wizNeedSub: "You need a subscription to connect",
+    wizToPlans: "See plans",
+    wizRetry: "Retry",
+    wizSetupBtn: "Setup & connect",
     siteLogin: "Website login", siteLinked: (m) => `E-mail ${m} is linked — use it to sign in on the website`,
     siteHint: "Link an e-mail and password to open your cabinet from any browser, even when Telegram is down.",
     linkEmailBtn: "Link e-mail", emailPh: "you@example.com", passPh: "Password (8+ chars)",
@@ -178,7 +226,19 @@
       macos: "https://apps.apple.com/app/streisand/id6450534064",
       default: "https://apps.apple.com/app/streisand/id6450534064",
     },
+    incy: {
+      ios: "https://apps.apple.com/app/incy/id6756943388",
+      macos: "https://apps.apple.com/app/incy/id6756943388",
+      android: "https://play.google.com/store/apps/details?id=llc.itdev.incy",
+      windows: "https://incy.work/skachat/",
+      linux: "https://incy.work/skachat/",
+      default: "https://incy.work/",
+    },
   };
+  // Offline labels for the app picker before /connection is loaded (server list wins after).
+  const APP_LABELS = { happ: "Happ", incy: "INCY", v2raytun: "v2RayTun", hiddify: "Hiddify",
+                       streisand: "Streisand", shadowrocket: "Shadowrocket", v2box: "V2Box",
+                       clash: "Clash Meta", singbox: "sing-box" };
   function detectPlatform() {
     const p = (wa && wa.platform) || "";
     const ua = navigator.userAgent || "";
@@ -353,6 +413,16 @@
           : null,
       ]),
     );
+    // One-tap entry into the guided setup wizard (mirrors the Connect tab).
+    frag.push(
+      el("button", {
+        class: "btn ghost fade wiz-home-btn",
+        onclick: () => { haptic(); state.tab = "connect"; render(); },
+      }, [
+        el("span", { text: "🔌 " + T.wizSetupBtn }),
+        el("span", { class: "sub", text: "→" }),
+      ]),
+    );
 
     // plans + pay
     const salesMode = params.get("sales") || (me && me.app.sales_mode) || "plans";
@@ -518,89 +588,210 @@
     return orderSections(sections);
   }
 
+  // ---------- guided connection wizard («Подключение») ----------
+  // Four hero screens: intro -> install the app -> add the subscription -> done.
+  // Styled entirely with theme variables so every design (a..r) keeps its character.
+
+  const PLATFORMS = [
+    { os: "ios", name: "iOS" },
+    { os: "android", name: "Android" },
+    { os: "windows", name: "Windows" },
+    { os: "macos", name: "macOS" },
+    { os: "linux", name: "Linux" },
+  ];
+
+  function wizApps() {
+    // Owner-enabled list from /connection when loaded; offline registry until then.
+    const fromApi = state.connection && Array.isArray(state.connection.apps) ? state.connection.apps : null;
+    if (fromApi && fromApi.length)
+      return fromApi.map((a) => ({ key: a.key, label: a.label, deep_link: a.deep_link, stores: a.stores || {} }));
+    return ["happ", "incy", "v2raytun", "hiddify", "streisand"].map((k) => ({
+      key: k, label: APP_LABELS[k] || k, deep_link: null, stores: APP_STORES[k] || {},
+    }));
+  }
+  function wizApp() {
+    const apps = wizApps();
+    return apps.find((a) => a.key === state.wiz.app) || apps[0];
+  }
+  function wizOs() { return (state.wiz && state.wiz.os) || detectPlatform().os; }
+  function wizOsName() {
+    const found = PLATFORMS.find((p) => p.os === wizOs());
+    return found ? found.name : detectPlatform().name;
+  }
+  function wizStore() {
+    const a = wizApp();
+    return (a.stores && (a.stores[wizOs()] || a.stores.default)) || storeFor(wizOs(), state.connection && state.connection.apps);
+  }
+
+  function wizIcon(kind) {
+    const attrs = 'fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"';
+    const inner = {
+      plug: '<path d="M8.5 7.5 5.2 10.8a4.6 4.6 0 0 0 6.5 6.5l3.3-3.3"/><path d="M15.5 16.5 7.5 8.5"/><path d="M15.5 7.5l3.3-3.3M12.7 5.9 11 7.6M18.1 11.3l-1.7 1.7M18.8 5.2l-3.6 3.6"/>',
+      cloud: '<path d="M19.4 16.8A4 4 0 0 0 18 9.1 5.8 5.8 0 0 0 6.8 8.3 4.8 4.8 0 0 0 6 17.6"/><path d="M12 11.5v7.5M9.4 16.4 12 19l2.6-2.6"/>',
+      plus: '<circle cx="12" cy="12" r="8.2" stroke-dasharray="3.4 3.6"/><path d="M12 8.4v7.2M8.4 12h7.2"/>',
+      check: '<circle cx="12" cy="12" r="8.6"/><path d="m8.2 12.4 2.5 2.5 5.1-5.3"/>',
+      shield: '<path d="M12 3.5 5.5 6v5c0 4.4 2.9 7.4 6.5 8.5 3.6-1.1 6.5-4.1 6.5-8.5V6Z"/>',
+    }[kind] || "";
+    const div = document.createElement("div");
+    div.className = "wiz-icon";
+    div.innerHTML = `<svg viewBox="0 0 24 24" ${attrs}>${inner}</svg>`;
+    return div;
+  }
+
+  function wizHero(step, icon) {
+    // Concentric guide rings + a progress arc (step of 3) + the step icon in the middle.
+    const R = 55, C = (2 * Math.PI * R).toFixed(1);
+    const dash = ((Math.max(0, Math.min(3, step)) / 3) * C).toFixed(1);
+    const hero = el("div", { class: "wiz-hero" });
+    hero.innerHTML =
+      '<svg class="wiz-arc" viewBox="0 0 120 120">' +
+      `<circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--line)" stroke-width="1.5" opacity="0.7"/>` +
+      (step > 0
+        ? `<circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--acc)" stroke-width="3" stroke-linecap="round" stroke-dasharray="${dash} ${C}" transform="rotate(-90 60 60)"/>`
+        : "") +
+      "</svg>";
+    hero.append(wizIcon(icon));
+    return hero;
+  }
+
+  function wizConfetti(host) {
+    const colors = ["var(--acc)", "#E5484D", "#F5A623", "#3ECF8E", "#5B8DEF", "#B476E5"];
+    for (let i = 0; i < 46; i++) {
+      const p = el("span", { class: "wiz-confetti" });
+      p.style.left = Math.random() * 100 + "%";
+      p.style.background = colors[i % colors.length];
+      p.style.animationDelay = (Math.random() * 0.9).toFixed(2) + "s";
+      p.style.animationDuration = (2.2 + Math.random() * 1.6).toFixed(2) + "s";
+      host.append(p);
+    }
+  }
+
+  function wizSet(patch) { Object.assign(state.wiz, patch); haptic(); render(); }
+
   function connectScreen() {
-    const plat = detectPlatform();
+    if (!state.wiz) state.wiz = { step: 0, app: null, os: null, other: false, connReq: false, connErr: false };
+    const w = state.wiz;
+    if (mock && !state.connection && window.__MOCK__) state.connection = window.__MOCK__.connection;
+    // The personal link (and the owner's true app list) — fetched lazily. connErr also gates
+    // the fetch so a failure doesn't hammer the API every render; a manual «Повторить» (and
+    // load() after a purchase) clears connReq/connErr to allow a fresh attempt.
+    if (!mock && !state.connection && !w.connReq && !w.connErr) {
+      w.connReq = true;
+      api("GET", "/api/cabinet/connection")
+        .then((r) => { state.connection = r; w.connReq = false; render(); })
+        .catch(() => { w.connReq = false; w.connErr = true; render(); });
+    }
+    const app = wizApp();
     const conn = state.connection;
-    const storeUrl = storeFor(plat.os, conn && conn.apps);
-    const frag = [];
-    frag.push(
-      el("div", { class: "card fade" }, [
-        el("div", { class: "step" }, [
-          el("span", { class: "step-num", text: "1" }),
-          el("div", { style: "flex:1" }, [
-            el("b", { text: T.step1 }),
-            el("div", { class: "sub", style: "font-size:12.5px;margin:3px 0 10px", text: T.step1sub }),
-            el("button", { class: "btn ghost", onclick: () => (wa && wa.openLink ? wa.openLink(storeUrl) : window.open(storeUrl)), text: `${T.download} · ${plat.name}` }),
-          ]),
-        ]),
-      ]),
-    );
-    frag.push(
-      el("div", { class: "card fade" }, [
-        el("div", { class: "step" }, [
-          el("span", { class: "step-num", text: "2" }),
-          el("div", { style: "flex:1" }, [
-            el("b", { text: T.step2 }),
-            conn
-              ? el("div", { style: "margin-top:10px;display:grid;gap:9px" }, [
-                  // Raw link + copy hidden when the owner enabled HIDE_SUBSCRIPTION_LINK;
-                  // the one-tap import button stays so connecting still works (HIDE-1).
-                  conn.hide_link
-                    ? null
-                    : el("div", { class: "link-box mono", text: conn.subscription_url }),
-                  // One "Открыть в <App>" button per owner-enabled client (conn.apps). A custom
-                  // app scheme (happ://…) can't be opened from inside the Telegram WebView, so
-                  // openApp() bounces it through the https /dl page in the external browser.
-                  ...(Array.isArray(conn.apps) && conn.apps.length
-                    ? conn.apps.map((a) =>
-                        el("button", {
-                          class: "btn primary",
-                          style: btnStyle("open_app"),
-                          onclick: () => openApp(a.deep_link),
-                          text: "⚡ " + (btnText("open_app", T.openApp) + " · " + a.label),
-                        }),
-                      )
-                    : [
-                        el("button", {
-                          class: "btn primary",
-                          style: btnStyle("open_app"),
-                          onclick: () =>
-                            openApp(
-                              (conn.deep_links || {}).happ ||
-                                Object.values(conn.deep_links || {})[0] ||
-                                conn.subscription_url,
-                            ),
-                          text: "⚡ " + btnText("open_app", T.openApp),
-                        }),
-                      ]),
-                  conn.hide_link
-                    ? null
-                    : el("button", {
-                        class: "btn ghost",
-                        onclick: async () => {
-                          (await copyText(conn.subscription_url)) && toast(T.copied);
-                          haptic("ok");
-                        },
-                        text: T.copy,
-                      }),
-                ].filter(Boolean))
-              : el("button", { class: "btn primary", style: "margin-top:10px;" + btnStyle("get_link"), onclick: loadConnection, text: btnText("get_link", T.getLink) }),
-          ]),
-        ]),
-      ]),
-    );
-    frag.push(
-      el("div", { class: "card fade" }, [
-        el("div", { class: "step" }, [
-          el("span", { class: "step-num", text: "3" }),
-          el("div", {}, [
-            el("b", { text: T.step3 }),
-            el("div", { class: "sub", style: "font-size:12.5px;margin-top:3px", text: T.step3sub }),
-          ]),
-        ]),
-      ]),
-    );
-    return frag.concat(customItems("connect"));
+    const screen = el("div", { class: "wiz fade" });
+    const actions = el("div", { class: "wiz-actions" });
+    const title = (t) => el("div", { class: "wiz-title", text: t });
+    const sub = (t) => {
+      const d = el("div", { class: "wiz-sub" });
+      String(t).split("\n").forEach((line, i) => {
+        if (i) d.append(document.createElement("br"));
+        d.append(document.createTextNode(line));
+      });
+      return d;
+    };
+    const back = (to) => el("span", { class: "wiz-back", onclick: () => wizSet({ step: to }), text: "← " + T.wizBack });
+
+    if (w.step === 0) {
+      screen.append(title(T.wizTitle(wizOsName())), sub(T.wizIntroSub));
+      const apps = wizApps();
+      if (apps.length > 1) {
+        const chips = el("div", { class: "wiz-chips" });
+        apps.forEach((a) => chips.append(el("button", {
+          class: "wiz-chip" + (a.key === app.key ? " on" : ""),
+          onclick: () => wizSet({ app: a.key }),
+          text: a.label,
+        })));
+        screen.append(el("div", { class: "wiz-cap", text: T.wizPickApp }), chips);
+      }
+      if (w.other) {
+        const plats = el("div", { class: "wiz-chips" });
+        PLATFORMS.forEach((p) => plats.append(el("button", {
+          class: "wiz-chip" + (wizOs() === p.os ? " on" : ""),
+          onclick: () => wizSet({ os: p.os }),
+          text: p.name,
+        })));
+        screen.append(el("div", { class: "wiz-cap", text: T.wizPickPlatform }), plats);
+      }
+      screen.append(wizHero(0, "plug"));
+      actions.append(
+        el("button", { class: "btn primary wiz-btn", style: btnStyle("open_app"), onclick: () => wizSet({ step: 1 }), text: w.other ? T.wizNext + " →" : T.wizStart }),
+        el("button", { class: "btn ghost wiz-btn", onclick: () => wizSet({ other: !w.other, os: null }), text: w.other ? T.wizThisDevice : T.wizOther }),
+      );
+    } else if (w.step === 1) {
+      screen.append(title(T.wizAppTitle), sub(T.wizAppSub(app.label)), wizHero(1, "cloud"));
+      const storeUrl = wizStore();
+      actions.append(
+        el("button", {
+          class: "btn primary wiz-btn",
+          onclick: () => { haptic(); wa && wa.openLink ? wa.openLink(storeUrl) : window.open(storeUrl, "_blank"); },
+          text: "⤓ " + T.wizInstall,
+        }),
+        el("button", { class: "btn ghost wiz-btn", onclick: () => wizSet({ step: 2 }), text: T.wizNext + " →" }),
+        back(0),
+      );
+    } else if (w.step === 2) {
+      screen.append(title(T.wizSubTitle), sub(w.other ? T.wizOtherSub(app.label) : T.wizSubSub(app.label)), wizHero(2, "plus"));
+      // hide_link shops return subscription_url:null but keep working deep_links — the step
+      // must still render (one-tap import), otherwise it hangs forever on «Загрузка…».
+      if (conn && (conn.subscription_url || conn.hide_link)) {
+        const link = (conn.deep_links && conn.deep_links[app.key]) || app.deep_link;
+        if (!w.other && link) {
+          actions.append(el("button", {
+            class: "btn primary wiz-btn",
+            style: btnStyle("open_app"),
+            onclick: () => openApp(link),
+            text: "⊕ " + btnText("open_app", T.wizAddSub),
+          }));
+        }
+        if (!conn.hide_link) {
+          if (!w.other) actions.append(el("div", { class: "wiz-cap", text: T.wizCopyHint }));
+          actions.append(
+            el("div", { class: "link-box mono wiz-link", text: conn.subscription_url }),
+            el("button", {
+              class: "btn ghost wiz-btn",
+              onclick: async () => { (await copyText(conn.subscription_url)) && toast(T.copied); haptic("ok"); },
+              text: T.copy,
+            }),
+          );
+        } else if (w.other && link) {
+          // Raw link hidden by the owner: hand over the one-tap import link instead (HIDE-1
+          // keeps deep links working, so copying one to the other device is consistent).
+          actions.append(el("button", {
+            class: "btn ghost wiz-btn",
+            onclick: async () => { (await copyText(link)) && toast(T.copied); haptic("ok"); },
+            text: T.copy,
+          }));
+        }
+        actions.append(el("button", { class: "btn ghost wiz-btn", onclick: () => wizSet({ step: 3 }), text: T.wizNext + " →" }));
+      } else if (w.connErr) {
+        actions.append(
+          el("div", { class: "wiz-cap", text: T.wizNeedSub }),
+          el("button", { class: "btn primary wiz-btn", onclick: () => { haptic(); state.tab = "home"; render(); }, text: T.wizToPlans }),
+          el("button", { class: "btn ghost wiz-btn", onclick: () => { w.connErr = false; w.connReq = false; render(); }, text: T.wizRetry }),
+        );
+      } else {
+        actions.append(el("div", { class: "wiz-cap", text: T.loading }));
+      }
+      actions.append(back(1));
+    } else {
+      screen.append(title(T.wizDoneTitle), sub(T.wizDoneSub(app.label)), wizHero(3, "check"));
+      wizConfetti(screen);
+      actions.append(
+        el("button", {
+          class: "btn primary wiz-btn",
+          onclick: () => { haptic("ok"); state.wiz = null; state.tab = "home"; render(); },
+          text: T.wizFinish,
+        }),
+        back(2),
+      );
+    }
+    screen.append(actions);
+    return [screen].concat(customItems("connect"));
   }
 
   function accountScreen() {
@@ -658,7 +849,9 @@
                   onclick: async () => {
                     try {
                       await api("DELETE", `/api/cabinet/devices/${encodeURIComponent(d.hwid)}`);
-                      state.devices = null;
+                      // `undefined` (not null) is the "refetch me" sentinel — null means
+                      // "load in flight" and would leave the list hidden until an app restart.
+                      state.devices = undefined;
                       toast(T.deviceRemoved);
                       render();
                     } catch (e) {
@@ -947,6 +1140,12 @@
         api("GET", "/api/cabinet/payments").catch(() => null),
       ]);
       Object.assign(state, { me, plans, constructor, referral, payments });
+      // A full refresh (boot, or after a purchase) invalidates the cached connection + wizard
+      // fetch flags — so a user who hit the Connect tab BEFORE buying (got a 404, connErr set)
+      // sees the wizard work the moment they come back with a live subscription. Devices too.
+      state.connection = null;
+      state.devices = undefined;
+      if (state.wiz) { state.wiz.connReq = false; state.wiz.connErr = false; }
       // Owner branding: title → document/tab title; greeting shown atop Home.
       // ?title=/?greeting= let the admin preview override the (mock) config.
       const title = params.get("title") || me.app.title;
@@ -972,6 +1171,20 @@
       if (UI.scale) document.documentElement.style.fontSize = `${(UI.scale / 100) * 100}%`;
       T = (params.get("lang") || me.user.language) === "en" ? EN : RU;
       document.documentElement.lang = T === EN ? "en" : "ru";
+      // Translate the static tab-bar labels (index.html has data-i18n but nothing applied it,
+      // so an English user saw «Главная / Подключение / Кабинет» under English content).
+      document.querySelectorAll("[data-i18n]").forEach((n) => {
+        const key = n.getAttribute("data-i18n");
+        if (key && T[key] != null && typeof T[key] === "string") n.textContent = T[key];
+      });
+      // Preview helpers (admin iframe / screenshots): ?tab= opens a tab, ?wstep= a wizard step.
+      const tabParam = params.get("tab");
+      if (tabParam && ["home", "connect", "account"].includes(tabParam)) state.tab = tabParam;
+      const wstep = parseInt(params.get("wstep") || "", 10);
+      if (!Number.isNaN(wstep)) {
+        state.tab = "connect";
+        state.wiz = { step: Math.max(0, Math.min(3, wstep)), app: params.get("wapp") || null, os: null, other: params.get("wother") === "1", connReq: false, connErr: false };
+      }
       render();
     } catch (e) {
       $("#screen").innerHTML = `<div class="skel">${T.error}</div>`;

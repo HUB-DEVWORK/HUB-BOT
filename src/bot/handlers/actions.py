@@ -502,6 +502,14 @@ async def act_trial(cb: CallbackQuery | Message, container: AppContainer, db_use
         if user is None or not user.is_trial_available:
             await ack(cb, "Пробный период уже использован", alert=True)
             return
+        # A trial grant() spins up a new panel user and overwrites current_subscription_id,
+        # orphaning any live (usually paid) subscription. Refuse while one is usable — the
+        # trial flag stays True for buy-first users, so it alone doesn't guard this.
+        if user.current_subscription_id is not None:
+            existing = await uow.subscriptions.get(user.current_subscription_id)
+            if existing is not None and existing.status.is_usable:
+                await ack(cb, "У тебя уже есть активная подписка", alert=True)
+                return
         days = int(await cfg.value(uow, "TRIAL_DURATION_DAYS"))
         traffic_gb = int(await cfg.value(uow, "TRIAL_TRAFFIC_GB"))
         devices = int(await cfg.value(uow, "TRIAL_DEVICE_LIMIT"))

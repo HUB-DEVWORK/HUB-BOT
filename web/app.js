@@ -102,9 +102,49 @@ async function oauthGo(provider, link) {
 
 const OAUTH_LABELS = { google: "Google", yandex: "Яндекс", vk: "ВКонтакте" };
 
+let tgPollTimer = null;
+
+async function tgLoginGo(holder) {
+  clearInterval(tgPollTimer);
+  try {
+    const d = await api("POST", `${A}/telegram/start`);
+    holder.innerHTML = "";
+    holder.append(
+      el("div", { class: "hint" }, "Открой бота и нажми «Да, это я» — вход подтвердится сам."),
+      el("a", { class: "btn primary", href: d.url, target: "_blank", rel: "noopener" }, "Открыть бота"),
+      el("div", { class: "hint center" }, "Ждём подтверждение…"),
+    );
+    const deadline = Date.now() + (d.expires_in || 300) * 1000;
+    tgPollTimer = setInterval(async () => {
+      if (Date.now() > deadline) { clearInterval(tgPollTimer); holder.innerHTML = ""; toast("Время вышло — попробуй ещё раз"); return; }
+      try {
+        const r = await api("POST", `${A}/telegram/poll`, { code: d.code });
+        if (r.access_token) {
+          clearInterval(tgPollTimer);
+          store.set(r.access_token, r.refresh_token);
+          route("cabinet");
+        }
+      } catch (e) {
+        // Only a real "code expired" (400) is terminal. A network blip or a 429 from the
+        // shared-IP rate limiter must NOT kill the poll — the user may have already tapped
+        // «Да, это я» in the bot, and giving up would waste that confirmation. Keep polling
+        // until the deadline; those transient ticks just retry on the next interval.
+        if (e && e.status === 400) {
+          clearInterval(tgPollTimer);
+          holder.innerHTML = "";
+          toast(e.message);
+        }
+      }
+    }, 2500);
+  } catch (e) { toast(e.message); }
+}
+
 function oauthButtons() {
+  const tgHolder = el("div", {});
   return el("div", {}, [
     el("div", { class: "divider" }, "или"),
+    el("button", { class: "btn oauth", onclick: () => tgLoginGo(tgHolder) }, "Войти через Telegram"),
+    tgHolder,
     el("button", { class: "btn oauth", onclick: () => oauthGo("vk") }, "Войти через ВКонтакте"),
     el("button", { class: "btn oauth", onclick: () => oauthGo("yandex") }, "Войти через Яндекс"),
     el("button", { class: "btn oauth", onclick: () => oauthGo("google") }, "Войти через Google"),
@@ -384,15 +424,22 @@ function linkEmailForm(card) {
 /* ---------- router ---------- */
 
 let view = "auth";
+let renderSeq = 0;
 function route(v) { view = v; render(); }
 
 async function render() {
+  // A render is async (cabinetView awaits /me). If it fails auth mid-flight it calls
+  // route("auth"), which starts a NESTED render; without this guard the outer render would
+  // then overwrite the freshly drawn auth screen with cabinetView's empty fallback node —
+  // a blank white page. The seq check makes a superseded render bail instead of clobbering.
+  const seq = ++renderSeq;
   const a = app();
   a.innerHTML = "";
   a.append(el("div", { class: "muted center" }, "…"));
   let node;
   if (view === "cabinet") node = await cabinetView();
   else node = authView();
+  if (seq !== renderSeq) return;  // a newer render superseded us
   a.innerHTML = "";
   a.append(node);
 }
@@ -422,8 +469,13 @@ async function boot() {
     try {
       const d = await api("POST", `${A}/login/auto`, { token: auto });
       store.set(d.access_token, d.refresh_token);
-    } catch {}
-    localStorage.removeItem("wc_auto");
+      localStorage.removeItem("wc_auto");  // spent — remove only on success
+    } catch (e) {
+      // A guest has no password: wc_auto is their ONLY way into the freshly bought account.
+      // Burn it only when the server says it's truly invalid (401); on a transient 5xx /
+      // network error keep it so a reload can retry, instead of stranding a paying user.
+      if (e && e.status === 401) localStorage.removeItem("wc_auto");
+    }
   }
   view = store.access ? "cabinet" : "auth";
   render();

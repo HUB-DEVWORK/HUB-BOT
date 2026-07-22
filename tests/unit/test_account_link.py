@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 import pytest
 from sqlalchemy import select
 
@@ -21,7 +23,7 @@ from src.infrastructure.database.models.subscription import Subscription
 from src.infrastructure.database.models.transaction import Transaction
 from src.infrastructure.database.models.user import User
 from src.infrastructure.database.uow import UnitOfWork
-from tests.factories import make_user
+from tests.factories import make_plan, make_user
 
 
 async def _make_web_user(uow: UnitOfWork, *, email: str = "web@example.com", **kw: object) -> User:
@@ -168,3 +170,148 @@ async def test_merge_trial_spent_on_either_side(uow: UnitOfWork) -> None:
         await merge_web_into_telegram(uow, tg_user, web_id)
         await uow.commit()
         assert tg_user.is_trial_available is False
+
+
+async def test_merge_revokes_source_refresh_tokens(uow: UnitOfWork) -> None:
+    """A pre-merge web session's refresh token must NOT survive onto the merged account —
+    otherwise it keeps working against the (now larger) survivor. It's dropped, not moved."""
+    from src.infrastructure.database.models.cabinet_token import CabinetRefreshToken
+
+    async with uow:
+        tg = await make_user(uow, telegram_id=888)
+        web = await _make_web_user(uow)
+        await uow.flush()
+        uow.session.add(
+            CabinetRefreshToken(
+                user_id=web.id,
+                token_hash="deadbeef",
+                expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(days=7),
+            )
+        )
+        await uow.commit()
+        tg_id, web_id = tg.id, web.id
+
+    async with uow:
+        tg_user = await uow.users.get(tg_id)
+        assert tg_user is not None
+        await merge_web_into_telegram(uow, tg_user, web_id)
+        await uow.commit()
+        # neither the survivor nor the (deleted) web account keeps the token
+        assert await uow.cabinet_tokens.find_one(token_hash="deadbeef") is None
+
+
+async def test_merge_same_plan_trial_yields_to_paid(uow: UnitOfWork) -> None:
+    """Both sides live on the same plan (uq_active_sub): a trial is retired so the move
+    doesn't violate the unique index, and the paid subscription becomes current."""
+    async with uow:
+        plan, _ = await make_plan(uow, code="pro")
+        tg = await make_user(uow, telegram_id=999)
+        web = await _make_web_user(uow)
+        tg_trial = Subscription(
+            user_id=tg.id,
+            short_id="TGT",
+            plan_id=plan.id,
+            status=SubscriptionStatus.TRIAL,
+            is_trial=True,
+            plan_snapshot={},
+        )
+        web_paid = Subscription(
+            user_id=web.id,
+            short_id="WBP",
+            plan_id=plan.id,
+            status=SubscriptionStatus.ACTIVE,
+            is_trial=False,
+            plan_snapshot={},
+        )
+        uow.session.add_all([tg_trial, web_paid])
+        await uow.flush()
+        tg.current_subscription_id = tg_trial.id
+        web.current_subscription_id = web_paid.id
+        await uow.commit()
+        tg_id, web_id, trial_id, paid_id = tg.id, web.id, tg_trial.id, web_paid.id
+
+    async with uow:
+        tg_user = await uow.users.get(tg_id)
+        assert tg_user is not None
+        await merge_web_into_telegram(uow, tg_user, web_id)  # must NOT raise on uq_active_sub
+        await uow.commit()
+        retired = await uow.subscriptions.get(trial_id)
+        paid = await uow.subscriptions.get(paid_id)
+        assert retired is not None and retired.status is SubscriptionStatus.EXPIRED
+        assert paid is not None and paid.user_id == tg_id and paid.status.is_usable
+        # the survivor's current pointer follows the usable paid subscription, not the trial
+        assert tg_user.current_subscription_id == paid_id
+
+
+async def test_merge_two_paid_same_plan_refuses(uow: UnitOfWork) -> None:
+    """Two live PAID subscriptions on the same plan can't be silently dropped — refuse."""
+    async with uow:
+        plan, _ = await make_plan(uow, code="pro2")
+        tg = await make_user(uow, telegram_id=1001)
+        web = await _make_web_user(uow)
+        uow.session.add_all(
+            [
+                Subscription(
+                    user_id=tg.id,
+                    short_id="TP1",
+                    plan_id=plan.id,
+                    status=SubscriptionStatus.ACTIVE,
+                    is_trial=False,
+                    plan_snapshot={},
+                ),
+                Subscription(
+                    user_id=web.id,
+                    short_id="WP1",
+                    plan_id=plan.id,
+                    status=SubscriptionStatus.ACTIVE,
+                    is_trial=False,
+                    plan_snapshot={},
+                ),
+            ]
+        )
+        await uow.commit()
+        tg_id, web_id = tg.id, web.id
+
+    async with uow:
+        tg_user = await uow.users.get(tg_id)
+        assert tg_user is not None
+        with pytest.raises(AccountLinkError):
+            await merge_web_into_telegram(uow, tg_user, web_id)
+
+
+async def test_merge_current_pointer_prefers_usable_over_dead_trial(uow: UnitOfWork) -> None:
+    """Bot user's pointer sits on an expired trial; the paid sub bought on the web must
+    become current after the merge (else the UI shows 'no subscription' and they pay twice)."""
+    async with uow:
+        trial_plan, _ = await make_plan(uow, code="trialp")
+        paid_plan, _ = await make_plan(uow, code="paidp")
+        tg = await make_user(uow, telegram_id=1002)
+        web = await _make_web_user(uow)
+        dead = Subscription(
+            user_id=tg.id,
+            short_id="DED",
+            plan_id=trial_plan.id,
+            status=SubscriptionStatus.EXPIRED,
+            is_trial=True,
+            plan_snapshot={},
+        )
+        paid = Subscription(
+            user_id=web.id,
+            short_id="PAID",
+            plan_id=paid_plan.id,
+            status=SubscriptionStatus.ACTIVE,
+            is_trial=False,
+            plan_snapshot={},
+        )
+        uow.session.add_all([dead, paid])
+        await uow.flush()
+        tg.current_subscription_id = dead.id  # points at the dead trial
+        await uow.commit()
+        tg_id, web_id, paid_id = tg.id, web.id, paid.id
+
+    async with uow:
+        tg_user = await uow.users.get(tg_id)
+        assert tg_user is not None
+        await merge_web_into_telegram(uow, tg_user, web_id)
+        await uow.commit()
+        assert tg_user.current_subscription_id == paid_id

@@ -225,8 +225,12 @@ class PurchaseService:
         # lock — this closes the same hole on the webhook/Stars fulfilment path.
         purchase_type = txn.purchase_type or PurchaseType.NEW
         subscription_id = pricing.get("subscription_id")
+        # Lock the user row for EVERY fulfilment, topups included: two webhooks for two paid
+        # traffic packs settle on separate workers, and the topup branch does an unlocked
+        # read-modify-write of traffic_limit_bytes (+= pack) — without the lock both read the
+        # same limit and one paid pack is lost. The lock serializes them.
+        await uow.users.lock_for_update(txn.user_id)
         if purchase_type is not PurchaseType.TRAFFIC_TOPUP:
-            await uow.users.lock_for_update(txn.user_id)
             purchase_type, subscription_id = await self.resolve_purchase_type(
                 uow, txn.user_id, plan.id
             )

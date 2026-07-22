@@ -14,8 +14,11 @@ accounts, same referral binding) — the survivor's copy wins.
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import delete, select, update
 
+from src.core.enums import SubscriptionStatus
 from src.core.logging import get_logger
 from src.infrastructure.database.models.audit_log import AuditLog
 from src.infrastructure.database.models.cabinet_token import CabinetRefreshToken
@@ -34,6 +37,9 @@ log = get_logger(__name__)
 
 # Redis: one-time deep-link code -> web user id (minted by the cabinet, spent by the bot).
 TG_LINK_PREFIX = "link_tg:"
+# Redis: «Войти через Telegram» on the website — pending until the person confirms in
+# the bot, then carries the Telegram user's id for the site's poll to pick up.
+TG_WEBLOGIN_PREFIX = "weblogin:"
 
 
 class AccountLinkError(Exception):
@@ -103,17 +109,23 @@ async def merge_web_into_telegram(uow: UnitOfWork, tg_user: User, web_user_id: i
         tg_user.saved_payment_method_id = web.saved_payment_method_id
         tg_user.saved_payment_method_title = web.saved_payment_method_title
 
+    # --- subscriptions (handled first: uq_active_sub can't take two live rows on one
+    #     plan for the same user, so resolve those collisions before the move) --------
+    await _merge_subscriptions(s, src, dst)
+
     # --- bulk-move owned rows ---------------------------------------------
     for model, column in (
-        (Subscription, Subscription.user_id),
         (Transaction, Transaction.user_id),
         (Ticket, Ticket.user_id),
         (WithdrawalRequest, WithdrawalRequest.user_id),
-        (CabinetRefreshToken, CabinetRefreshToken.user_id),
         (LinkedAccount, LinkedAccount.user_id),
     ):
         await s.execute(update(model).where(column == src).values(user_id=dst))
     await s.execute(update(AuditLog).where(AuditLog.actor_user_id == src).values(actor_user_id=dst))
+    # Refresh tokens are NOT transferred: a pre-merge web session must not silently become a
+    # session on the (now larger) survivor account — a stolen/pre-existing web refresh token
+    # would otherwise keep working against the merged account. Drop them; re-login is cheap.
+    await s.execute(delete(CabinetRefreshToken).where(CabinetRefreshToken.user_id == src))
 
     # Promocode activations: UNIQUE(promocode_id, user_id) — a code both accounts used
     # stays "used once" on the survivor, the duplicate source row is dropped.
@@ -172,11 +184,75 @@ async def merge_web_into_telegram(uow: UnitOfWork, tg_user: User, web_user_id: i
         update(ReferralEarning).where(ReferralEarning.user_id == src).values(user_id=dst)
     )
 
-    if tg_user.current_subscription_id is None and web.current_subscription_id is not None:
-        tg_user.current_subscription_id = web.current_subscription_id
+    # Point the survivor at a usable subscription. The old rule ("keep dst's pointer unless
+    # it's None") stranded a freshly bought paid sub behind an expired trial — the whole UI
+    # reads current_subscription_id, so the buyer saw "no subscription" and could pay twice.
+    await _pick_current_subscription(s, tg_user)
 
     await s.flush()
     await s.delete(web)
     await s.flush()
     log.info("accounts merged", survivor=dst, absorbed=src)
     return tg_user
+
+
+_LIVE_STATUSES = (
+    SubscriptionStatus.ACTIVE,
+    SubscriptionStatus.TRIAL,
+    SubscriptionStatus.LIMITED,
+)
+
+
+async def _merge_subscriptions(s: Any, src: int, dst: int) -> None:
+    """Move the source account's subscriptions onto the survivor, resolving the one case
+    the DB forbids: two live subscriptions for the same plan (``uq_active_sub``).
+
+    A trial always yields to anything else. If BOTH sides hold a live subscription on the
+    same plan and neither is a trial, we can't silently drop a paid subscription — refuse
+    the whole link with a message pointing the owner at support.
+    """
+    src_subs = list(
+        (await s.scalars(select(Subscription).where(Subscription.user_id == src))).all()
+    )
+    dst_live = {
+        sub.plan_id: sub
+        for sub in (
+            await s.scalars(
+                select(Subscription).where(
+                    Subscription.user_id == dst, Subscription.status.in_(_LIVE_STATUSES)
+                )
+            )
+        ).all()
+        if sub.plan_id is not None
+    }
+    for sub in src_subs:
+        clash = dst_live.get(sub.plan_id) if sub.plan_id is not None else None
+        if clash is not None and sub.status in _LIVE_STATUSES:
+            if sub.is_trial:
+                # Source trial is disposable — expire it, keep the survivor's live sub.
+                sub.status = SubscriptionStatus.EXPIRED
+            elif clash.is_trial:
+                # Survivor's is only a trial — retire it so the paid one can take the slot.
+                clash.status = SubscriptionStatus.EXPIRED
+                del dst_live[sub.plan_id]
+            else:
+                raise AccountLinkError(
+                    "на обоих аккаунтах активная подписка на один тариф — "
+                    "напиши в поддержку, объединим вручную"
+                )
+        await s.execute(update(Subscription).where(Subscription.id == sub.id).values(user_id=dst))
+
+
+async def _pick_current_subscription(s: Any, user: User) -> None:
+    """Ensure ``current_subscription_id`` points at a usable subscription when one exists."""
+    subs = list(
+        (await s.scalars(select(Subscription).where(Subscription.user_id == user.id))).all()
+    )
+    current = next((sub for sub in subs if sub.id == user.current_subscription_id), None)
+    if current is not None and current.status in _LIVE_STATUSES:
+        return  # already usable — leave it
+    usable = [sub for sub in subs if sub.status in _LIVE_STATUSES]
+    if usable:
+        # Prefer a paid subscription, then the one expiring latest.
+        usable.sort(key=lambda x: (x.is_trial, -(x.expire_at.timestamp() if x.expire_at else 0)))
+        user.current_subscription_id = usable[0].id

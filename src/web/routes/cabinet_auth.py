@@ -269,6 +269,7 @@ async def refresh(
 ) -> dict[str, Any]:
     from sqlalchemy import update
 
+    await _require_web_enabled(container)  # kill-switch gates rotation, not just fresh logins
     token_hash = _hash(body.refresh_token)
     now = dt.datetime.now(dt.UTC)
     async with container.uow() as uow:
@@ -315,6 +316,11 @@ async def web_user_from_bearer(request: Request, container: AppContainer) -> Use
     if payload is None or payload.get("type") != "access" or not payload.get("web"):
         return None
     async with container.uow() as uow:
+        # The kill-switch must gate EXISTING sessions too, not just new logins — otherwise
+        # turning the web cabinet off (e.g. mid-abuse) leaves every already-logged-in user
+        # with full /api/cabinet/* access and endless refresh-token rotation.
+        if not bool(await container.bot_config.value(uow, "WEB_CABINET_ENABLED")):
+            return None
         user = await uow.users.get(int(payload["sub"]))
     if user is None or user.status is UserStatus.BLOCKED:
         return None  # blocked -> cabinet_user() raises 401, same as the bot/tma block
@@ -432,6 +438,71 @@ async def login_auto(
         # never let an auto-login token (weak proof) unlock a staff account
         if user.role.is_staff:
             raise HTTPException(403, "not allowed for staff accounts")
+    return await _auth_response(container, user, device=request.headers.get("user-agent"))
+
+
+# --- «Войти через Telegram» (deep-link + confirm in the bot) -----------------
+
+_TG_LOGIN_TTL = 300
+
+
+@router.post("/telegram/start")
+async def telegram_login_start(
+    request: Request, container: AppContainer = Depends(get_container)
+) -> dict[str, Any]:
+    """Mint a one-time login code and hand back the bot deep link.
+
+    The person opens the bot, taps «Да, это я» there, and the site's poll exchanges
+    the code for a session. Proof of identity is control of the Telegram account —
+    stronger than a password, no extra BotFather setup needed.
+    """
+    import json as _json
+
+    from src.application.services.account_link import TG_WEBLOGIN_PREFIX
+
+    await _require_web_enabled(container)
+    await _rate_limit(container, "tg_login", _client_ip(request), limit=30, window=3600)
+    async with container.uow() as uow:
+        bot_username = str(await container.bot_config.value(uow, "BOT_USERNAME") or "")
+    if not bot_username:
+        raise HTTPException(503, "бот не настроен")
+    code = secrets.token_urlsafe(24)
+    await container.redis.set(
+        f"{TG_WEBLOGIN_PREFIX}{code}", _json.dumps({"status": "pending"}), ex=_TG_LOGIN_TTL
+    )
+    return {
+        "code": code,
+        "url": f"https://t.me/{bot_username}?start=weblogin_{code}",
+        "expires_in": _TG_LOGIN_TTL,
+    }
+
+
+class TelegramPollIn(BaseModel):
+    code: str = Field(..., min_length=8, max_length=64)
+
+
+@router.post("/telegram/poll")
+async def telegram_login_poll(
+    body: TelegramPollIn, request: Request, container: AppContainer = Depends(get_container)
+) -> dict[str, Any]:
+    """The site polls until the bot marks the code confirmed, then gets a session."""
+    import json as _json
+
+    from src.application.services.account_link import TG_WEBLOGIN_PREFIX
+
+    await _rate_limit(container, "tg_poll", _client_ip(request), limit=300, window=300)
+    key = f"{TG_WEBLOGIN_PREFIX}{body.code}"
+    raw = await container.redis.get(key)
+    if raw is None:
+        raise HTTPException(400, "код устарел — начни вход заново")
+    data = _json.loads(raw)
+    if data.get("status") != "ok":
+        return {"pending": True}
+    await container.redis.delete(key)  # single use: one confirmed code -> one session
+    async with container.uow() as uow:
+        user = await uow.users.get(int(data["user_id"]))
+    if user is None:
+        raise HTTPException(401, "user gone")
     return await _auth_response(container, user, device=request.headers.get("user-agent"))
 
 

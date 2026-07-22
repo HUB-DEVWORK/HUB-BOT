@@ -8,9 +8,14 @@ from typing import Any
 from aiogram import BaseMiddleware
 from aiogram.filters import Filter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, TelegramObject
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, TelegramObject
 
 MENU_CB = "admin:menu"
+
+# Callbacks that legitimately CONSUME the pending form (they read state.get_data before
+# clearing it themselves). ClearStaleForm must not wipe the form out from under them —
+# doing so silently emptied the broadcast text and made «Рассылка» unusable from the bot.
+_FORM_CONSUMING_CB = frozenset({"admin:bc:go"})
 
 
 class IsAdmin(Filter):
@@ -44,7 +49,8 @@ class ClearStaleForm(BaseMiddleware):
         data: dict[str, Any],
     ) -> Any:
         state: FSMContext | None = data.get("state")
-        if state is not None:
+        consumes = isinstance(event, CallbackQuery) and (event.data or "") in _FORM_CONSUMING_CB
+        if state is not None and not consumes:
             await state.clear()
         return await handler(event, data)
 

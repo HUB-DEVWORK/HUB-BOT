@@ -734,11 +734,13 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "CONNECTION_APPS",
         C.INTERFACE,
         STR,
-        "happ,v2raytun,hiddify,streisand",
+        "happ,incy,v2raytun,hiddify,streisand",
         "Приложения на вкладке «Подключение»",
         "Apps on the Connect tab",
-        "Список через запятую: happ, v2raytun, hiddify, streisand. Порядок = порядок показа",
-        "Comma-separated: happ, v2raytun, hiddify, streisand. Order = display order",
+        "Список через запятую: happ, incy, v2raytun, hiddify, streisand, shadowrocket, "
+        "v2box, clash, singbox. Порядок = порядок показа, первый = основной в мастере",
+        "Comma-separated: happ, incy, v2raytun, hiddify, streisand, shadowrocket, v2box, "
+        "clash, singbox. Order = display order, first = the wizard's primary app",
     ),
     _p(
         "TERMS_TEXT",

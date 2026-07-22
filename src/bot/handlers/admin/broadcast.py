@@ -91,16 +91,22 @@ async def bc_text(
     await state.update_data(text=text)
     async with container.uow() as uow:
         size = await _audience_size(uow, BroadcastAudience(audience))
+    from html import escape as _hesc
+
     preview = text if len(text) <= 500 else text[:500] + "…"
     kb = rows_kb(
         [
             [("✅ Отправить", "admin:bc:go"), ("‹ Отмена", MENU_CB)],
         ]
     )
+    # The preview is escaped, not parsed as HTML: a naive char slice of the admin's HTML text
+    # can cut a tag in half, and rendering that with parse_mode=HTML made Telegram reject the
+    # whole confirmation (400) — the broadcast could never be sent. The header keeps HTML;
+    # the body shows the raw markup so the admin still sees exactly what they typed.
     await message.answer(
         f"📣 <b>Проверь рассылку</b>\n"
-        f"Аудитория: {_AUD_LABEL.get(audience, audience)} · получателей: <b>{size}</b>\n\n"
-        f"{preview}",
+        f"Аудитория: {_hesc(_AUD_LABEL.get(audience, audience))} · получателей: <b>{size}</b>\n\n"
+        f"{_hesc(preview)}",
         reply_markup=kb,
         parse_mode="HTML",
     )

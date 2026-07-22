@@ -433,3 +433,152 @@ body[data-variant="g"] .toast {
     transform: translateY(8px);
   }
 }
+
+/* ---------- guided connection wizard ---------- */
+.wiz {
+  position: relative;
+  overflow: hidden;
+  min-height: calc(100vh - 190px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 26px 6px 6px;
+}
+.wiz-title {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.wiz-sub {
+  color: var(--sub);
+  font-size: 14.5px;
+  line-height: 1.45;
+  margin-top: 10px;
+}
+.wiz-cap {
+  color: var(--sub);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 14px 0 8px;
+}
+.wiz-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+  width: 100%;
+  max-width: 100%;
+}
+.wiz-chip {
+  border: 1px solid var(--line);
+  background: var(--chip);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: calc(var(--radius, 14px) + 6px);
+  cursor: pointer;
+}
+.wiz-chip.on {
+  background: var(--acc);
+  color: var(--accInk);
+  border-color: var(--acc);
+}
+.wiz-hero {
+  position: relative;
+  width: min(62vw, 240px);
+  aspect-ratio: 1;
+  margin: 26px auto;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+/* outer guide rings echo the hero circles of the reference design */
+.wiz-hero::before,
+.wiz-hero::after {
+  content: "";
+  position: absolute;
+  inset: -13%;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.wiz-hero::after {
+  inset: -27%;
+  opacity: 0.3;
+}
+.wiz-arc {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.wiz-icon {
+  width: 44%;
+  color: var(--ink);
+}
+.wiz-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.wiz-actions {
+  margin-top: auto;
+  width: 100%;
+  display: grid;
+  gap: 10px;
+  padding-top: 18px;
+}
+.btn.wiz-btn {
+  width: 100%;
+  padding: 15px 18px;
+  font-size: 15.5px;
+  font-weight: 700;
+  border-radius: calc(var(--radius, 14px) + 10px);
+}
+.wiz-back {
+  color: var(--sub);
+  font-size: 13.5px;
+  cursor: pointer;
+  padding: 6px;
+}
+.wiz-link {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.wiz-home-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 15px 16px;
+  font-weight: 700;
+}
+.wiz-confetti {
+  position: absolute;
+  top: -12px;
+  width: 7px;
+  height: 11px;
+  border-radius: 2px;
+  opacity: 0.9;
+  animation: wiz-fall 2.8s linear forwards;
+  pointer-events: none;
+}
+@keyframes wiz-fall {
+  0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(105vh) rotate(540deg); opacity: 0.15; }
+}
+/* strict/flat themes keep their character: square chips + no rounded pills */
+body[data-variant="j"] .wiz-chip,
+body[data-variant="j"] .btn.wiz-btn,
+body[data-variant="n"] .wiz-chip,
+body[data-variant="n"] .btn.wiz-btn {
+  border-radius: var(--radius, 0px);
+}

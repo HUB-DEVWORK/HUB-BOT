@@ -120,6 +120,7 @@ def create_app() -> FastAPI:
 
         allowed = (
             "happ://",
+            "incy://",
             "v2raytun://",
             "hiddify://",
             "streisand://",
