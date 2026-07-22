@@ -150,6 +150,47 @@ def test_menu_keyboard_miniapp_button_requires_https() -> None:
     assert none.inline_keyboard[0][0].web_app is None
 
 
+def test_submenu_back_button_not_duplicated() -> None:
+    # A submenu always gets an auto back button (with_back=True); if the operator also placed a
+    # BACK node, the bot must not stack two identical back buttons. Back buttons all carry a
+    # callback_data ending in ":up", so count those (avoids matching on localized labels).
+    from src.bot.keyboards import menu_keyboard
+    from src.core.enums import MenuNodeKind
+    from src.infrastructure.database.models.menu_node import MenuNode
+
+    child = MenuNode(
+        id=2,
+        parent_id=1,
+        order_index=0,
+        row_index=0,
+        label="support",
+        kind=MenuNodeKind.ACTION,
+        payload="support",
+        is_active=True,
+    )
+    manual_back = MenuNode(
+        id=3,
+        parent_id=1,
+        order_index=1,
+        row_index=1,
+        label="back",
+        kind=MenuNodeKind.BACK,
+        payload=None,
+        is_active=True,
+    )
+
+    def backs(markup: object) -> int:
+        return sum(
+            1
+            for row in markup.inline_keyboard  # type: ignore[attr-defined]
+            for b in row
+            if (b.callback_data or "").endswith(":up")
+        )
+
+    assert backs(menu_keyboard([child, manual_back], 1, with_back=True)) == 1  # not doubled
+    assert backs(menu_keyboard([child], 1, with_back=True)) == 1  # auto-back still added
+
+
 def test_menu_keyboard_respects_explicit_rows_but_caps_width() -> None:
     from src.bot.keyboards import menu_keyboard
     from src.core.enums import MenuNodeKind

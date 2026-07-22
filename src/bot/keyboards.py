@@ -105,7 +105,11 @@ def menu_keyboard(
             rows.append([])
             current = n.row_index
         rows[-1].append(_button(n, miniapp_url, default_color))
-    if with_back and parent_id is not None:
+    # Auto-append a back button in submenus — but not if the operator already placed their own
+    # BACK node here (the constructor offers "back" as a kind), or the submenu would show two
+    # identical back buttons stacked.
+    has_manual_back = any(n.kind.value == "back" for n in siblings)
+    if with_back and parent_id is not None and not has_manual_back:
         # Go up exactly one level (nav_screen resolves the parent); top-level -> main menu.
         rows.append([InlineKeyboardButton(text="‹ Назад", callback_data=f"nav:{parent_id}:up")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
