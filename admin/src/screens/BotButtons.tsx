@@ -7,6 +7,106 @@ import { api, getToken } from "../api/client";
 import { Field, Seg, Toggle } from "../components/ui";
 import { useApp } from "../state/app";
 
+/* Editable bot texts: the main-menu greeting and the «Личный кабинет» templates. Placeholder
+   chips insert live-data tokens ({имя}, {баланс}, …) at the cursor of the last-focused field. */
+type Texts = {
+  main_menu: string;
+  cabinet: string;
+  cabinet_sub_active: string;
+  cabinet_sub_inactive: string;
+  placeholders: { cabinet: string[]; sub: string[] };
+  defaults: { cabinet: string; cabinet_sub_active: string; cabinet_sub_inactive: string };
+};
+type TextField = "main_menu" | "cabinet" | "cabinet_sub_active" | "cabinet_sub_inactive";
+
+function BotTextsCard() {
+  const { t, toast } = useApp();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["bot-texts"], queryFn: () => api.get<Texts>("/api/admin/bot-menu/texts") });
+  const [draft, setDraft] = useState<Partial<Record<TextField, string>>>({});
+  const refs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const focused = useRef<TextField>("cabinet");
+
+  const val = (f: TextField): string => draft[f] ?? (q.data ? (q.data[f] as string) : "");
+  const set = (f: TextField, v: string) => setDraft((d) => ({ ...d, [f]: v }));
+
+  function insert(token: string) {
+    const f = focused.current;
+    const el = refs.current[f];
+    const cur = val(f);
+    if (el && document.activeElement === el) {
+      const s = el.selectionStart ?? cur.length;
+      const e = el.selectionEnd ?? cur.length;
+      set(f, cur.slice(0, s) + token + cur.slice(e));
+      requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + token.length, s + token.length); });
+    } else {
+      set(f, cur + token);
+    }
+  }
+
+  async function save() {
+    try {
+      await api.put("/api/admin/bot-menu/texts", {
+        main_menu: val("main_menu"),
+        cabinet: val("cabinet"),
+        cabinet_sub_active: val("cabinet_sub_active"),
+        cabinet_sub_inactive: val("cabinet_sub_inactive"),
+      });
+      setDraft({});
+      void qc.invalidateQueries({ queryKey: ["bot-texts"] });
+      toast(t.saved);
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  }
+
+  const chip = { border: "1px solid var(--border2)", borderRadius: 20, padding: "3px 9px", fontSize: 12, cursor: "pointer", background: "var(--panel)", color: "var(--text)" } as const;
+  function Area({ field, label, rows = 4 }: { field: TextField; label: string; rows?: number }) {
+    return (
+      <div>
+        <div className="caps" style={{ marginBottom: 4 }}>{label}</div>
+        <textarea
+          ref={(el) => { refs.current[field] = el; }}
+          className="input"
+          style={{ width: "100%", minHeight: rows * 22, fontFamily: "inherit", resize: "vertical" }}
+          value={val(field)}
+          onFocus={() => { focused.current = field; }}
+          onChange={(e) => set(field, e.target.value)}
+        />
+      </div>
+    );
+  }
+
+  if (!q.data) return null;
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
+        <div className="caps">{t.botTextsTitle}</div>
+        <button className="btn primary sm" onClick={save}>{t.saveApply}</button>
+      </div>
+      <div className="grid" style={{ gap: 16, maxWidth: 720 }}>
+        <Area field="main_menu" label={t.mainMenuText} rows={4} />
+        <Area field="cabinet" label={t.cabinetText} rows={5} />
+        <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+          {q.data.placeholders.cabinet.map((p) => (
+            <span key={p} style={chip} onMouseDown={(e) => { e.preventDefault(); insert(p); }}>{p}</span>
+          ))}
+          <button style={{ ...chip, borderStyle: "dashed" }} onClick={() => set("cabinet", q.data!.defaults.cabinet)}>↺ {t.reset}</button>
+        </div>
+        <Area field="cabinet_sub_active" label={t.cabinetSubActive} rows={4} />
+        <Area field="cabinet_sub_inactive" label={t.cabinetSubInactive} rows={2} />
+        <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+          {q.data.placeholders.sub.map((p) => (
+            <span key={p} style={chip} onMouseDown={(e) => { e.preventDefault(); insert(p); }}>{p}</span>
+          ))}
+          <button style={{ ...chip, borderStyle: "dashed" }} onClick={() => { set("cabinet_sub_active", q.data!.defaults.cabinet_sub_active); set("cabinet_sub_inactive", q.data!.defaults.cabinet_sub_inactive); }}>↺ {t.reset}</button>
+        </div>
+        <div className="muted" style={{ fontSize: 12 }}>{t.botTextsHint}</div>
+      </div>
+    </div>
+  );
+}
+
 /* Buttons of the built-in «Личный кабинет» screen — a separate, fixed catalogue (not the
    free-form tree). The owner toggles which show and reorders them; saved to CABINET_BUTTONS. */
 type CabBtn = { key: string; label: string; enabled: boolean; gated: boolean };
@@ -637,6 +737,7 @@ export default function BotButtons() {
           </div>
         </div>
       </div>
+      <BotTextsCard />
       <CabinetButtonsCard />
     </>
   );

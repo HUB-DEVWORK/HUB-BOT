@@ -754,6 +754,41 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Comma-separated: subscription, balance, history, referral, promocode, support. "
         "Drop the ones you don't need or reorder — controls the bot's «Account» screen",
     ),
+    # Empty default = "use the built-in template" (src/bot/cabinet_text.py). Storing the long
+    # default HTML here would make core depend on the bot layer; the renderer/endpoint fall back.
+    _p(
+        "CABINET_TEXT",
+        C.INTERFACE,
+        STR,
+        "",
+        "Текст «Личного кабинета»",
+        "«Account» screen text",
+        "HTML-текст экрана. Метки: {имя} {id} {баланс} {друзей} {подписка} — подставятся у "
+        "каждого юзера. Редактируется в конструкторе кнопками-метками",
+        "HTML screen text. Placeholders: {имя} {id} {баланс} {друзей} {подписка}",
+    ),
+    _p(
+        "CABINET_SUB_ACTIVE",
+        C.INTERFACE,
+        STR,
+        "",
+        "Блок {подписка} — активна",
+        "{подписка} block — active",
+        "Подставляется вместо {подписка}, когда подписка активна. Метки: {срок} {осталось} "
+        "{устройств} {трафик} {автопродление}",
+        "Fills {подписка} when the subscription is active. Placeholders: {срок} {осталось} "
+        "{устройств} {трафик} {автопродление}",
+    ),
+    _p(
+        "CABINET_SUB_INACTIVE",
+        C.INTERFACE,
+        STR,
+        "",
+        "Блок {подписка} — не активна",
+        "{подписка} block — inactive",
+        "Подставляется вместо {подписка}, когда активной подписки нет",
+        "Fills {подписка} when there is no active subscription",
+    ),
     _p(
         "TERMS_TEXT",
         C.INTERFACE,

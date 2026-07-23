@@ -215,6 +215,73 @@ async def list_actions() -> dict[str, Any]:
     }
 
 
+@router.get("/texts")
+async def get_texts(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
+    """Editable bot texts: the main-menu greeting and the «Личный кабинет» templates, with the
+    effective value (an empty override falls back to the built-in default) + placeholder lists."""
+    from src.bot.cabinet_text import (
+        DEFAULT_CABINET_TEXT,
+        DEFAULT_SUB_ACTIVE,
+        DEFAULT_SUB_INACTIVE,
+        MAIN_PLACEHOLDERS,
+        SUB_PLACEHOLDERS,
+    )
+
+    async with container.uow() as uow:
+        cfg = container.bot_config
+        main_menu = str(await cfg.value(uow, "START_MESSAGE") or "")
+        cabinet = str(await cfg.value(uow, "CABINET_TEXT") or "") or DEFAULT_CABINET_TEXT
+        sub_active = str(await cfg.value(uow, "CABINET_SUB_ACTIVE") or "") or DEFAULT_SUB_ACTIVE
+        sub_inactive = (
+            str(await cfg.value(uow, "CABINET_SUB_INACTIVE") or "") or DEFAULT_SUB_INACTIVE
+        )
+    return {
+        "main_menu": main_menu,
+        "cabinet": cabinet,
+        "cabinet_sub_active": sub_active,
+        "cabinet_sub_inactive": sub_inactive,
+        "placeholders": {
+            "cabinet": ["{" + p + "}" for p in MAIN_PLACEHOLDERS],
+            "sub": ["{" + p + "}" for p in SUB_PLACEHOLDERS],
+        },
+        "defaults": {
+            "cabinet": DEFAULT_CABINET_TEXT,
+            "cabinet_sub_active": DEFAULT_SUB_ACTIVE,
+            "cabinet_sub_inactive": DEFAULT_SUB_INACTIVE,
+        },
+    }
+
+
+class TextsIn(BaseModel):
+    main_menu: str | None = Field(None, max_length=4096)
+    cabinet: str | None = Field(None, max_length=4096)
+    cabinet_sub_active: str | None = Field(None, max_length=2048)
+    cabinet_sub_inactive: str | None = Field(None, max_length=2048)
+
+
+@router.put("/texts")
+async def save_texts(
+    body: TextsIn,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, Any]:
+    changes: dict[str, Any] = {}
+    if body.main_menu is not None:
+        changes["START_MESSAGE"] = body.main_menu
+    if body.cabinet is not None:
+        changes["CABINET_TEXT"] = body.cabinet
+    if body.cabinet_sub_active is not None:
+        changes["CABINET_SUB_ACTIVE"] = body.cabinet_sub_active
+    if body.cabinet_sub_inactive is not None:
+        changes["CABINET_SUB_INACTIVE"] = body.cabinet_sub_inactive
+    async with container.uow() as uow:
+        if changes:
+            await container.bot_config.set_values(uow, changes)
+            await audit(uow, identity, "menu.texts", None, keys=",".join(changes))
+            await uow.commit()
+    return {"ok": True}
+
+
 @router.get("/cabinet")
 async def get_cabinet_buttons(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
     """Catalogue of «Личный кабинет» buttons + which are enabled, in owner order."""

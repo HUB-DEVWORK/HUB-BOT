@@ -227,6 +227,14 @@ const ru = {
   cabinetButtonsHint:
     "Экран «Личный кабинет» в боте. Выключи лишние кнопки тумблером и поменяй порядок стрелками.",
   cabinetButtonGated: "если включено в настройках",
+  reset: "Сбросить",
+  botTextsTitle: "Тексты бота",
+  mainMenuText: "Текст главного меню (/start)",
+  cabinetText: "Текст «Личного кабинета»",
+  cabinetSubActive: "Блок {подписка} — когда активна",
+  cabinetSubInactive: "Блок {подписка} — когда нет",
+  botTextsHint:
+    "Клик по метке вставляет её в текст — живые данные подставятся у каждого пользователя. Поддерживается HTML.",
   addButton: "+ Добавить кнопку",
   buttonText: "Текст кнопки",
   buttonType: "Тип",
@@ -643,6 +651,14 @@ const en: typeof ru = {
   cabinetButtonsHint:
     "The bot's «Account» screen. Toggle off the buttons you don't need and reorder with the arrows.",
   cabinetButtonGated: "if enabled in settings",
+  reset: "Reset",
+  botTextsTitle: "Bot texts",
+  mainMenuText: "Main menu text (/start)",
+  cabinetText: "«Account» screen text",
+  cabinetSubActive: "{подписка} block — when active",
+  cabinetSubInactive: "{подписка} block — when none",
+  botTextsHint:
+    "Click a placeholder to insert it — live data is filled per user. HTML supported.",
   addButton: "+ Add button",
   buttonText: "Button label",
   buttonType: "Type",

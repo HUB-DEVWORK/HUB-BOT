@@ -259,47 +259,53 @@ async def act_cabinet(
         referral_on = bool(await container.bot_config.value(uow, "REFERRAL_ENABLED"))
         show_traffic = bool(await container.bot_config.value(uow, "SHOW_TRAFFIC_USAGE"))
         cabinet_cfg = str(await container.bot_config.value(uow, "CABINET_BUTTONS") or "")
+        # Owner-editable cabinet text templates (empty config -> built-in default).
+        tpl_main = str(await container.bot_config.value(uow, "CABINET_TEXT") or "")
+        tpl_active = str(await container.bot_config.value(uow, "CABINET_SUB_ACTIVE") or "")
+        tpl_inactive = str(await container.bot_config.value(uow, "CABINET_SUB_INACTIVE") or "")
 
-    name = hesc(db_user.first_name or db_user.username or "друг")
-    lines = [
-        "<b>👤 Профиль</b>",
-        "",
-        f"Привет, {name}! 👋",
-        f"ID: <code>{db_user.telegram_id}</code>",
-        "──────────",
-    ]
-    if sub is not None and sub.status.is_usable:
+    from src.bot.cabinet_text import (
+        DEFAULT_CABINET_TEXT,
+        DEFAULT_SUB_ACTIVE,
+        DEFAULT_SUB_INACTIVE,
+        render_cabinet_text,
+    )
+
+    is_active = sub is not None and sub.status.is_usable
+    values: dict[str, object] = {
+        "имя": hesc(db_user.first_name or db_user.username or "друг"),
+        "id": db_user.telegram_id,
+        "баланс": fmt_money(db_user.balance_minor),
+        "друзей": invited,
+    }
+    if is_active and sub is not None:
         now = dt.datetime.now(dt.UTC)
-        expire = sub.expire_at.strftime("%d.%m.%Y") if sub.expire_at else "—"
+        values["срок"] = sub.expire_at.strftime("%d.%m.%Y") if sub.expire_at else "—"
         if sub.expire_at is not None:
             # Clamp on total seconds: a negative timedelta has .seconds in [0,86400), which
             # would render a bogus positive "23 ч." for an already-expired sub (CAB-1).
             secs = max(0, int((sub.expire_at - now).total_seconds()))
             d_left, h_left = secs // 86400, (secs % 86400) // 3600
-            left = f"{d_left} дн. {h_left} ч." if d_left else f"{h_left} ч."
+            values["осталось"] = f"{d_left} дн. {h_left} ч." if d_left else f"{h_left} ч."
         else:
-            left = "—"
-        traffic = f"{sub.traffic_used_bytes / GIB:.1f} / " + (
-            f"{sub.traffic_limit_bytes / GIB:.0f} ГБ" if sub.traffic_limit_bytes else "∞"
+            values["осталось"] = "—"
+        values["устройств"] = sub.device_limit or "—"
+        # None -> the whole «Трафик» line is dropped when the owner turned traffic display off.
+        values["трафик"] = (
+            f"{sub.traffic_used_bytes / GIB:.1f} / "
+            + (f"{sub.traffic_limit_bytes / GIB:.0f} ГБ" if sub.traffic_limit_bytes else "∞")
+            if show_traffic
+            else None
         )
-        sub_lines = [
-            "<b>📶 Подписка активна</b>",
-            f"Действует до <b>{expire}</b> · осталось <b>{left}</b>",
-            f"📱 Устройств: <b>{sub.device_limit or '—'}</b>",
-        ]
-        if show_traffic:  # honor SHOW_TRAFFIC_USAGE here too (SHOWTRAF-1)
-            sub_lines.append(f"📈 Трафик: <b>{traffic}</b>")
-        sub_lines += [
-            f"Автопродление: <b>{'вкл' if sub.autopay_enabled else 'выкл'}</b>",
-            "Ключ-ссылка — в разделе «Моя подписка».",
-        ]
-        lines += sub_lines
-    else:
-        lines += ["<b>📶 Подписка</b>", "Не оформлена — нажми «Купить VPN» в меню."]
-    lines += [
-        "",
-        f"💳 Баланс: <b>{fmt_money(db_user.balance_minor)}</b>   ·   🎁 Друзей: <b>{invited}</b>",
-    ]
+        values["автопродление"] = "вкл" if sub.autopay_enabled else "выкл"
+
+    text = render_cabinet_text(
+        main=tpl_main or DEFAULT_CABINET_TEXT,
+        sub_active=tpl_active or DEFAULT_SUB_ACTIVE,
+        sub_inactive=tpl_inactive or DEFAULT_SUB_INACTIVE,
+        is_active=is_active,
+        values=values,
+    )
 
     # The cabinet is the account hub — everything about the user's account, and the one
     # place «Поддержка» lives (the main menu stays lean). «Подключить»/«Купить» are the
@@ -319,9 +325,7 @@ async def act_cabinet(
     if miniapp_url.startswith("https://"):
         kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
     kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
-    await render_screen(
-        cb, container, "cabinet", "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb)
-    )
+    await render_screen(cb, container, "cabinet", text, InlineKeyboardMarkup(inline_keyboard=kb))
     await ack(cb)
 
 
