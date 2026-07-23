@@ -757,6 +757,38 @@ REGISTRY: tuple[ParamSpec, ...] = (
     # Empty default = "use the built-in template" (src/bot/cabinet_text.py). Storing the long
     # default HTML here would make core depend on the bot layer; the renderer/endpoint fall back.
     _p(
+        "MENU_TEXT_EMOJI",
+        C.INTERFACE,
+        STR,
+        "",
+        "Кастом-эмодзи в тексте меню",
+        "Custom emoji in menu text",
+        "ID премиум-эмодзи и запасной символ через пробел: «5368324170671202286 🔥». "
+        "Запасной виден, если эмодзи недоступно",
+        "Premium emoji id + a fallback char, space-separated: «5368324170671202286 🔥»",
+    ),
+    _p(
+        "CABINET_TEXT_EMOJI",
+        C.INTERFACE,
+        STR,
+        "",
+        "Кастом-эмодзи в тексте кабинета",
+        "Custom emoji in cabinet text",
+        "ID премиум-эмодзи и запасной символ через пробел. Запасной виден, если эмодзи недоступно",
+        "Premium emoji id + a fallback char, space-separated",
+    ),
+    _p(
+        "CABINET_CUSTOM_BUTTONS",
+        C.INTERFACE,
+        STR,
+        "",
+        "Свои кнопки в «Личном кабинете»",
+        "Custom buttons on the «Account» screen",
+        'JSON-список своих кнопок-ссылок: [{"label":"Наш канал","url":"https://t.me/..."}]. '
+        "Проще редактировать в конструкторе",
+        'JSON list of custom link buttons: [{"label":"...","url":"https://..."}]',
+    ),
+    _p(
         "CABINET_TEXT",
         C.INTERFACE,
         STR,
@@ -926,6 +958,16 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Screen banners",
         "Показывать фото-баннер над каждым экраном бота",
         "Show a photo banner above every bot screen",
+    ),
+    _p(
+        "BANNER_MODE",
+        C.INTERFACE,
+        STR,
+        "one",
+        "Режим баннеров",
+        "Banner mode",
+        "one — одна картинка «по умолчанию» на всех экранах; per_screen — своя картинка на каждый",
+        "one — a single default image on every screen; per_screen — a distinct image per screen",
     ),
     _p(
         "BANNER_DEFAULT",

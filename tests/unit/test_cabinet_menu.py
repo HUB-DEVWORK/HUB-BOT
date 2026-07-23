@@ -54,3 +54,23 @@ def test_registered_config_key() -> None:
 
     row = next((p for p in REGISTRY if p.key == "CABINET_BUTTONS"), None)
     assert row is not None and row.default
+
+
+def test_parse_custom_buttons_validates() -> None:
+    from src.bot.cabinet_menu import parse_custom_buttons
+
+    ok = parse_custom_buttons(
+        '[{"label":"Канал","url":"https://t.me/x"},{"label":"Сайт","url":"http://a.b"}]'
+    )
+    assert ok == [
+        {"label": "Канал", "url": "https://t.me/x"},
+        {"label": "Сайт", "url": "http://a.b"},
+    ]
+    # bad url dropped, empty label dropped, non-json -> []
+    assert parse_custom_buttons('[{"label":"X","url":"ftp://no"}]') == []
+    assert parse_custom_buttons('[{"label":"","url":"https://a"}]') == []
+    assert parse_custom_buttons("not json") == []
+    assert parse_custom_buttons("") == []
+    assert parse_custom_buttons('[{"label":"tg","url":"tg://resolve?domain=x"}]')[0][
+        "url"
+    ].startswith("tg://")

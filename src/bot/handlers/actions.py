@@ -259,15 +259,18 @@ async def act_cabinet(
         referral_on = bool(await container.bot_config.value(uow, "REFERRAL_ENABLED"))
         show_traffic = bool(await container.bot_config.value(uow, "SHOW_TRAFFIC_USAGE"))
         cabinet_cfg = str(await container.bot_config.value(uow, "CABINET_BUTTONS") or "")
+        cabinet_custom = str(await container.bot_config.value(uow, "CABINET_CUSTOM_BUTTONS") or "")
         # Owner-editable cabinet text templates (empty config -> built-in default).
         tpl_main = str(await container.bot_config.value(uow, "CABINET_TEXT") or "")
         tpl_active = str(await container.bot_config.value(uow, "CABINET_SUB_ACTIVE") or "")
         tpl_inactive = str(await container.bot_config.value(uow, "CABINET_SUB_INACTIVE") or "")
+        cabinet_emoji = str(await container.bot_config.value(uow, "CABINET_TEXT_EMOJI") or "")
 
     from src.bot.cabinet_text import (
         DEFAULT_CABINET_TEXT,
         DEFAULT_SUB_ACTIVE,
         DEFAULT_SUB_INACTIVE,
+        apply_custom_emoji,
         render_cabinet_text,
     )
 
@@ -306,6 +309,7 @@ async def act_cabinet(
         is_active=is_active,
         values=values,
     )
+    text = apply_custom_emoji(text, cabinet_emoji)
 
     # The cabinet is the account hub — everything about the user's account, and the one
     # place «Поддержка» lives (the main menu stays lean). «Подключить»/«Купить» are the
@@ -313,7 +317,7 @@ async def act_cabinet(
     # Owner-configurable button set (CABINET_BUTTONS): order + which buttons show. A disabled
     # feature (balance/referral) is still skipped even when listed, so «отключил в настройках»
     # actually hides it. The grid reflows. See src/bot/cabinet_menu.py.
-    from src.bot.cabinet_menu import cabinet_buttons
+    from src.bot.cabinet_menu import cabinet_buttons, parse_custom_buttons
 
     entries = cabinet_buttons(
         cabinet_cfg, flags={"BALANCE_ENABLED": balance_on, "REFERRAL_ENABLED": referral_on}
@@ -322,6 +326,9 @@ async def act_cabinet(
         [InlineKeyboardButton(text=t, callback_data=c) for t, c in entries[i : i + 2]]
         for i in range(0, len(entries), 2)
     ]
+    # Owner's own link-buttons (CABINET_CUSTOM_BUTTONS) — one per row, below the built-ins.
+    for btn in parse_custom_buttons(cabinet_custom):
+        kb.append([InlineKeyboardButton(text=btn["label"], url=btn["url"])])
     if miniapp_url.startswith("https://"):
         kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
     kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])

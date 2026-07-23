@@ -10,6 +10,7 @@ are skipped even when listed, so a disabled feature never shows a dead button.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 
@@ -61,4 +62,27 @@ def cabinet_buttons(raw: str | None, *, flags: dict[str, bool]) -> list[tuple[st
         if b.gate is not None and not flags.get(b.gate, True):
             continue
         out.append((b.label, b.callback))
+    return out
+
+
+def _valid_url(u: str) -> bool:
+    return u.startswith(("https://", "http://", "tg://")) or "t.me/" in u
+
+
+def parse_custom_buttons(raw: str | None) -> list[dict[str, str]]:
+    """Owner's own cabinet link-buttons — a JSON list of {label, url}. Invalid entries dropped;
+    URL must be http(s)/tg/t.me so a bad value can't break the keyboard render."""
+    try:
+        items = json.loads(raw) if raw else []
+    except (ValueError, TypeError):
+        return []
+    out: list[dict[str, str]] = []
+    if isinstance(items, list):
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            label = str(it.get("label") or "").strip()[:64]
+            url = str(it.get("url") or "").strip()
+            if label and _valid_url(url):
+                out.append({"label": label, "url": url})
     return out

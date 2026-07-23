@@ -58,6 +58,18 @@ def _subst(template: str, values: dict[str, object]) -> str:
     return "\n".join(out_lines)
 
 
+def apply_custom_emoji(text: str, raw: str | None) -> str:
+    """Prepend a premium custom emoji to ``text``. ``raw`` is ``"<emoji_id> <fallback>"`` — a
+    Telegram premium-emoji id plus a normal emoji shown when the custom one can't render (the bot
+    isn't premium / can't access the set). Empty/invalid raw -> text unchanged. HTML parse mode
+    required at the send site (menu/cabinet already use it)."""
+    parts = (raw or "").strip().split(None, 1)
+    if len(parts) < 2 or not parts[0].isdigit():
+        return text
+    emoji_id, fallback = parts[0], parts[1].strip()
+    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji> {text}'
+
+
 def render_cabinet_text(
     *,
     main: str,

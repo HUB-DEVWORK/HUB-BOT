@@ -215,6 +215,64 @@ async def list_actions() -> dict[str, Any]:
     }
 
 
+# Screen-banner slots surfaced on the «Картинки бота» screen (key -> RU label).
+_BANNER_SLOTS: tuple[tuple[str, str], ...] = (
+    ("BANNER_DEFAULT", "По умолчанию"),
+    ("BANNER_MENU", "Меню"),
+    ("BANNER_BUY", "Покупка"),
+    ("BANNER_CABINET", "Кабинет"),
+    ("BANNER_SUBSCRIPTION", "Подписка"),
+    ("BANNER_TRAFFIC", "Трафик"),
+    ("BANNER_BALANCE", "Баланс"),
+    ("BANNER_REFERRAL", "Рефералка"),
+    ("BANNER_SUPPORT", "Поддержка"),
+    ("BANNER_TRIAL", "Триал"),
+)
+
+
+@router.get("/banners")
+async def get_banners(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
+    """«Картинки бота»: on/off, mode (one | per_screen), and each screen's image ref."""
+    async with container.uow() as uow:
+        cfg = container.bot_config
+        enabled = bool(await cfg.value(uow, "BANNER_ENABLED"))
+        mode = str(await cfg.value(uow, "BANNER_MODE") or "one")
+        slots = [
+            {"key": k, "label": label, "value": str(await cfg.value(uow, k) or "")}
+            for k, label in _BANNER_SLOTS
+        ]
+    return {"enabled": enabled, "mode": mode, "slots": slots}
+
+
+class BannersIn(BaseModel):
+    enabled: bool | None = None
+    mode: str | None = Field(None, pattern="^(one|per_screen)$")
+    slots: dict[str, str] | None = None  # {BANNER_KEY: ref}
+
+
+@router.put("/banners")
+async def save_banners(
+    body: BannersIn,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, Any]:
+    valid_keys = {k for k, _ in _BANNER_SLOTS}
+    changes: dict[str, Any] = {}
+    if body.enabled is not None:
+        changes["BANNER_ENABLED"] = body.enabled
+    if body.mode is not None:
+        changes["BANNER_MODE"] = body.mode
+    for k, v in (body.slots or {}).items():
+        if k in valid_keys:
+            changes[k] = v  # empty string clears the slot -> falls back to default
+    async with container.uow() as uow:
+        if changes:
+            await container.bot_config.set_values(uow, changes)
+            await audit(uow, identity, "menu.banners", None, keys=",".join(changes))
+            await uow.commit()
+    return {"ok": True}
+
+
 @router.get("/texts")
 async def get_texts(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
     """Editable bot texts: the main-menu greeting and the «Личный кабинет» templates, with the
@@ -235,11 +293,15 @@ async def get_texts(container: AppContainer = Depends(get_container)) -> dict[st
         sub_inactive = (
             str(await cfg.value(uow, "CABINET_SUB_INACTIVE") or "") or DEFAULT_SUB_INACTIVE
         )
+        menu_emoji = str(await cfg.value(uow, "MENU_TEXT_EMOJI") or "")
+        cabinet_emoji = str(await cfg.value(uow, "CABINET_TEXT_EMOJI") or "")
     return {
         "main_menu": main_menu,
         "cabinet": cabinet,
         "cabinet_sub_active": sub_active,
         "cabinet_sub_inactive": sub_inactive,
+        "menu_emoji": menu_emoji,
+        "cabinet_emoji": cabinet_emoji,
         "placeholders": {
             "cabinet": ["{" + p + "}" for p in MAIN_PLACEHOLDERS],
             "sub": ["{" + p + "}" for p in SUB_PLACEHOLDERS],
@@ -257,6 +319,8 @@ class TextsIn(BaseModel):
     cabinet: str | None = Field(None, max_length=4096)
     cabinet_sub_active: str | None = Field(None, max_length=2048)
     cabinet_sub_inactive: str | None = Field(None, max_length=2048)
+    menu_emoji: str | None = Field(None, max_length=128)
+    cabinet_emoji: str | None = Field(None, max_length=128)
 
 
 @router.put("/texts")
@@ -274,6 +338,10 @@ async def save_texts(
         changes["CABINET_SUB_ACTIVE"] = body.cabinet_sub_active
     if body.cabinet_sub_inactive is not None:
         changes["CABINET_SUB_INACTIVE"] = body.cabinet_sub_inactive
+    if body.menu_emoji is not None:
+        changes["MENU_TEXT_EMOJI"] = body.menu_emoji
+    if body.cabinet_emoji is not None:
+        changes["CABINET_TEXT_EMOJI"] = body.cabinet_emoji
     async with container.uow() as uow:
         if changes:
             await container.bot_config.set_values(uow, changes)
@@ -285,10 +353,12 @@ async def save_texts(
 @router.get("/cabinet")
 async def get_cabinet_buttons(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
     """Catalogue of «Личный кабинет» buttons + which are enabled, in owner order."""
-    from src.bot.cabinet_menu import CABINET_BUTTONS, parse_cabinet_buttons
+
+    from src.bot.cabinet_menu import CABINET_BUTTONS, parse_cabinet_buttons, parse_custom_buttons
 
     async with container.uow() as uow:
         raw = str(await container.bot_config.value(uow, "CABINET_BUTTONS") or "")
+        custom_raw = str(await container.bot_config.value(uow, "CABINET_CUSTOM_BUTTONS") or "")
     enabled = parse_cabinet_buttons(raw)
     catalogue = {b.key: b for b in CABINET_BUTTONS}
     # enabled first (in owner order), then the rest (disabled) in catalogue order
@@ -302,12 +372,14 @@ async def get_cabinet_buttons(container: AppContainer = Depends(get_container)) 
                 "gated": catalogue[k].gate is not None,
             }
             for k in ordered_keys
-        ]
+        ],
+        "custom": parse_custom_buttons(custom_raw),
     }
 
 
 class CabinetButtonsIn(BaseModel):
     order: list[str] = Field(default_factory=list)  # enabled keys, in display order
+    custom: list[dict[str, str]] | None = None  # [{label, url}] owner link-buttons
 
 
 @router.put("/cabinet")
@@ -316,11 +388,18 @@ async def save_cabinet_buttons(
     identity: AdminIdentity = Depends(require_admin),
     container: AppContainer = Depends(get_container),
 ) -> dict[str, Any]:
-    from src.bot.cabinet_menu import parse_cabinet_buttons
+    import json as _json
+
+    from src.bot.cabinet_menu import parse_cabinet_buttons, parse_custom_buttons
 
     csv = ",".join(parse_cabinet_buttons(",".join(body.order)))  # validate + drop unknowns
+    changes: dict[str, Any] = {"CABINET_BUTTONS": csv}
+    if body.custom is not None:
+        # validate/normalise via the same parser the bot uses, then store as JSON
+        clean = parse_custom_buttons(_json.dumps(body.custom))
+        changes["CABINET_CUSTOM_BUTTONS"] = _json.dumps(clean, ensure_ascii=False)
     async with container.uow() as uow:
-        await container.bot_config.set_values(uow, {"CABINET_BUTTONS": csv})
+        await container.bot_config.set_values(uow, changes)
         await audit(uow, identity, "menu.cabinet_buttons", None, value=csv)
         await uow.commit()
     return {"ok": True, "order": csv.split(",") if csv else []}

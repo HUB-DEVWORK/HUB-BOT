@@ -14,10 +14,18 @@ type Texts = {
   cabinet: string;
   cabinet_sub_active: string;
   cabinet_sub_inactive: string;
+  menu_emoji: string;
+  cabinet_emoji: string;
   placeholders: { cabinet: string[]; sub: string[] };
   defaults: { cabinet: string; cabinet_sub_active: string; cabinet_sub_inactive: string };
 };
-type TextField = "main_menu" | "cabinet" | "cabinet_sub_active" | "cabinet_sub_inactive";
+type TextField =
+  | "main_menu"
+  | "cabinet"
+  | "cabinet_sub_active"
+  | "cabinet_sub_inactive"
+  | "menu_emoji"
+  | "cabinet_emoji";
 
 function BotTextsCard() {
   const { t, toast } = useApp();
@@ -51,6 +59,8 @@ function BotTextsCard() {
         cabinet: val("cabinet"),
         cabinet_sub_active: val("cabinet_sub_active"),
         cabinet_sub_inactive: val("cabinet_sub_inactive"),
+        menu_emoji: val("menu_emoji"),
+        cabinet_emoji: val("cabinet_emoji"),
       });
       setDraft({});
       void qc.invalidateQueries({ queryKey: ["bot-texts"] });
@@ -86,7 +96,16 @@ function BotTextsCard() {
       </div>
       <div className="grid" style={{ gap: 16, maxWidth: 720 }}>
         <Area field="main_menu" label={t.mainMenuText} rows={4} />
+        <div>
+          <div className="caps" style={{ marginBottom: 4 }}>{t.textEmoji}</div>
+          <input className="input mono" style={{ width: "100%" }} placeholder="5368324170671202286 🔥" value={val("menu_emoji")} onChange={(e) => set("menu_emoji", e.target.value)} />
+          <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>{t.textEmojiHint}</div>
+        </div>
         <Area field="cabinet" label={t.cabinetText} rows={5} />
+        <div>
+          <div className="caps" style={{ marginBottom: 4 }}>{t.textEmoji}</div>
+          <input className="input mono" style={{ width: "100%" }} placeholder="5368324170671202286 🔥" value={val("cabinet_emoji")} onChange={(e) => set("cabinet_emoji", e.target.value)} />
+        </div>
         <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
           {q.data.placeholders.cabinet.map((p) => (
             <span key={p} style={chip} onMouseDown={(e) => { e.preventDefault(); insert(p); }}>{p}</span>
@@ -110,15 +129,18 @@ function BotTextsCard() {
 /* Buttons of the built-in «Личный кабинет» screen — a separate, fixed catalogue (not the
    free-form tree). The owner toggles which show and reorders them; saved to CABINET_BUTTONS. */
 type CabBtn = { key: string; label: string; enabled: boolean; gated: boolean };
+type CustomBtn = { label: string; url: string };
 function CabinetButtonsCard() {
   const { t, toast } = useApp();
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: ["cabinet-buttons"],
-    queryFn: () => api.get<{ buttons: CabBtn[] }>("/api/admin/bot-menu/cabinet"),
+    queryFn: () => api.get<{ buttons: CabBtn[]; custom: CustomBtn[] }>("/api/admin/bot-menu/cabinet"),
   });
   const [items, setItems] = useState<CabBtn[] | null>(null);
+  const [custom, setCustom] = useState<CustomBtn[] | null>(null);
   const list = items ?? q.data?.buttons ?? [];
+  const customList = custom ?? q.data?.custom ?? [];
 
   function update(next: CabBtn[]) {
     setItems(next);
@@ -130,11 +152,16 @@ function CabinetButtonsCard() {
     [next[i], next[j]] = [next[j], next[i]];
     update(next);
   }
+  function setCustomAt(i: number, patch: Partial<CustomBtn>) {
+    setCustom(customList.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  }
   async function save() {
     const order = list.filter((b) => b.enabled).map((b) => b.key);
+    const cleanCustom = customList.filter((c) => c.label.trim() && c.url.trim());
     try {
-      await api.put("/api/admin/bot-menu/cabinet", { order });
+      await api.put("/api/admin/bot-menu/cabinet", { order, custom: cleanCustom });
       setItems(null);
+      setCustom(null);
       void qc.invalidateQueries({ queryKey: ["cabinet-buttons"] });
       toast(t.saved);
     } catch (e) {
@@ -184,6 +211,37 @@ function CabinetButtonsCard() {
             </span>
           </div>
         ))}
+      </div>
+
+      {/* owner's own link-buttons in the cabinet */}
+      <div className="caps" style={{ margin: "16px 0 8px" }}>{t.cabinetCustomTitle}</div>
+      <div className="grid" style={{ gap: 6, maxWidth: 560 }}>
+        {customList.map((c, i) => (
+          <div key={i} className="row" style={{ gap: 6 }}>
+            <input
+              className="input"
+              style={{ flex: "0 0 150px" }}
+              placeholder={t.cabinetCustomLabel}
+              value={c.label}
+              onChange={(e) => setCustomAt(i, { label: e.target.value })}
+            />
+            <input
+              className="input mono"
+              style={{ flex: 1 }}
+              placeholder="https://t.me/…"
+              value={c.url}
+              onChange={(e) => setCustomAt(i, { url: e.target.value })}
+            />
+            <button className="btn danger sm" onClick={() => setCustom(customList.filter((_, j) => j !== i))}>✕</button>
+          </div>
+        ))}
+        <button
+          className="btn secondary sm"
+          style={{ alignSelf: "flex-start" }}
+          onClick={() => setCustom([...customList, { label: "", url: "" }])}
+        >
+          + {t.cabinetCustomAdd}
+        </button>
       </div>
     </div>
   );

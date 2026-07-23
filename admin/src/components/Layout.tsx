@@ -128,6 +128,7 @@ export default function Layout() {
     { icon: "💳", path: "/tariffs", label: t.tariffs },
     { icon: "🏷️", path: "/promos", label: t.promos },
     { group: t.gConstructor, icon: "🧱", path: "/bot-buttons", label: t.botButtons },
+    { icon: "🖼️", path: "/bot-images", label: t.botImages },
     { icon: "📱", path: "/miniapp", label: t.miniapp },
     { group: t.gMarketing, icon: "📣", path: "/broadcasts", label: t.broadcasts },
     { icon: "⏰", path: "/smart", label: t.smart },

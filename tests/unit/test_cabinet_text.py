@@ -79,3 +79,14 @@ def test_missing_placeholder_is_empty_not_crash() -> None:
         values={"имя": "Ann"},
     )
     assert out.strip() == "Ann"
+
+
+def test_apply_custom_emoji() -> None:
+    from src.bot.cabinet_text import apply_custom_emoji
+
+    out = apply_custom_emoji("Привет", "5368324170671202286 🔥")
+    assert out == '<tg-emoji emoji-id="5368324170671202286">🔥</tg-emoji> Привет'
+    # no id or no fallback -> unchanged
+    assert apply_custom_emoji("t", "") == "t"
+    assert apply_custom_emoji("t", "notdigits 🔥") == "t"
+    assert apply_custom_emoji("t", "123") == "t"  # id without fallback char

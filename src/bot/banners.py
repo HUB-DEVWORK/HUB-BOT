@@ -62,7 +62,13 @@ async def banner_for(container: AppContainer, screen_key: str) -> str | FSInputF
         cfg = container.bot_config
         if not bool(await cfg.value(uow, "BANNER_ENABLED")):
             return None
-        candidates = (_SCREEN_BANNER_KEY.get(screen_key), "BANNER_DEFAULT", "WELCOME_IMAGE")
+        mode = str(await cfg.value(uow, "BANNER_MODE") or "one")
+        # «one» — one image everywhere: use only BANNER_DEFAULT, ignore per-screen banners.
+        # «per_screen» — the screen's own banner, falling back to default.
+        if mode == "one":
+            candidates: tuple[str | None, ...] = ("BANNER_DEFAULT", "WELCOME_IMAGE")
+        else:
+            candidates = (_SCREEN_BANNER_KEY.get(screen_key), "BANNER_DEFAULT", "WELCOME_IMAGE")
         for key in candidates:
             if not key:
                 continue

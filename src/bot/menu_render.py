@@ -40,6 +40,11 @@ async def send_main_menu(
         node_status_on = bool(await cfg.value(uow, "NODE_STATUS_ENABLED"))
         button_color = str(await cfg.value(uow, "BUTTON_COLOR_DEFAULT") or "") or None
         menu_mode = str(await cfg.value(uow, "MAIN_MENU_MODE") or "inline")
+        menu_emoji = str(await cfg.value(uow, "MENU_TEXT_EMOJI") or "")
+
+    from src.bot.cabinet_text import apply_custom_emoji
+
+    start_text = apply_custom_emoji(start_text, menu_emoji)
 
     # A constructor-placed «Пробный период» button (action=trial) is rendered unconditionally,
     # so once the user has used their trial (or trials are off) it lingers as a dead-end. Drop

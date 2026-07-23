@@ -12,6 +12,7 @@ import AiSupport from "./screens/AiSupport";
 import Blacklist from "./screens/Blacklist";
 import Broadcasts from "./screens/Broadcasts";
 import BotButtons from "./screens/BotButtons";
+import BotImages from "./screens/BotImages";
 import Campaigns from "./screens/Campaigns";
 import Dashboard from "./screens/Dashboard";
 import Login from "./screens/Login";
@@ -51,6 +52,7 @@ const router = createHashRouter([
       { path: "tariffs", element: <Tariffs /> },
       { path: "promos", element: <Promos /> },
       { path: "bot-buttons", element: <BotButtons /> },
+      { path: "bot-images", element: <BotImages /> },
       { path: "miniapp", element: <Miniapp /> },
       { path: "broadcasts", element: <Broadcasts /> },
       { path: "smart", element: <Smart /> },
