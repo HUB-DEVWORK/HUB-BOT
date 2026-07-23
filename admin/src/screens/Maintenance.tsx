@@ -90,6 +90,10 @@ export default function Maintenance() {
     queryKey: ["report-topics"],
     queryFn: () => api.get<TopicsResp>("/api/admin/report-topics"),
   });
+  const version = useQuery({
+    queryKey: ["app-version"],
+    queryFn: () => api.get<{ version: string }>("/api/version"),
+  });
 
   async function action(name: string, label: string) {
     if (!(await confirm(`${t.confirmAction} · ${label}`))) return;
@@ -259,7 +263,7 @@ export default function Maintenance() {
         <div className="card">
           <div className="caps">{t.update}</div>
           <div className="mono" style={{ margin: "8px 0" }}>
-            v0.1.0
+            v{version.data?.version ?? "…"}
           </div>
           <button className="btn secondary sm" onClick={() => void action("update", t.updateBot)}>
             {t.updateBot}

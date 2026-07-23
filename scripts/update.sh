@@ -58,7 +58,10 @@ notify_owner() { # best-effort Telegram DM of the update outcome to the owners; 
   # `|| true`: a grep miss returns 1, and under `set -o pipefail` that would abort the whole
   # script on the assignment. Reading an optional .env key must never fail the update.
   token=$(grep '^BOT__TOKEN=' .env | cut -d= -f2- || true)
-  ids=$(grep '^APP__OWNER_IDS=' .env | cut -d= -f2- | tr ',' ' ' || true)
+  # APP__OWNER_IDS is stored as a JSON list — `[959558954]` or `[1, 2]`. Strip the brackets,
+  # quotes and spaces, else chat_id becomes `[959558954]` and Telegram rejects it silently, so
+  # the owner never got the update notification (the exact «нет ОС от бота» complaint).
+  ids=$(grep '^APP__OWNER_IDS=' .env | cut -d= -f2- | tr -d '[]" ' | tr ',' ' ' || true)
   [ -n "$token" ] && [ -n "$ids" ] || return 0
   for id in $ids; do
     curl -fsS --max-time 8 -o /dev/null "https://api.telegram.org/bot${token}/sendMessage" \

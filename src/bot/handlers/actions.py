@@ -749,7 +749,11 @@ async def act_nodes(cb: CallbackQuery | Message, container: AppContainer, db_use
         if not bool(await container.bot_config.value(uow, "NODE_STATUS_ENABLED")):
             await ack(cb, "Раздел недоступен", alert=True)
             return
-        nodes = sorted(await uow.server_nodes.list(), key=lambda n: n.name)
+        # Only nodes the owner put up for sale — the user shouldn't see internal/parked servers.
+        # That's exactly what the «в продаже» toggle in the cabinet controls.
+        nodes = sorted(
+            (n for n in await uow.server_nodes.list() if n.is_for_sale), key=lambda n: n.name
+        )
     if not nodes:
         text = "<b>🌍 Статус серверов</b>\n\nДанные ещё собираются — загляни чуть позже."
     else:

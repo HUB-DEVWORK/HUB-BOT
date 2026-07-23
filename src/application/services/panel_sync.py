@@ -1,8 +1,10 @@
 """PanelSyncService — mirror Remnawave nodes/squads into local tables.
 
 Called by the cabinet's «Синхронизировать» button and by the periodic scheduler job.
-Upserts by panel uuid; never deletes local rows for vanished nodes (marks them OFFLINE
-instead) so ``is_for_sale`` flags survive panel hiccups.
+Upserts by panel uuid. A node that vanished from the panel is DELETED — but only on a
+healthy sync (the panel returned a non-empty list), so an API hiccup returning nothing
+never wipes every node. This removes nodes the owner deleted on the panel, and the stale
+duplicate you'd otherwise see when a node is re-created with a new uuid.
 """
 
 from __future__ import annotations
@@ -49,11 +51,14 @@ class PanelSyncService:
                 row.status = ServerNodeStatus.OFFLINE
             row.last_sync_at = now
 
-        # Vanished from the panel -> offline (keep local flags/history).
-        for uuid_, row in existing.items():
-            if uuid_ not in seen:
-                row.status = ServerNodeStatus.OFFLINE
-                row.last_sync_at = now
+        # Vanished from the panel -> DELETE, so a node the owner removed on the panel (or a
+        # re-created one lingering under its old uuid as a stale duplicate) disappears here too.
+        # Guard: only prune when the panel returned a healthy list — a hiccup that returns 0
+        # nodes must not wipe every local node.
+        if panel_nodes:
+            for uuid_, row in existing.items():
+                if uuid_ not in seen:
+                    await uow.server_nodes.delete(row)
 
         await self.sync_squads(uow)
         return len(panel_nodes)
