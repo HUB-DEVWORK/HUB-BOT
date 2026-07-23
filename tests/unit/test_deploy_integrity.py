@@ -82,6 +82,26 @@ def test_no_bare_compose_command_in_scripts_or_docs() -> None:
     )
 
 
+def test_env_grep_substitutions_are_failure_tolerant() -> None:
+    """A ``VAR=$(grep '^KEY=' .env …)`` under ``set -o pipefail`` aborts the whole script when the
+    key is absent (grep returns 1) — this silently killed a real update right after a successful
+    rebuild. Every such command substitution must end with ``|| true`` / ``|| :``. Regression."""
+    pat = re.compile(r"^\s*[A-Za-z_][A-Za-z0-9_]*=\$\(grep\b[^)]*\.env\b[^)]*\)")
+    offenders: list[str] = []
+    for script in _shell_scripts():
+        if "set -o pipefail" not in script.read_text() and "set -euo" not in script.read_text():
+            continue
+        for i, line in enumerate(script.read_text().splitlines(), 1):
+            if line.strip().startswith("#"):
+                continue
+            if pat.search(line) and not re.search(r"\|\|\s*(true|:)\s*\)", line):
+                offenders.append(f"{script.relative_to(REPO)}:{i}: {line.strip()}")
+    assert not offenders, (
+        "A grep-miss on an optional .env key returns 1 and aborts the script under pipefail — "
+        "guard each with `|| true`:\n" + "\n".join(offenders)
+    )
+
+
 @pytest.mark.parametrize("script", _shell_scripts(), ids=lambda p: p.name)
 def test_shell_scripts_are_syntactically_valid(script: Path) -> None:
     bash = shutil.which("bash")

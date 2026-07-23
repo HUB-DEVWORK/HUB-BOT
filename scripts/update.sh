@@ -55,8 +55,10 @@ COMPOSE="docker compose --env-file .env -f docker/compose.prod.yml"
 notify_owner() { # best-effort Telegram DM of the update outcome to the owners; never fails us
   command -v curl >/dev/null 2>&1 || return 0
   local text=$1 token ids id
-  token=$(grep '^BOT__TOKEN=' .env | cut -d= -f2-)
-  ids=$(grep '^APP__OWNER_IDS=' .env | cut -d= -f2- | tr ',' ' ')
+  # `|| true`: a grep miss returns 1, and under `set -o pipefail` that would abort the whole
+  # script on the assignment. Reading an optional .env key must never fail the update.
+  token=$(grep '^BOT__TOKEN=' .env | cut -d= -f2- || true)
+  ids=$(grep '^APP__OWNER_IDS=' .env | cut -d= -f2- | tr ',' ' ' || true)
   [ -n "$token" ] && [ -n "$ids" ] || return 0
   for id in $ids; do
     curl -fsS --max-time 8 -o /dev/null "https://api.telegram.org/bot${token}/sendMessage" \
@@ -115,8 +117,8 @@ step 1 "Бэкап БД"
 mkdir -p backups
 STAMP=$(date +%Y%m%d-%H%M%S)
 BACKUP="backups/pre-update-$STAMP.sql.gz"
-DB_USER=$(grep '^DATABASE__USER=' .env | cut -d= -f2)
-DB_NAME=$(grep '^DATABASE__NAME=' .env | cut -d= -f2)
+DB_USER=$(grep '^DATABASE__USER=' .env | cut -d= -f2 || true)
+DB_NAME=$(grep '^DATABASE__NAME=' .env | cut -d= -f2 || true)
 $COMPOSE exec -T postgres pg_dump -U "${DB_USER:-vpn}" "${DB_NAME:-vpn}" | gzip > "$BACKUP" \
   || fail "бэкап не снялся — обновление отменено (стек запущен? $COMPOSE ps)"
 [ -s "$BACKUP" ] || fail "бэкап пустой — обновление отменено"
@@ -165,7 +167,10 @@ fi
 # that already owns :443) therefore drops off the proxy on each update and its domain
 # starts 502-ing. Set WEB_PROXY_NETWORK=<external network name> in .env to have every
 # update re-attach it. No-op when unset or when the network doesn't exist.
-PROXY_NET=$(grep -E '^WEB_PROXY_NETWORK=' .env 2>/dev/null | cut -d= -f2- | xargs)
+# `|| true`: WEB_PROXY_NETWORK is OPTIONAL — a grep miss returns 1, and under `set -o pipefail`
+# an unguarded `VAR=$(grep …)` would abort the update right here (after a successful up -d, before
+# the health gate), firing the recover trap and a false "update failed" notice. This was that bug.
+PROXY_NET=$(grep -E '^WEB_PROXY_NETWORK=' .env 2>/dev/null | cut -d= -f2- | xargs || true)
 if [ -n "${PROXY_NET:-}" ]; then
   WEB_CID=$($COMPOSE ps -q web 2>/dev/null)
   if [ -n "$WEB_CID" ] && docker network inspect "$PROXY_NET" >/dev/null 2>&1; then

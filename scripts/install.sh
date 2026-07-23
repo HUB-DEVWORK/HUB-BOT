@@ -312,16 +312,18 @@ printf "\n"
 ok "миграции применены, /health отвечает"
 
 # --- summary ---------------------------------------------------------------------
-ENV_DOMAIN=$(grep '^DOMAIN=' .env | cut -d= -f2)
+# `|| true` on every .env read: a grep miss (an optional key like DOMAIN) returns 1, and under
+# `set -o pipefail` an unguarded `VAR=$(grep …)` would abort the summary AFTER install succeeded.
+ENV_DOMAIN=$(grep '^DOMAIN=' .env | cut -d= -f2 || true)
 IP=$(curl -fs4 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
 # Mode from .env so a re-run reports correctly too: caddy in profiles -> we own 80/443.
 grep '^COMPOSE_PROFILES=' .env | grep -q 'caddy' && CADDY_ACTIVE=1 || CADDY_ACTIVE=0
-WEB_PORT_OUT=$(grep '^WEB_BIND=' .env | sed 's/.*://')
+WEB_PORT_OUT=$(grep '^WEB_BIND=' .env | sed 's/.*://' || true)
 URL="http://$IP"
 [ -n "$ENV_DOMAIN" ] && [ "$ENV_DOMAIN" != ":80" ] && URL="https://$ENV_DOMAIN"
 [ "$CADDY_ACTIVE" = 0 ] && [ "$ENV_DOMAIN" = ":80" ] && URL="http://127.0.0.1:${WEB_PORT_OUT}"
-ADMPW_OUT=$(grep '^ADMIN__PASSWORD=' .env | cut -d= -f2)
-JWT_OUT=$(grep '^APP__JWT_SECRET=' .env | cut -d= -f2)
+ADMPW_OUT=$(grep '^ADMIN__PASSWORD=' .env | cut -d= -f2 || true)
+JWT_OUT=$(grep '^APP__JWT_SECRET=' .env | cut -d= -f2 || true)
 BACKUP_PW="${JWT_OUT:0:16}"   # the password DB backups are encrypted with (until you set one in the cabinet)
 
 printf "\n"
