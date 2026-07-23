@@ -84,16 +84,21 @@ def _screen_arg(command: CommandObject) -> str:
 
 @router.message(Command("setbanner"))
 async def set_banner(message: Message, command: CommandObject, container: AppContainer) -> None:
-    """Set a screen banner: reply to a photo with /setbanner <экран> (empty = default)."""
-    source = (
-        message.reply_to_message
-        if (message.reply_to_message and message.reply_to_message.photo)
-        else message
-    )
-    if not source.photo:
+    """Set a screen banner: reply to a photo OR a GIF/animation with /setbanner <экран>."""
+    # A GIF/MP4 arrives as `animation`; a still image as `photo`. Accept both — the reply target
+    # first, else the command message itself (photo/gif with a /setbanner caption).
+    reply = message.reply_to_message
+    source = reply if reply and (reply.photo or reply.animation) else message
+    if source.photo:
+        # store the largest still frame's file_id
+        media_ref = source.photo[-1].file_id
+    elif source.animation:
+        # mark the animation file_id so the renderer sends it with send_animation (it has no ext)
+        media_ref = f"animation:{source.animation.file_id}"
+    else:
         await message.answer(
-            "Пришли <code>/setbanner экран</code> ответом на фото (или фото с такой подписью).\n"
-            f"Экраны: {', '.join(SCREEN_KEYS)}. Пусто — баннер по умолчанию для всех.",
+            "Пришли <code>/setbanner экран</code> ответом на фото или GIF (или медиа с такой "
+            f"подписью).\nЭкраны: {', '.join(SCREEN_KEYS)}. Пусто — баннер по умолчанию для всех.",
             parse_mode="HTML",
         )
         return
@@ -109,8 +114,9 @@ async def set_banner(message: Message, command: CommandObject, container: AppCon
         )
         return
     key = banner_config_key(arg)
-    await _set_config(container, key, source.photo[-1].file_id)
-    await message.answer(f"✅ Баннер <code>{key}</code> обновлён.", parse_mode="HTML")
+    await _set_config(container, key, media_ref)
+    kind = "GIF" if source.animation else "Баннер"
+    await message.answer(f"✅ {kind} <code>{key}</code> обновлён.", parse_mode="HTML")
 
 
 @router.message(Command("delbanner"))

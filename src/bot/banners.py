@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 
 from aiogram.types import FSInputFile, InlineKeyboardMarkup
 
-from src.bot.media import photo_input
 from src.bot.screen import show_media_screen
 
 if TYPE_CHECKING:
@@ -56,7 +55,9 @@ def banner_config_key(screen_key: str) -> str:
 
 
 async def banner_for(container: AppContainer, screen_key: str) -> str | FSInputFile | None:
-    """Photo input for ``screen_key``: the configured image, else a fallback, else None."""
+    """Media reference for ``screen_key``: the configured banner (a photo OR a GIF/MP4), else a
+    fallback, else None. Returned raw — the send helpers (media_input/is_animated) resolve it,
+    so an animation banner is sent with send_animation instead of a frozen send_photo."""
     async with container.uow() as uow:
         cfg = container.bot_config
         if not bool(await cfg.value(uow, "BANNER_ENABLED")):
@@ -67,7 +68,7 @@ async def banner_for(container: AppContainer, screen_key: str) -> str | FSInputF
                 continue
             ref = str(await cfg.value(uow, key) or "").strip()
             if ref:
-                return photo_input(ref)
+                return ref
     return FSInputFile(str(_BUNDLED)) if _BUNDLED.is_file() else None
 
 

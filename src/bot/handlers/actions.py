@@ -20,7 +20,7 @@ from src.application.services.connection import CLIENT_LABELS, build_deep_links
 from src.bot.banners import render_screen
 from src.bot.gate import ensure_channel
 from src.bot.keyboards import menu_keyboard, simple_keyboard, webapp_button
-from src.bot.media import photo_input
+from src.bot.media import answer_media
 from src.bot.menu_render import send_main_menu
 from src.bot.screen import ack, safe_answer, show_screen
 from src.core.enums import Currency, PurchaseType, TransactionStatus, TransactionType
@@ -77,14 +77,16 @@ async def nav_screen(cb: CallbackQuery, container: AppContainer, db_user: User) 
     markup = menu_keyboard(nodes, node.id, miniapp_url=miniapp_url or None, with_back=True)
     msg = cb.message if isinstance(cb.message, Message) else None
     if msg is not None and node.image_path:
-        # Screens with an image: send a fresh photo message (can't edit text->photo).
-        # The image may be a local uploads/ file, a Telegram file_id or a URL.
+        # Screens with media: send a fresh message (can't edit text->media). The media may be a
+        # local uploads/ file, a Telegram file_id or a URL — and a GIF/MP4 animates (answer_media).
         try:
-            await msg.answer_photo(
-                photo_input(node.image_path),
+            await answer_media(
+                msg,
+                node.image_path,  # answer_media resolves the ref (file/URL/file_id, still or GIF)
                 # Telegram caps photo captions at 1024 chars (text screens allow 4096).
                 caption=text[:1024],
                 reply_markup=markup,
+                parse_mode=None,
             )
         except Exception:
             pass  # bad/unreachable image ref -> fall through to a text screen

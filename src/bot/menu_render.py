@@ -17,6 +17,7 @@ from src.bot.keyboards import (
     simple_keyboard,
     webapp_button,
 )
+from src.bot.media import answer_media, send_media
 from src.bot.screen import show_media_screen
 from src.infrastructure.database.models.menu_node import MenuNode
 from src.infrastructure.database.models.user import User
@@ -106,11 +107,9 @@ async def send_main_menu(
                 await target.answer_sticker(welcome_sticker)
         if photo is not None:
             with contextlib.suppress(Exception):
-                await target.answer_photo(
-                    photo,
-                    caption=start_text,
-                    reply_markup=markup,
-                    parse_mode="HTML",
+                # answer_media animates a GIF/MP4 banner (send_photo would freeze/reject it).
+                await answer_media(
+                    target, photo, caption=start_text, reply_markup=markup, parse_mode="HTML"
                 )
                 return
         with contextlib.suppress(Exception):  # HTML like every other render; plain on bad entities
@@ -153,8 +152,8 @@ async def _send_reply_menu(
         return
     if photo is not None:
         with contextlib.suppress(Exception):
-            await bot.send_photo(
-                chat_id, photo, caption=start_text, reply_markup=reply_kb, parse_mode="HTML"
+            await send_media(
+                bot, chat_id, photo, caption=start_text, reply_markup=reply_kb, parse_mode="HTML"
             )
             return
     with contextlib.suppress(Exception):

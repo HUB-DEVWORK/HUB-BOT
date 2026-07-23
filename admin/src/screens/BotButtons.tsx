@@ -331,8 +331,7 @@ export default function BotButtons() {
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {node.label}
           </span>
-          {node.image_path && <span title="картинка экрана">🖼</span>}
-          {node.custom_emoji_id && <span className="dim">◈</span>}
+          {node.image_path && <span title="картинка/GIF экрана">🖼</span>}
           <span className="cap-pill" style={{ marginLeft: "auto" }}>
             {kindLabel(node.kind)}
           </span>
@@ -494,14 +493,6 @@ export default function BotButtons() {
                   />
                 </div>
               </Field>
-              <Field label={t.customEmoji}>
-                <input
-                  className="input mono"
-                  value={sel.custom_emoji_id ?? ""}
-                  placeholder="5368324170671202286"
-                  onChange={(e) => patchSel({ custom_emoji_id: e.target.value || null })}
-                />
-              </Field>
               {sel.kind === "screen" && (
                 <Field label={t.screenImage}>
                   <div className="row" style={{ flexWrap: "wrap" }}>
@@ -530,7 +521,7 @@ export default function BotButtons() {
                     <input
                       ref={fileRef}
                       type="file"
-                      accept=".jpg,.jpeg,.png,.webp"
+                      accept=".jpg,.jpeg,.png,.webp,.gif,.mp4"
                       style={{ display: "none" }}
                       onChange={(e) => {
                         const f = e.target.files?.[0];

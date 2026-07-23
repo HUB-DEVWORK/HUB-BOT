@@ -17,9 +17,12 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardMarkup,
+    InputMediaAnimation,
     InputMediaPhoto,
     Message,
 )
+
+from src.bot.media import is_animated, media_input, send_media
 
 Target = CallbackQuery | Message
 
@@ -81,7 +84,10 @@ async def show_photo_screen(
     if chat_id is None or bot is None:
         return
     try:
-        await bot.send_photo(
+        # send_media picks send_photo vs send_animation, so a GIF/MP4 banner actually animates
+        # (send_photo would freeze a .gif to one frame and reject an .mp4 outright).
+        await send_media(
+            bot,
             chat_id,
             photo,  # type: ignore[arg-type]
             caption=caption[:_CAPTION_LIMIT],
@@ -114,12 +120,17 @@ async def show_media_screen(
         await show_screen(target, caption, markup)
         return
     msg, _chat_id, _bot = _origin(target)
-    if msg is not None and msg.photo:  # editing photo->photo keeps a single, flicker-free message
+    # Edit in place only when the current message already carries media (photo OR animation);
+    # editMessageMedia can swap between the two, so a GIF banner edits cleanly over a photo.
+    if msg is not None and (msg.photo or msg.animation):
+        inp = media_input(photo)  # type: ignore[arg-type]
+        media = (
+            InputMediaAnimation(media=inp, caption=caption, parse_mode="HTML")
+            if is_animated(photo)  # type: ignore[arg-type]
+            else InputMediaPhoto(media=inp, caption=caption, parse_mode="HTML")
+        )
         try:
-            await msg.edit_media(
-                InputMediaPhoto(media=photo, caption=caption, parse_mode="HTML"),  # type: ignore[arg-type]
-                reply_markup=markup,
-            )
+            await msg.edit_media(media, reply_markup=markup)
             return
         except TelegramBadRequest as exc:
             if "message is not modified" in str(exc):
