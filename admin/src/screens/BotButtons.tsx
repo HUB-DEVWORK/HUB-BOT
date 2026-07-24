@@ -334,6 +334,7 @@ function TreeRow({ node, depth, ctx }: { node: Node; depth: number; ctx: TreeCtx
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {node.label}
         </span>
+        {node.custom_emoji_id && <span title="премиум-эмодзи в кнопке">◈</span>}
         {node.image_path && <span title="картинка/GIF экрана">🖼</span>}
         <span className="cap-pill" style={{ marginLeft: "auto" }}>
           {ctx.kindLabel(node.kind)}
@@ -729,6 +730,17 @@ export default function BotButtons() {
                     onChange={(e) => patchSel({ color: e.target.value || null })}
                   />
                 </div>
+              </Field>
+              <Field label={t.customEmoji}>
+                <input
+                  className="input mono"
+                  placeholder="5368324170671202286"
+                  value={sel.custom_emoji_id ?? ""}
+                  onChange={(e) =>
+                    patchSel({ custom_emoji_id: e.target.value.replace(/\D/g, "") || null })
+                  }
+                />
+                <div className="hint">{t.customEmojiHint}</div>
               </Field>
               {sel.kind === "screen" && (
                 <Field label={t.screenImage}>

@@ -3,15 +3,32 @@
 Button colors: Telegram Bot API supports fixed styles (primary/success/danger, aiogram
 >= 3.27). The admin picks any HEX in the constructor; we map it to the closest style
 (greens -> success, reds -> danger, everything else -> primary, empty -> default).
+
+Custom emoji on buttons: Bot API added ``icon_custom_emoji_id`` — a premium custom emoji
+shown BEFORE the button text (the owner must have Telegram Premium for it to render). The
+constructor stores the id per node; we pass it through and strip a leading unicode emoji
+from the label so the user doesn't see two icons.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
 from src.infrastructure.database.models.menu_node import MenuNode
+
+# A leading emoji (+ modifiers / variation selectors / ZWJ chains) + optional space — stripped
+# from the label when a custom emoji icon is set, else the button shows two icons on the left.
+_LEADING_EMOJI = re.compile(
+    r"^[\U0001F000-\U0001FAFF←-⇿⌀-➿⬀-⯿☀-⛿ -‼⁉〰〽㊗㊙©®™ℹⓂ　-〿]"
+    r"[️‍\U0001F3FB-\U0001F3FF\U0001F000-\U0001FAFF]*\s*"
+)
+
+
+def _strip_leading_emoji(text: str) -> str:
+    return _LEADING_EMOJI.sub("", text, count=1) or text
 
 
 def style_for_hex(color: str | None) -> str | None:
@@ -44,6 +61,12 @@ def _button(
     style = style_for_hex(node.color or default_color)
     if style:
         kwargs["style"] = style
+    # Premium custom emoji shown before the text (Bot API icon_custom_emoji_id). Strip a leading
+    # unicode emoji from the label so it isn't doubled. Renders only if the owner has Premium.
+    emoji_id = (node.custom_emoji_id or "").strip()
+    if emoji_id.isdigit():
+        kwargs["icon_custom_emoji_id"] = emoji_id
+        kwargs["text"] = _strip_leading_emoji(node.label)
     if node.kind.value == "link" and node.payload and _is_valid_button_url(node.payload):
         kwargs["url"] = node.payload
     elif node.kind.value == "link":

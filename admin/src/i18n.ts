@@ -255,6 +255,8 @@ const ru = {
   screenText: "Текст экрана",
   buttonColor: "Цвет кнопки",
   customEmoji: "Custom Emoji ID",
+  customEmojiHint:
+    "Премиум-эмодзи (стикер) слева от текста. ID берётся у @idstickerbot или пересылкой эмодзи боту. Показывается, только если у бота есть Telegram Premium.",
   livePreview: "Живое превью",
   perRow: "Кнопок в ряд",
   perRowHint: "1 — кнопки друг под другом, 2–3 — по несколько в ряд. В боте будет так же.",
@@ -693,6 +695,8 @@ const en: typeof ru = {
   screenText: "Screen text",
   buttonColor: "Button color",
   customEmoji: "Custom Emoji ID",
+  customEmojiHint:
+    "Premium emoji (sticker) shown before the label. Get the ID from @idstickerbot or by forwarding the emoji to the bot. Renders only if the bot has Telegram Premium.",
   livePreview: "Live preview",
   perRow: "Buttons per row",
   perRowHint: "1 — buttons stacked, 2–3 — several per row. The bot renders it the same way.",
