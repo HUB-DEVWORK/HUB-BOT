@@ -28,12 +28,20 @@ const TOPIC_NAMES: Record<string, string> = {
   registrations: "Регистрации",
 };
 
-type MigSource = "shopbot" | "bedolaga" | "remnashop" | "threexui" | "minishop" | "jolymmiels";
+type MigSource =
+  | "shopbot"
+  | "bedolaga"
+  | "remnashop"
+  | "threexui"
+  | "minishop"
+  | "jolymmiels"
+  | "solobot";
 type Squad = { uuid: string; name: string };
 
 const MIG_SOURCES: { key: MigSource; label: string }[] = [
   { key: "shopbot", label: "remnawave-shopbot" },
   { key: "bedolaga", label: "Bedolaga" },
+  { key: "solobot", label: "SoloBot" },
   { key: "remnashop", label: "RemnaShop" },
   { key: "threexui", label: "3x-ui" },
   { key: "minishop", label: "remnawave-minishop" },
@@ -43,6 +51,7 @@ const MIG_SOURCES: { key: MigSource; label: string }[] = [
 const MIG_ACCEPT: Record<MigSource, string> = {
   shopbot: ".db,.sqlite,.sqlite3",
   bedolaga: ".db,.sqlite,.sqlite3,.sql,.json,.gz,.tgz,.tar.gz",
+  solobot: ".sql,.json",
   remnashop: ".sql,.json",
   threexui: ".db,.sqlite,.sqlite3",
   minishop: ".sql,.json",
@@ -381,7 +390,7 @@ export default function Maintenance() {
                 </select>
               </div>
             )}
-            {(migSrc === "bedolaga" || migSrc === "remnashop") && (
+            {migSrc !== "shopbot" && migSrc !== "threexui" && (
               <>
                 <div className="dim" style={{ fontSize: 12, marginTop: 4 }}>{t.migDsnLabel}</div>
                 <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>

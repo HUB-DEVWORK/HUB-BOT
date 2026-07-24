@@ -27,6 +27,7 @@ from src.application.services import (
     minishop_import,
     remnashop_import,
     shopbot_import,
+    solobot_import,
     threexui_import,
 )
 from src.application.services.bedolaga_import import BedolagaImportService
@@ -34,6 +35,7 @@ from src.application.services.jolymmiels_import import JolymmielsImportService
 from src.application.services.minishop_import import MinishopImportService
 from src.application.services.remnashop_import import RemnashopImportService
 from src.application.services.shopbot_import import ShopbotImportService
+from src.application.services.solobot_import import SolobotImportService
 from src.application.services.threexui_import import ThreexuiImportService
 from src.core.logging import get_logger
 from src.infrastructure.di import AppContainer
@@ -52,7 +54,7 @@ _ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 _UPLOAD_EXTS = (".db", ".sqlite", ".sqlite3", ".sql", ".json", ".gz", ".tgz")
 
-Source = Literal["bedolaga", "remnashop", "threexui", "minishop", "jolymmiels"]
+Source = Literal["bedolaga", "remnashop", "threexui", "minishop", "jolymmiels", "solobot"]
 
 
 def _saved_file(file_id: str, suffix: str) -> Path:
@@ -179,6 +181,7 @@ async def _load_source(source: Source, body: SourceIn) -> tuple[dict[str, Any], 
             "remnashop": remnashop_import.read_source_dsn,
             "minishop": minishop_import.read_source_dsn,
             "jolymmiels": jolymmiels_import.read_source_dsn,
+            "solobot": solobot_import.read_source_dsn,
         }
         try:
             return await dsn_readers[source](body.dsn), None
@@ -193,6 +196,7 @@ async def _load_source(source: Source, body: SourceIn) -> tuple[dict[str, Any], 
         "threexui": threexui_import.read_source,
         "minishop": minishop_import.read_source,
         "jolymmiels": jolymmiels_import.read_source,
+        "solobot": solobot_import.read_source,
     }
     try:
         return await asyncio.to_thread(readers[source], path), path
@@ -223,6 +227,7 @@ async def probe_source(
         "threexui": threexui_import.probe,
         "minishop": minishop_import.probe,
         "jolymmiels": jolymmiels_import.probe,
+        "solobot": solobot_import.probe,
     }
     result = probes[source](data)
     if source == "threexui" and result.get("ok"):
@@ -247,6 +252,7 @@ async def run_source_import(
         "threexui": threexui_import.probe,
         "minishop": minishop_import.probe,
         "jolymmiels": jolymmiels_import.probe,
+        "solobot": solobot_import.probe,
     }
     check = checks[source](data)
     if not check.get("ok"):
@@ -266,6 +272,9 @@ async def run_source_import(
         elif source == "jolymmiels":
             joly = JolymmielsImportService(container.referrals, container.remnawave_client)
             summary = await joly.run(uow, data)
+        elif source == "solobot":
+            solo = SolobotImportService(container.referrals, container.remnawave_client)
+            summary = await solo.run(uow, data)
         else:
             summary = await RemnashopImportService(container.referrals).run(uow, data)
         await audit(
