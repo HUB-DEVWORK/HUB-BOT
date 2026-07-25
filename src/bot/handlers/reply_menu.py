@@ -38,8 +38,10 @@ async def _match_button(container: AppContainer, text: str) -> MenuMatch | None:
     buttons (action/screen/link — a mini-app is a web_app button that sends no text, back is
     skipped); (3) when the tree has none of those, the bar shows DEFAULT_MENU, so match that.
     """
-    from src.bot.default_menu import DEFAULT_MENU, SMART_EXTRAS
+    from src.bot.default_menu import ADMIN_REPLY_LABEL, DEFAULT_MENU, SMART_EXTRAS
 
+    if text == ADMIN_REPLY_LABEL:
+        return ("admin", "", None)
     for label, code in SMART_EXTRAS:
         if text == label:
             return ("action", code, None)
@@ -112,9 +114,12 @@ async def dispatch(
     db_user: User,
     state: FSMContext,
     menu_match: MenuMatch,
+    is_admin: bool = False,
 ) -> None:
     kind, payload, node_id = menu_match
-    if kind == "action":
+    if kind == "admin" or (kind == "action" and payload == "admin"):
+        await _open_admin(message, container, db_user, is_admin)
+    elif kind == "action":
         await _open_action(message, container, db_user, state, payload)
     elif kind == "screen" and node_id is not None:
         await _open_screen(message, container, node_id)
@@ -145,6 +150,23 @@ def _reply_action_handlers() -> dict[str, Any]:
         "terms": actions.act_terms,
         "privacy": actions.act_privacy,
     }
+
+
+async def _open_admin(
+    message: Message, container: AppContainer, db_user: User, is_admin: bool
+) -> None:
+    """Bottom-bar «🛠 Администратор» tap -> open the in-bot admin panel. Admin-only: the button is
+    rendered only for admins, but a non-admin could still type the label, so re-check here with the
+    same ``is_admin`` the auth middleware computed (the admin router's own IsAdmin gate never sees
+    this reply-keyboard Message)."""
+    if not is_admin:
+        from src.bot.menu_render import send_main_menu
+
+        await send_main_menu(message, container, db_user)  # not admin -> just reopen the menu
+        return
+    from src.bot.handlers.admin.home import cmd_admin
+
+    await cmd_admin(message, container)
 
 
 async def _open_action(

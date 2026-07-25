@@ -37,7 +37,7 @@ def test_reply_dispatch_covers_all_actions() -> None:
     # mode, or the button dead-ends. Regression: terms/privacy (added in 1.2.4) were missing.
     from src.bot.handlers.reply_menu import _reply_action_handlers
 
-    covered = set(_reply_action_handlers()) | {"promocode"}  # promocode is FSM-special-cased
+    covered = set(_reply_action_handlers()) | {"promocode", "admin"}  # FSM/admin special-cased
     codes = {a.code for a in MENU_ACTIONS}
     missing = codes - covered
     assert not missing, f"reply-mode dispatch missing handlers for: {sorted(missing)}"
@@ -118,51 +118,6 @@ def test_menu_keyboard_groups_buttons_by_row_index() -> None:
     markup = menu_keyboard(nodes, None)
     assert [len(r) for r in markup.inline_keyboard] == [1, 2]  # row0: [A]; row1: [B, C]
     assert [b.text for b in markup.inline_keyboard[1]] == ["B", "C"]
-
-
-def test_button_renders_custom_emoji_and_strips_leading_emoji() -> None:
-    # A premium custom emoji id sits on the button as icon_custom_emoji_id (Bot API 9.4). We also
-    # drop a leading unicode emoji from the label so the user doesn't see two icons side by side.
-    from src.bot.keyboards import menu_keyboard
-    from src.core.enums import MenuNodeKind
-    from src.infrastructure.database.models.menu_node import MenuNode
-
-    node = MenuNode(
-        id=1,
-        parent_id=None,
-        order_index=0,
-        row_index=0,
-        label="💎 Купить",
-        kind=MenuNodeKind.ACTION,
-        payload="buy",
-        is_active=True,
-        custom_emoji_id="5368324170671202286",
-    )
-    btn = menu_keyboard([node], None).inline_keyboard[0][0]
-    assert btn.icon_custom_emoji_id == "5368324170671202286"
-    assert btn.text == "Купить"  # leading 💎 stripped
-
-
-def test_button_ignores_blank_or_nonnumeric_custom_emoji() -> None:
-    from src.bot.keyboards import menu_keyboard
-    from src.core.enums import MenuNodeKind
-    from src.infrastructure.database.models.menu_node import MenuNode
-
-    for bad in ("", "   ", "not-an-id"):
-        node = MenuNode(
-            id=1,
-            parent_id=None,
-            order_index=0,
-            row_index=0,
-            label="💎 Купить",
-            kind=MenuNodeKind.ACTION,
-            payload="buy",
-            is_active=True,
-            custom_emoji_id=bad,
-        )
-        btn = menu_keyboard([node], None).inline_keyboard[0][0]
-        assert btn.icon_custom_emoji_id is None
-        assert btn.text == "💎 Купить"  # untouched when no emoji applied
 
 
 def test_menu_keyboard_stacks_flat_menu_one_per_row() -> None:

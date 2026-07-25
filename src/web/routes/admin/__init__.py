@@ -21,6 +21,7 @@ from src.web.routes.admin import (
     menu,
     migration,
     miniapp,
+    modules,
     notifications,
     partners,
     payments,
@@ -62,6 +63,7 @@ _protected.include_router(partners.router)
 _protected.include_router(miniapp.router)
 _protected.include_router(maintenance.router)
 _protected.include_router(migration.router)
+_protected.include_router(modules.router)
 _protected.include_router(ai_support.router)
 _protected.include_router(withdrawals.router)
 _protected.include_router(uploads.router)

@@ -49,7 +49,7 @@ COPY --from=spa /spa/dist /app/admin/dist
 # Create the persistent dirs in the image so their app:app ownership is inherited by the named
 # volumes mounted over them (a fresh volume copies the image dir's owner; a dir that doesn't
 # exist here would be created root-owned, and the non-root app user couldn't write uploads).
-RUN mkdir -p /app/uploads /app/backups /app/update-signals \
+RUN mkdir -p /app/uploads /app/backups /app/update-signals /app/ext_modules \
     && chmod +x docker/entrypoint.sh && chown -R app:app /app
 USER app
 ENTRYPOINT ["docker/entrypoint.sh"]

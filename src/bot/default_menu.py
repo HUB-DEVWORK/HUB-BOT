@@ -44,6 +44,7 @@ MENU_ACTIONS: tuple[MenuAction, ...] = (
     MenuAction("support", "Поддержка", "Support"),
     MenuAction("terms", "Пользовательское соглашение", "Terms of Service"),
     MenuAction("privacy", "Политика конфиденциальности", "Privacy Policy"),
+    MenuAction("admin", "Администратор", "Admin panel"),
 )
 
 # Runtime "smart" shortcuts the menu renderer appends when applicable — (label, action code).
@@ -54,6 +55,10 @@ SMART_EXTRAS: tuple[tuple[str, str], ...] = (
     ("🔌 MTProto-прокси", "proxy"),
     ("🌍 Статус серверов", "nodes"),
 )
+
+# Bottom-bar (reply mode) label for the staff-only shortcut into the in-bot admin panel. Kept
+# here so the renderer (adds the button) and the reply dispatcher (routes the tap) never drift.
+ADMIN_REPLY_LABEL = "🛠 Администратор"
 
 _ACTIONS_BY_CODE = {a.code: a for a in MENU_ACTIONS}
 
