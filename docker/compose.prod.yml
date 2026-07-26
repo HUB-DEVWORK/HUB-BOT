@@ -26,6 +26,7 @@ x-app: &app
     - uploads:/app/uploads
     - backups:/app/backups
     - update-signals:/app/update-signals
+    - ext-modules:/app/ext_modules
 
 services:
   postgres:
@@ -190,3 +191,5 @@ volumes:
   caddy_config:
   # Shared signal dir: web drops an update-request file, the updater picks it up.
   update-signals:
+  # Uploaded (external) modules: web writes them, bot imports them.
+  ext-modules:

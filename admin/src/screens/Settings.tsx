@@ -4,6 +4,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { api } from "../api/client";
 import { SecretInput, Toggle } from "../components/ui";
@@ -34,11 +35,26 @@ const CAT_META: Record<string, { icon: string; ru: string; en: string }> = {
 
 export default function Settings() {
   const { t, lang, toast } = useApp();
+  const nav = useNavigate();
   const qc = useQueryClient();
   const [q, setQ] = useState(() => {
     const handoff = sessionStorage.getItem("settings_q") ?? "";
     sessionStorage.removeItem("settings_q");
     return handoff;
+  });
+  const [keySet] = useState<string[] | null>(() => {
+    const raw = sessionStorage.getItem("settings_keys");
+    sessionStorage.removeItem("settings_keys");
+    try {
+      return raw ? (JSON.parse(raw) as string[]) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [keyTitle] = useState(() => {
+    const v = sessionStorage.getItem("settings_title") ?? "";
+    sessionStorage.removeItem("settings_title");
+    return v;
   });
   const [cat, setCat] = useState<string | null>(null);
   const [dirty, setDirty] = useState<Record<string, unknown>>({});
@@ -64,9 +80,10 @@ export default function Settings() {
 
   const visible = useMemo(() => {
     if (searching) return filtered;
+    if (keySet) return all.filter((p) => keySet.includes(p.key));
     if (cat) return all.filter((p) => p.category === cat);
     return [];
-  }, [searching, filtered, cat, all]);
+  }, [searching, filtered, keySet, cat, all]);
 
   function valueOf(p: Param): unknown {
     return p.key in dirty ? dirty[p.key] : p.value;
@@ -152,7 +169,14 @@ export default function Settings() {
       <div className="page-head">
         <div>
           <h1 className="h1">
-            {cat && !searching ? (
+            {keySet && !searching ? (
+              <span className="row" style={{ gap: 10 }}>
+                <button className="btn secondary sm" onClick={() => nav("/modules")}>
+                  ‹
+                </button>
+                🧩 {keyTitle || t.modules}
+              </span>
+            ) : cat && !searching ? (
               <span className="row" style={{ gap: 10 }}>
                 <button className="btn secondary sm" onClick={() => setCat(null)}>
                   ‹
@@ -223,7 +247,7 @@ export default function Settings() {
       </div>
 
       {/* category blocks */}
-      {!searching && !cat && (
+      {!searching && !cat && !keySet && (
         <div
           className="kpis"
           style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
@@ -263,7 +287,7 @@ export default function Settings() {
       )}
 
       {/* params of the selected block, or flat search results */}
-      {(searching || cat) && (
+      {(searching || cat || keySet) && (
         <div className="tbl">
           {searching
             ? cats
@@ -284,7 +308,7 @@ export default function Settings() {
                   </div>
                 ))
             : visible.map(renderRow)}
-          {(searching || cat) && visible.length === 0 && <div className="tr dim">—</div>}
+          {(searching || cat || keySet) && visible.length === 0 && <div className="tr dim">—</div>}
         </div>
       )}
 

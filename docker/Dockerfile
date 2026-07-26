@@ -32,7 +32,7 @@ WORKDIR /app
 # (compose pins postgres:16) — an older pg_dump refuses to dump a newer server — and Debian
 # bookworm only ships 15, so pull postgresql-client-16 from the PGDG apt repo.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg unzip \
     && install -d /usr/share/postgresql-common/pgdg \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
         -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
@@ -49,7 +49,7 @@ COPY --from=spa /spa/dist /app/admin/dist
 # Create the persistent dirs in the image so their app:app ownership is inherited by the named
 # volumes mounted over them (a fresh volume copies the image dir's owner; a dir that doesn't
 # exist here would be created root-owned, and the non-root app user couldn't write uploads).
-RUN mkdir -p /app/uploads /app/backups /app/update-signals \
+RUN mkdir -p /app/uploads /app/backups /app/update-signals /app/ext_modules \
     && chmod +x docker/entrypoint.sh && chown -R app:app /app
 USER app
 ENTRYPOINT ["docker/entrypoint.sh"]

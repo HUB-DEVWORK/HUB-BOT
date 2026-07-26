@@ -55,7 +55,7 @@ class BotConfigService:
         overrides = await uow.bot_config.as_dict()
         ru = lang == "ru"
         rows: list[dict[str, Any]] = []
-        for spec in registry.REGISTRY:
+        for spec in registry.all_specs():
             val = values[spec.key]
             if spec.secret and val:
                 val = _MASK
@@ -112,7 +112,7 @@ class BotConfigService:
         if self._cache is None:
             overrides = await uow.bot_config.as_dict()
             merged: dict[str, Any] = {}
-            for spec in registry.REGISTRY:
+            for spec in registry.all_specs():
                 if spec.key in overrides:
                     val = overrides[spec.key]
                     if spec.secret and isinstance(val, str) and val and self._box is not None:

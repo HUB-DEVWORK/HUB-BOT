@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 from aiogram.types import FSInputFile, InlineKeyboardMarkup
 
 from src.bot.screen import show_media_screen
+from src.bot.screen_buttons import apply_screen_buttons, load_screen_configs
+from src.bot.screen_text import _TOKEN, caption_for
 
 if TYPE_CHECKING:
     from aiogram.types import CallbackQuery, Message
@@ -78,6 +80,45 @@ async def banner_for(container: AppContainer, screen_key: str) -> str | FSInputF
     return FSInputFile(str(_BUNDLED)) if _BUNDLED.is_file() else None
 
 
+async def _apply_overrides(
+    container: AppContainer,
+    screen_key: str,
+    caption: str,
+    markup: InlineKeyboardMarkup | None,
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """Apply the owner's per-screen text/button overrides. Both no-op when unconfigured.
+
+    Text: a static template replaces the caption; a template with unfilled {token}
+    placeholders is left to the code-built caption (which already carries the live data),
+    so a data screen never shows a raw {token}. Buttons: apply_screen_buttons rewrites the
+    keyboard, keeping any button the config didn't mention — an unset screen is byte-for-byte.
+    """
+    async with container.uow() as uow:
+        cfg = container.bot_config
+        texts_raw = str(await cfg.value(uow, "SCREEN_TEXTS") or "")
+        buttons_raw = str(await cfg.value(uow, "SCREEN_BUTTONS") or "")
+    if texts_raw.strip():
+        try:
+            import json
+
+            texts = json.loads(texts_raw)
+            tpl = texts.get(screen_key) if isinstance(texts, dict) else None
+            if isinstance(tpl, str) and tpl.strip():
+                candidate = caption_for(tpl, caption, {})
+                if not _TOKEN.search(candidate):
+                    caption = candidate
+        except Exception:
+            pass
+    if markup is not None:
+        try:
+            configs = load_screen_configs(buttons_raw)
+            if configs.get(screen_key):
+                markup = apply_screen_buttons(screen_key, markup, configs[screen_key])
+        except Exception:
+            pass
+    return caption, markup
+
+
 async def render_screen(
     target: CallbackQuery | Message,
     container: AppContainer,
@@ -90,5 +131,6 @@ async def render_screen(
     ``target`` is an inline tap (CallbackQuery — edit in place) or a reply-keyboard tap /
     command (Message — send fresh), so the same handlers render from both entry points.
     """
+    caption, markup = await _apply_overrides(container, screen_key, caption, markup)
     photo = await banner_for(container, screen_key)
     await show_media_screen(target, photo, caption, markup)

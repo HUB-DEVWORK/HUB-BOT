@@ -89,6 +89,12 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(level=settings.log.level, json=settings.log.use_json)
+    # External modules are spliced onto src.bot.modules.__path__ at import
+    # time, which may happen AFTER config_registry first seeds itself. Re-seed
+    # so ext modules MODULE_<NAME>_ENABLED keys are known to this web process
+    # (otherwise the module toggle endpoint 500s on unknown config key).
+    from src.core.config_registry import refresh_module_config
+    refresh_module_config()
     container = AppContainer(settings)
     app.state.container = container
     await bootstrap_admin(container)
