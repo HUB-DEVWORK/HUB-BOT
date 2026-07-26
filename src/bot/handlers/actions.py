@@ -319,8 +319,14 @@ async def act_cabinet(
     # actually hides it. The grid reflows. See src/bot/cabinet_menu.py.
     from src.bot.cabinet_menu import cabinet_rows
 
+    # «Открыть приложение» (mini-app) and «Назад» are now owner-editable list buttons — both come
+    # in via `rows`, no hardcoded appends. cabinet_rows renders «app» as a web_app button from
+    # miniapp_url (and skips it when unset); parse_config keeps «back» present so the cabinet can't
+    # lose its only exit even on a config that predates these buttons.
     rows = cabinet_rows(
-        cabinet_cfg, flags={"BALANCE_ENABLED": balance_on, "REFERRAL_ENABLED": referral_on}
+        cabinet_cfg,
+        flags={"BALANCE_ENABLED": balance_on, "REFERRAL_ENABLED": referral_on},
+        miniapp_url=miniapp_url,
     )
 
     def _cab_btn(text: str, cb: str, extra: dict) -> InlineKeyboardButton:
@@ -332,9 +338,6 @@ async def act_cabinet(
     kb: list[list[InlineKeyboardButton]] = [
         [_cab_btn(t, c, x) for t, c, x in row] for row in rows
     ]
-    if miniapp_url.startswith("https://"):
-        kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
-    kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
     await render_screen(cb, container, "cabinet", text, InlineKeyboardMarkup(inline_keyboard=kb))
     await ack(cb)
 

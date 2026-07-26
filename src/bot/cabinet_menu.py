@@ -45,6 +45,18 @@ CABINET_BUTTONS: tuple[CabinetButton, ...] = (
     CabinetButton("referral", "🎁 Рефералка", "act:referral:0", gate="REFERRAL_ENABLED"),
     CabinetButton("promocode", "🎟 Промокод", "act:promocode"),
     CabinetButton("support", "🆘 Поддержка", "act:support:0"),
+    # Open-mini-app button: a first-class built-in editable in the cabinet editor (label/color/
+    # emoji only, like any built-in — no type selector). It has no callback: cabinet_rows renders
+    # it as a native web_app button pointed at SUBSCRIPTION_MINI_APP_URL, and SKIPS it when no URL
+    # is configured (so it never shows a dead button). Injected enabled-by-default in parse_config
+    # so existing installs get it without a migration; before it existed the cabinet appended this
+    # button in code, so this keeps behaviour identical while making it editable.
+    CabinetButton("app", "📱 Открыть приложение", ""),
+    # Back-to-menu button: a first-class built-in so the owner can rename / reorder / hide it in
+    # the cabinet editor like any other button. Its callback is fixed (nav:root) — the editor
+    # exposes label/color/emoji only (built-ins never show the type selector). Injected as enabled
+    # by default in parse_config so existing installs keep the button without a migration.
+    CabinetButton("back", "‹ Назад", "nav:root"),
 )
 
 _BY_KEY = {b.key: b for b in CABINET_BUTTONS}
@@ -192,6 +204,23 @@ def parse_config(raw: str | None) -> list[dict]:
                               "color": None, "enabled": True, "custom": False, "row": None})
                 seen.add(k)
 
+    # Keep the two special built-ins present for configs that predate them (legacy CSV, or JSON
+    # written before they joined the catalogue) — such configs never mention them, so they aren't
+    # in ``seen``; an owner who deliberately hid one saved it disabled, so it IS in ``seen`` and we
+    # leave that choice alone. «Открыть приложение» is slotted just before «Назад» (or last if no
+    # back), so the mini-app CTA sits above the exit and «Назад» stays the final button — matching
+    # the order the cabinet used when both were appended in code.
+    if items and "app" not in seen:
+        at = next((i for i, it in enumerate(items) if it["key"] == "back"), len(items))
+        items.insert(at, {"key": "app", "label": _BY_KEY["app"].label, "action": None,
+                          "icon": None, "color": None, "enabled": True, "custom": False,
+                          "row": None})
+        seen.add("app")
+    if items and "back" not in seen:
+        items.append({"key": "back", "label": _BY_KEY["back"].label, "action": None, "icon": None,
+                      "color": None, "enabled": True, "custom": False, "row": None})
+        seen.add("back")
+
     if not items:
         items = [{"key": b.key, "label": b.label, "action": None, "icon": None, "color": None,
                   "enabled": True, "custom": False, "row": None} for b in CABINET_BUTTONS]
@@ -212,17 +241,22 @@ def cabinet_mode(raw: str | None) -> str:
     return "custom" if layout == "custom" else "uniform"
 
 
-def cabinet_rows(raw: str | None, *, flags: dict[str, bool]) -> list[list[tuple[str, str, dict]]]:
+def cabinet_rows(
+    raw: str | None, *, flags: dict[str, bool], miniapp_url: str | None = None
+) -> list[list[tuple[str, str, dict]]]:
     """Cabinet keyboard as physical rows of (label, callback, extra), honouring the layout mode.
 
     ``uniform`` chunks the enabled buttons ``per_row`` wide (default 2). ``custom`` groups them by
     each item's ``row`` (a new physical row starts when ``row`` changes), always capped at 3 per
     row to match the Bot API grid. Gating and premium-emoji/color handling mirror ``cabinet_buttons``.
+    The built-in ``app`` button renders as a native ``web_app`` button pointed at ``miniapp_url`` and
+    is dropped when no URL is configured (so it never shows a dead mini-app button).
     """
     from src.bot.keyboards import style_for_hex  # hex -> success/danger/primary, same as the menu
 
     _, per_row, layout = _config_root(raw)
     width = min(3, max(1, per_row)) if isinstance(per_row, int) else 2
+    has_app = bool(miniapp_url and miniapp_url.startswith("https://"))
 
     entries: list[tuple[str, str, dict, int | None]] = []
     for it in parse_config(raw):
@@ -237,6 +271,14 @@ def cabinet_rows(raw: str | None, *, flags: dict[str, bool]) -> list[list[tuple[
         if it["custom"]:
             cb, extra = _custom_target(it, extra)
             entries.append((it["label"], cb, extra, it.get("row")))
+        elif it["key"] == "app":
+            # Mini-app CTA: needs a configured URL, else skip it entirely (no dead button).
+            if not has_app:
+                continue
+            from aiogram.types import WebAppInfo
+
+            extra["web_app"] = WebAppInfo(url=miniapp_url or "")
+            entries.append((it["label"], "", extra, it.get("row")))
         else:
             b = _BY_KEY[it["key"]]
             if b.gate is not None and not flags.get(b.gate, True):

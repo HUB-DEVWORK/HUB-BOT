@@ -86,6 +86,7 @@ SAFE_SCREENS: tuple[ScreenDef, ...] = (
         "support", "Поддержка", "Support",
         (
             SysButton("url", "💬 Открыть поддержку"),
+            SysButton("app", "💬 Открыть поддержку"),  # miniapp-mode support opens as a WebApp
             SysButton("act:cabinet", "‹ Кабинет"),
         ),
     ),
@@ -105,6 +106,9 @@ SAFE_SCREENS: tuple[ScreenDef, ...] = (
             SysButton("act:devices", "📱 Устройства"),
             SysButton("act:buy", "🔀 Сменить тариф"),
             SysButton("traffic:menu", "➕ Трафик"),
+            SysButton("autopay:toggle", "🔁 Автопродление"),  # live ✅/❌ state kept at render
+            SysButton("autopay:card", "💳 Автосписание картой"),  # only when autopay is on
+            SysButton("app", "📱 Открыть приложение"),  # appended when SUBSCRIPTION_MINI_APP_URL set
             SysButton("nav:root", "‹ Меню"),
         ),
     ),
@@ -155,6 +159,11 @@ SAFE_SCREENS: tuple[ScreenDef, ...] = (
 
 SCREENS_BY_KEY: dict[str, ScreenDef] = {s.key: s for s in SAFE_SCREENS}
 
+# Buttons whose caption carries a live state glyph (✅/❌) the handler appends from state.
+# When the owner renames such a button, we keep the trailing glyph so the indicator, which is
+# the whole point of the button, never freezes to a stale value.
+_DYNAMIC_STATE_KEYS: frozenset[str] = frozenset({"autopay:toggle", "autopay:card"})
+
 
 def is_safe_screen(key: str) -> bool:
     return key in SCREENS_BY_KEY
@@ -196,6 +205,12 @@ def _restyle(btn: InlineKeyboardButton, item: dict) -> InlineKeyboardButton:
     upd: dict[str, object] = {}
     label = str(item.get("label") or "").strip()
     if label:
+        # Keep the live ✅/❌ state glyph the handler put on autopay-style buttons, so a rename
+        # relabels only the base text and the indicator stays accurate render-to-render.
+        if button_identity(btn) in _DYNAMIC_STATE_KEYS:
+            live = btn.text or ""
+            if live and live[-1] in ("✅", "❌") and label[-1] not in ("✅", "❌"):
+                label = f"{label}: {live[-1]}"
         upd["text"] = label
     color = str(item.get("color") or "").strip()
     if color:
