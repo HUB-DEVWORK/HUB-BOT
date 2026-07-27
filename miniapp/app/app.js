@@ -626,7 +626,7 @@
   function wizIcon(kind) {
     const attrs = 'fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"';
     const inner = {
-      plug: '<path d="M8.5 7.5 5.2 10.8a4.6 4.6 0 0 0 6.5 6.5l3.3-3.3"/><path d="M15.5 16.5 7.5 8.5"/><path d="M15.5 7.5l3.3-3.3M12.7 5.9 11 7.6M18.1 11.3l-1.7 1.7M18.8 5.2l-3.6 3.6"/>',
+      plug: '<path d="M9 7.5V3.5M15 7.5V3.5"/><path d="M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0Z"/><path d="M12 16.5v4"/>',
       cloud: '<path d="M19.4 16.8A4 4 0 0 0 18 9.1 5.8 5.8 0 0 0 6.8 8.3 4.8 4.8 0 0 0 6 17.6"/><path d="M12 11.5v7.5M9.4 16.4 12 19l2.6-2.6"/>',
       plus: '<circle cx="12" cy="12" r="8.2" stroke-dasharray="3.4 3.6"/><path d="M12 8.4v7.2M8.4 12h7.2"/>',
       check: '<circle cx="12" cy="12" r="8.6"/><path d="m8.2 12.4 2.5 2.5 5.1-5.3"/>',

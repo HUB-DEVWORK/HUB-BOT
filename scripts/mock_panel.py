@@ -129,6 +129,7 @@ async def patch_user(uid: str, request: Request) -> dict[str, Any]:
         "externalSquadUuid",
         "username",
         "tag",
+        "userTraffic",  # lets tests wind the used-traffic counter up
     ):
         if key in body and body[key] is not None:
             user[key] = body[key]

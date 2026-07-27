@@ -116,6 +116,9 @@ async def act_subscription(
         show_traffic = bool(await container.bot_config.value(uow, "SHOW_TRAFFIC_USAGE"))
         miniapp_url = str(await container.bot_config.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "")
         autopay_global = bool(await container.bot_config.value(uow, "AUTO_RENEWAL_ENABLED"))
+        if sub is not None and sub.status.is_usable and show_traffic:
+            await container.traffic.refresh_used_bytes(sub)
+            await uow.commit()
     if sub is None or not sub.status.is_usable:
         text = (
             "<b>📶 Подписка</b>\n\n"
@@ -265,6 +268,9 @@ async def act_cabinet(
         tpl_active = str(await container.bot_config.value(uow, "CABINET_SUB_ACTIVE") or "")
         tpl_inactive = str(await container.bot_config.value(uow, "CABINET_SUB_INACTIVE") or "")
         cabinet_emoji = str(await container.bot_config.value(uow, "CABINET_TEXT_EMOJI") or "")
+        if sub is not None and sub.status.is_usable and show_traffic:
+            await container.traffic.refresh_used_bytes(sub)
+            await uow.commit()
 
     from src.bot.cabinet_text import (
         DEFAULT_CABINET_TEXT,

@@ -36,6 +36,7 @@ from src.application.services.purchase import PurchaseService
 from src.application.services.referral import ReferralService
 from src.application.services.remnawave import RemnawaveService
 from src.application.services.subscription import SubscriptionService
+from src.application.services.traffic import TrafficService
 from src.core.config import get_settings
 from src.core.enums import (
     Currency,
@@ -97,6 +98,7 @@ class ApiTestContainer:
         self.promo = PromoService()
         self.bot_config = BotConfigService(self.secret_box)
         self.panel_sync = PanelSyncService(self.remnawave_client)
+        self.traffic = TrafficService(self.remnawave_client)  # no cache: deterministic
         self.telemetry = TelemetryReporter(
             enabled=False, url="", app_version="test", install_id="test"
         )
