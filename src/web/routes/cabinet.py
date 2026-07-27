@@ -180,6 +180,8 @@ async def me(
         payment_order = (["balance"] if balance_on else []) + ["stars"]
         payment_order += [g["id"] for g in gateways]
         payment_order.sort(key=rank)  # stable — unlisted methods keep default order
+        if sub is not None and sub.status.is_usable:
+            await container.traffic.refresh_used_bytes(sub)
         await uow.commit()
     return {
         "user": {
@@ -824,6 +826,9 @@ async def traffic(
         )
         if sub is None:
             return {"used_bytes": 0, "limit_bytes": 0, "unlimited": True, "series": []}
+        if sub.status.is_usable:
+            await container.traffic.refresh_used_bytes(sub)
+            await uow.commit()
         rows = await uow.traffic.series(sub.id, limit=30)
     return {
         "used_bytes": sub.traffic_used_bytes,

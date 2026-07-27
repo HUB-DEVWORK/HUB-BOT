@@ -21,6 +21,7 @@ from src.application.services.referral import ReferralService
 from src.application.services.remnawave import RemnawaveService
 from src.application.services.resync import RemnawaveResyncService
 from src.application.services.subscription import SubscriptionService
+from src.application.services.traffic import TrafficService
 from src.core.config import Settings, get_settings
 from src.core.constants import APP_VERSION
 from src.core.i18n import Translator, load_translations
@@ -89,6 +90,7 @@ class AppContainer:
         self.panel_sync = PanelSyncService(self.remnawave_client)
         self.device_guard = DeviceGuardService(self.remnawave_client)
         self.resync = RemnawaveResyncService(self.remnawave_client, self.subscriptions)
+        self.traffic = TrafficService(self.remnawave_client, cache=self.redis)
         self.ai_support = AiSupportService(
             self.remnawave_client, self.notifier, self.bot_config, self.uow
         )
