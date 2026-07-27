@@ -1,8 +1,8 @@
 """Light, aiogram-free module discovery shared by the web process.
 
 The bot's :mod:`src.bot.modules.loader` owns the full lifecycle (it imports
-aiogram-heavy code). The web process only needs to *list* modules — name,
-version, whether a module is built-in or uploaded, whether it declares config —
+aiogram-heavy code). The web process only needs to *list* modules - name,
+version, whether a module is built-in or uploaded, whether it declares config -
 without importing any router/middleware code. This module provides exactly that
 by reading each module's pure-data ``manifest.py`` (the same contract the loader
 and ``config_registry`` already rely on).
@@ -41,7 +41,7 @@ def _is_external(finder_path: str) -> bool:
         return False
     try:
         return os.path.abspath(finder_path) == os.path.abspath(EXTERNAL_MODULES_DIR)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 
@@ -56,7 +56,7 @@ def _config_keys(name: str, enable_key: str) -> tuple[str, ...]:
             k = getattr(sp, "key", None)
             if isinstance(k, str) and k not in keys:
                 keys.append(k)
-    except Exception:  # noqa: BLE001 — a broken config never breaks the list
+    except Exception:
         pass
     return tuple(keys)
 
@@ -70,7 +70,7 @@ def discover_manifests() -> list[DiscoveredModule]:
     """
     try:
         pkg = importlib.import_module(_PKG)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return []
 
     out: list[DiscoveredModule] = []
@@ -84,7 +84,7 @@ def discover_manifests() -> list[DiscoveredModule]:
         seen.add(name)
         try:
             manifest = importlib.import_module(f"{_PKG}.{name}.manifest").MANIFEST
-        except Exception:  # noqa: BLE001 — a broken manifest never breaks the list
+        except Exception:
             continue
         finder_path = getattr(info.module_finder, "path", "")
         has_config = bool(finder_path) and os.path.isfile(
@@ -108,4 +108,4 @@ def discover_manifests() -> list[DiscoveredModule]:
     return out
 
 
-__all__ = ("DiscoveredModule", "discover_manifests", "EXTERNAL_MODULES_DIR")
+__all__ = ("EXTERNAL_MODULES_DIR", "DiscoveredModule", "discover_manifests")

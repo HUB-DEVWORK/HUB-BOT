@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Sequence
+from typing import Any
 
 from aiogram.types import CallbackQuery, Message
 
@@ -25,7 +26,7 @@ from src.infrastructure.database.models.user import User
 from src.infrastructure.di import AppContainer
 
 
-def _hook_buttons(results: list) -> list[tuple[str, str]]:
+def _hook_buttons(results: list[Any]) -> list[tuple[str, str]]:
     """Flatten ``main_menu`` hook results into (label, callback_data) buttons.
 
     A hook may return a single ``(label, data)`` tuple or a list of them; anything
@@ -33,12 +34,8 @@ def _hook_buttons(results: list) -> list[tuple[str, str]]:
     the menu).
     """
 
-    def is_btn(x) -> bool:
-        return (
-            isinstance(x, (list, tuple))
-            and len(x) == 2
-            and all(isinstance(e, str) for e in x)
-        )
+    def is_btn(x: Any) -> bool:
+        return isinstance(x, (list, tuple)) and len(x) == 2 and all(isinstance(e, str) for e in x)
 
     out: list[tuple[str, str]] = []
     for res in results:
@@ -75,9 +72,7 @@ async def send_main_menu(
     # Staff gate for the admin shortcut — mirror middlewares.py: role OR owner_ids OR
     # ADMIN_IDS, not role alone (the owner runs as a plain USER and reaches the panel via
     # owner_ids/ADMIN_IDS, so a role-only check would hide the button from him).
-    _admin_ids = {
-        int(x) for x in admin_ids_raw.replace(";", ",").split(",") if x.strip().isdigit()
-    }
+    _admin_ids = {int(x) for x in admin_ids_raw.replace(";", ",").split(",") if x.strip().isdigit()}
     is_staff = (
         db_user.role.is_staff
         or db_user.telegram_id in container.settings.app.owner_ids

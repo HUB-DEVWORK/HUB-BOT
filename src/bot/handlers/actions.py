@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from html import escape as hesc
+from typing import Any
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -323,7 +324,7 @@ async def act_cabinet(
     # Owner-configurable button set (CABINET_BUTTONS): order + which buttons show. A disabled
     # feature (balance/referral) is still skipped even when listed, so «отключил в настройках»
     # actually hides it. The grid reflows. See src/bot/cabinet_menu.py.
-    from src.bot.cabinet_menu import cabinet_rows
+    from src.bot.cabinet_menu import cabinet_rows, parse_custom_buttons
 
     # «Открыть приложение» (mini-app) and «Назад» are now owner-editable list buttons — both come
     # in via `rows`, no hardcoded appends. cabinet_rows renders «app» as a web_app button from
@@ -335,15 +336,18 @@ async def act_cabinet(
         miniapp_url=miniapp_url,
     )
 
-    def _cab_btn(text: str, cb: str, extra: dict) -> InlineKeyboardButton:
+    def _cab_btn(text: str, cb: str, extra: dict[str, Any]) -> InlineKeyboardButton:
         # link/miniapp buttons carry url/web_app in extra and MUST NOT also set callback_data.
         if "url" in extra or "web_app" in extra:
             return InlineKeyboardButton(text=text, **extra)
         return InlineKeyboardButton(text=text, callback_data=cb, **extra)
 
-    kb: list[list[InlineKeyboardButton]] = [
-        [_cab_btn(t, c, x) for t, c, x in row] for row in rows
-    ]
+    kb: list[list[InlineKeyboardButton]] = [[_cab_btn(t, c, x) for t, c, x in row] for row in rows]
+    # Back-compat: installs that configured the legacy CABINET_CUSTOM_BUTTONS keep their link
+    # buttons after the unified rows (new custom buttons live in CABINET_BUTTONS, different key,
+    # so nothing renders twice).
+    for btn in parse_custom_buttons(cabinet_custom):
+        kb.append([InlineKeyboardButton(text=btn["label"], url=btn["url"])])
     await render_screen(cb, container, "cabinet", text, InlineKeyboardMarkup(inline_keyboard=kb))
     await ack(cb)
 

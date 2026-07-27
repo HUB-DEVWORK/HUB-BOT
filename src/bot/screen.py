@@ -22,8 +22,8 @@ from aiogram.types import (
     Message,
 )
 
-from src.bot.media import is_animated, media_input, send_media
 from src.bot.custom_emoji import apply_custom_emoji
+from src.bot.media import is_animated, media_input, send_media
 
 Target = CallbackQuery | Message
 
@@ -53,7 +53,7 @@ async def show_screen(
     parse_mode: str | None = "HTML",
 ) -> None:
     """Edit the current screen in place (callback) or send a fresh one (message)."""
-    text = apply_custom_emoji(text)
+    text = apply_custom_emoji(text) or text
     msg, chat_id, bot = _origin(target)
     if msg is not None:
         try:
@@ -82,7 +82,7 @@ async def show_photo_screen(
     Telegram can't edit a text message into a photo, so banner screens are re-sent. On any
     delivery error the caption is sent as plain, tag-stripped text so the flow never breaks.
     """
-    caption = apply_custom_emoji(caption)
+    caption = apply_custom_emoji(caption) or caption
     msg, chat_id, bot = _origin(target)
     if chat_id is None or bot is None:
         return
@@ -119,7 +119,7 @@ async def show_media_screen(
     the current message is already a photo, the image + caption + buttons are swapped in place
     (no flicker); otherwise a fresh photo is sent and the old message dropped.
     """
-    caption = apply_custom_emoji(caption)
+    caption = apply_custom_emoji(caption) or caption
     if photo is None or len(caption) > _CAPTION_LIMIT:
         await show_screen(target, caption, markup)
         return

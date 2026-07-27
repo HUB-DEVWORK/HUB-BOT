@@ -12,9 +12,7 @@ from src.infrastructure.di import AppContainer
 router = Router(name="admin-home")
 
 
-def _menu(
-    admin_url: str, extras: list[tuple[str, str]] | None = None
-) -> InlineKeyboardMarkup:
+def _menu(admin_url: str, extras: list[tuple[str, str]] | None = None) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats"),
@@ -41,9 +39,7 @@ def _menu(
     # static grid and before the web-admin / back rows.
     extras = extras or []
     for i in range(0, len(extras), 2):
-        rows.append(
-            [InlineKeyboardButton(text=t, callback_data=cb) for t, cb in extras[i : i + 2]]
-        )
+        rows.append([InlineKeyboardButton(text=t, callback_data=cb) for t, cb in extras[i : i + 2]])
     if admin_url.startswith("https://"):
         rows.append([InlineKeyboardButton(text="🌐 Веб-админка", url=admin_url)])
     rows.append([InlineKeyboardButton(text="‹ В меню бота", callback_data="nav:root")])

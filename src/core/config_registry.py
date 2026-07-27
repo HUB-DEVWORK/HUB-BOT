@@ -13,6 +13,7 @@ Conventions:
 
 from __future__ import annotations
 
+import contextlib
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
@@ -1077,7 +1078,7 @@ CATEGORY_NAMES: dict[ConfigCategory, dict[str, str]] = {
 _MODULE_SPECS: list[ParamSpec] = []
 
 
-def register_module_params(specs: "Any") -> None:
+def register_module_params(specs: Any) -> None:
     """Append module ParamSpecs to the effective registry (idempotent per key)."""
     for sp in specs:
         if sp.key in _BY_KEY:
@@ -1166,10 +1167,8 @@ def _load_module_config() -> None:
         except RuntimeError:
             # Duplicate key across modules — skip the offending set, keep others.
             for sp in specs:
-                try:
+                with contextlib.suppress(RuntimeError):
                     register_module_params([sp])
-                except RuntimeError:
-                    pass
 
 
 def refresh_module_config() -> None:

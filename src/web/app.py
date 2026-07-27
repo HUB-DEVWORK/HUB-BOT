@@ -94,6 +94,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # so ext modules MODULE_<NAME>_ENABLED keys are known to this web process
     # (otherwise the module toggle endpoint 500s on unknown config key).
     from src.core.config_registry import refresh_module_config
+
     refresh_module_config()
     container = AppContainer(settings)
     app.state.container = container

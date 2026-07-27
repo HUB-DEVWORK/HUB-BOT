@@ -2,15 +2,15 @@
 
 Lifecycle (driven from ``src/bot/main.py::run`` where the DI container exists):
 
-1. :meth:`discover` — scan ``src/bot/modules/*/``, import each module's *light*
+1. :meth:`discover` - scan ``src/bot/modules/*/``, import each module's *light*
    ``manifest.py`` and read its :class:`~src.bot.modules.api.ModuleManifest`.
-2. :meth:`resolve_enabled` — decide which modules are on, from
+2. :meth:`resolve_enabled` - decide which modules are on, from
    ``MODULE_<NAME>_ENABLED`` config plus ``requires`` dependencies.
-3. :meth:`load` — for each enabled module import the full package, run its
+3. :meth:`load` - for each enabled module import the full package, run its
    ``register(reg)`` (or auto-wire a bare ``router``), import ``hooks.py`` so its
    ``@register_hook`` decorators fire, and collect routers/migrations/middlewares.
-4. :meth:`routers` — priority-sorted routers, spliced into ``build_router``.
-5. :meth:`run_migrations` / :meth:`apply_middlewares` — before polling starts.
+4. :meth:`routers` - priority-sorted routers, spliced into ``build_router``.
+5. :meth:`run_migrations` / :meth:`apply_middlewares` - before polling starts.
 
 Config params of modules are registered separately and earlier, at
 ``config_registry`` import time (see ``_load_module_config`` there), so they are
@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING, Any
 
 from src.bot import hooks as hook_bus
 from src.bot.modules.api import ModuleManifest, Registrar
-
 from src.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -40,7 +39,7 @@ _RESERVED = {"api", "loader", "hooks"}
 
 
 class LoadedModule:
-    __slots__ = ("manifest", "registrar", "package", "setup")
+    __slots__ = ("manifest", "package", "registrar", "setup")
 
     def __init__(
         self,
@@ -73,8 +72,8 @@ class ModuleSystem:
             name = info.name
             try:
                 mod = importlib.import_module(f"{_PKG}.{name}.manifest")
-                manifest = getattr(mod, "MANIFEST")
-            except Exception as e:  # noqa: BLE001
+                manifest = mod.MANIFEST
+            except Exception as e:
                 log.error("module_manifest_error", module=name, error=str(e), exc_info=True)
                 continue
             if not isinstance(manifest, ModuleManifest):
@@ -94,13 +93,14 @@ class ModuleSystem:
         # enable keys unregistered in this process. Re-seed idempotently so the
         # bot_config.value() read below finds them instead of throwing.
         from src.core.config_registry import refresh_module_config
+
         refresh_module_config()
         raw: set[str] = set()
         async with container.uow() as uow:
             for name, manifest in self._manifests.items():
                 try:
                     on = bool(await container.bot_config.value(uow, manifest.enable_key()))
-                except Exception:  # noqa: BLE001 — fall back to manifest default
+                except Exception:
                     on = manifest.default_enabled
                 if on:
                     raw.add(name)
@@ -149,7 +149,7 @@ class ModuleSystem:
                     migrations=len(reg.migrations),
                     middlewares=len(reg.middlewares),
                 )
-            except Exception as e:  # noqa: BLE001 — one bad module must not kill the bot
+            except Exception as e:
                 log.error("module_load_error", module=name, error=str(e), exc_info=True)
                 self._enabled.discard(name)
         hook_bus.set_enabled_checker(lambda n: n in self._enabled)
@@ -169,9 +169,9 @@ class ModuleSystem:
             return None
 
     # -- 4. consumption --------------------------------------------------
-    def routers(self) -> list["Router"]:
+    def routers(self) -> list[Router]:
         """All enabled-module routers, sorted by (priority, module name)."""
-        pairs: list[tuple[int, str, "Router"]] = []
+        pairs: list[tuple[int, str, Router]] = []
         for lm in self._loaded:
             for router, prio in lm.registrar.routers:
                 pairs.append((prio, lm.manifest.name, router))
@@ -185,7 +185,7 @@ class ModuleSystem:
                 try:
                     await fn(session)
                     log.info("module_migrated", module=lm.manifest.name, fn=fn.__name__)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     log.error(
                         "module_migration_error",
                         module=lm.manifest.name,
@@ -194,18 +194,18 @@ class ModuleSystem:
                         exc_info=True,
                     )
 
-    def apply_middlewares(self, dp: "Dispatcher") -> None:
+    def apply_middlewares(self, dp: Dispatcher) -> None:
         """Attach each module's middlewares to the dispatcher event buses."""
         for lm in self._loaded:
             for spec in lm.registrar.middlewares:
                 bus = getattr(dp, spec.event, None)
                 if bus is None:
-                    log.warning("module_mw_bad_event", module=lm.manifest.name, event=spec.event)
+                    log.warning("module_mw_bad_event", module=lm.manifest.name, dp_event=spec.event)
                     continue
                 bus.middleware(spec.middleware)
-                log.info("module_mw_attached", module=lm.manifest.name, event=spec.event)
+                log.info("module_mw_attached", module=lm.manifest.name, dp_event=spec.event)
 
-    async def apply_setup(self, bot: Any, dp: "Dispatcher", container: Any) -> None:
+    async def apply_setup(self, bot: Any, dp: Dispatcher, container: Any) -> None:
         """Run each enabled module's ``setup(bot, dp, container)`` lifecycle hook.
 
         The hook is where a middleware-only module wires itself into the live bot
@@ -222,7 +222,7 @@ class ModuleSystem:
                 if inspect.isawaitable(result):
                     await result
                 log.info("module_setup_done", module=lm.manifest.name)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 log.error(
                     "module_setup_error",
                     module=lm.manifest.name,
@@ -240,4 +240,4 @@ class ModuleSystem:
         return dict(self._manifests)
 
 
-__all__ = ("ModuleSystem", "LoadedModule")
+__all__ = ("LoadedModule", "ModuleSystem")

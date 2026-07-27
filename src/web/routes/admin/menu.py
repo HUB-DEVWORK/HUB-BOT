@@ -1,4 +1,4 @@
-"""Admin: bot menu constructor (screen 05) — read/replace the button tree."""
+"""Admin: bot menu constructor (screen 05) - read/replace the button tree."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from src.infrastructure.di import AppContainer
 from src.web.deps import get_container
 from src.web.routes.admin._common import audit
 from src.web.routes.admin.deps import AdminIdentity, require_admin
+
 
 async def require_bot_menu_module(container: AppContainer = Depends(get_container)) -> None:
     """Gate the bot-menu editor behind the ``bot_menu`` module toggle.
@@ -88,7 +89,7 @@ def _serialize(nodes: list[MenuNode]) -> list[dict[str, Any]]:
 
 
 def _default_menu_rows() -> list[MenuNode]:
-    """DEFAULT_MENU as fresh top-level ACTION nodes — shared by reset + first-boot seed."""
+    """DEFAULT_MENU as fresh top-level ACTION nodes - shared by reset + first-boot seed."""
     return [
         MenuNode(
             parent_id=None,
@@ -105,8 +106,8 @@ def _default_menu_rows() -> list[MenuNode]:
 
 # Top-level action sets of menus we shipped as defaults in earlier versions. A live menu
 # whose top-level actions match one of these was our seed (not the owner's work), so a
-# later deploy may upgrade it to the current DEFAULT_MENU. A customized menu — any other
-# action set — is never touched.
+# later deploy may upgrade it to the current DEFAULT_MENU. A customized menu - any other
+# action set - is never touched.
 _LEGACY_DEFAULT_SIGNATURES: tuple[frozenset[str], ...] = (
     frozenset(
         {
@@ -166,7 +167,7 @@ _SNAPSHOT_EXTRA_KEYS: tuple[str, ...] = (
 
 
 def _snapshot_config_keys() -> tuple[str, ...]:
-    """Every flat bot_config key the Bot-menu tab owns — full-tab snapshot set."""
+    """Every flat bot_config key the Bot-menu tab owns - full-tab snapshot set."""
     banner_keys = tuple(k for k, _ in _BANNER_SLOTS)
     return MENU_CONFIG_KEYS + _SNAPSHOT_EXTRA_KEYS + banner_keys
 
@@ -210,7 +211,7 @@ async def _write_menu_tree(uow: Any, nodes: list[NodeIn]) -> None:
     pending = list(nodes)
     # Honour the editor's explicit order_index so reordering persists instead of snapping
     # back to creation order. move() assigns a unique 0..n-1 per parent (a swap), so
-    # `n.order_index` is authoritative — no falsy-0 fallback (that mislaid a top-moved
+    # `n.order_index` is authoritative - no falsy-0 fallback (that mislaid a top-moved
     # button). array_pos is only a last resort when a client omits it entirely.
     array_pos: dict[str | None, int] = {}
     guard = 0
@@ -310,7 +311,7 @@ async def import_menu(
 
 @router.get("/actions")
 async def list_actions() -> dict[str, Any]:
-    """Catalogue of bot actions a button can point at — feeds the constructor's dropdown."""
+    """Catalogue of bot actions a button can point at - feeds the constructor's dropdown."""
     return {
         "actions": [
             {
@@ -458,13 +459,10 @@ async def save_texts(
     return {"ok": True}
 
 
-
-
 @router.get("/cabinet")
 async def get_cabinet_buttons(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
     """Cabinet buttons in owner order: built-ins (on/off) + custom, with actions and defaults."""
     from src.bot.cabinet_menu import CABINET_BUTTONS, cabinet_columns, cabinet_mode, parse_config
-
     from src.bot.screen_text import (
         CABINET_SUB_ACTIVE_DEFAULT,
         CABINET_SUB_INACTIVE_DEFAULT,
@@ -485,8 +483,18 @@ async def get_cabinet_buttons(container: AppContainer = Depends(get_container)) 
     # Append built-ins the owner never listed, disabled, so the UI can re-enable them.
     for b in CABINET_BUTTONS:
         if b.key not in seen:
-            items.append({"key": b.key, "label": b.label, "action": None, "icon": None,
-                          "color": None, "enabled": False, "custom": False, "row": None})
+            items.append(
+                {
+                    "key": b.key,
+                    "label": b.label,
+                    "action": None,
+                    "icon": None,
+                    "color": None,
+                    "enabled": False,
+                    "custom": False,
+                    "row": None,
+                }
+            )
     return {
         "buttons": [
             {
@@ -542,7 +550,8 @@ class CabinetButtonIn(BaseModel):
     label: str = ""
     enabled: bool = True
     action: str | None = None
-    btype: str | None = None  # custom-button kind: action (default) | link | miniapp | screen | back
+    # custom-button kind: action (default) | link | miniapp | screen | back
+    btype: str | None = None
     url: str | None = None  # https/tg target for link/miniapp custom buttons
     stext: str | None = None  # sub-screen body for screen custom buttons
     row: int | None = None  # physical row index for the custom layout, else None
@@ -590,7 +599,9 @@ async def save_cabinet_buttons(
                 continue
             icon = (it.icon or "").strip()
             if icon and not (icon.isdigit() and 1 <= len(icon) <= 24):
-                raise HTTPException(status_code=422, detail=f"button {key}: icon must be a numeric custom_emoji_id")
+                raise HTTPException(
+                    status_code=422, detail=f"button {key}: icon must be a numeric custom_emoji_id"
+                )
             if key in by_key:
                 label = (it.label or "").strip() or by_key[key].label
                 row: dict[str, Any] = {"key": key, "label": label, "enabled": bool(it.enabled)}
@@ -604,18 +615,40 @@ async def save_cabinet_buttons(
                 if btype == "action":
                     action = (it.action or "").strip().lower()
                     if action not in valid_actions:
-                        raise HTTPException(status_code=422, detail=f"button {key}: unknown action {action!r}")
-                    row = {"key": key, "label": label, "action": action, "enabled": bool(it.enabled)}
+                        raise HTTPException(
+                            status_code=422, detail=f"button {key}: unknown action {action!r}"
+                        )
+                    row = {
+                        "key": key,
+                        "label": label,
+                        "action": action,
+                        "enabled": bool(it.enabled),
+                    }
                 elif btype == "link":
                     url = (it.url or "").strip()
                     if not (url.startswith("https://") or url.startswith("tg://")):
-                        raise HTTPException(status_code=422, detail=f"button {key}: link needs an https:// or tg:// URL")
-                    row = {"key": key, "label": label, "btype": btype, "url": url, "enabled": bool(it.enabled)}
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"button {key}: link needs an https:// or tg:// URL",
+                        )
+                    row = {
+                        "key": key,
+                        "label": label,
+                        "btype": btype,
+                        "url": url,
+                        "enabled": bool(it.enabled),
+                    }
                 elif btype == "miniapp":
-                    # No per-button URL: opens the global SUBSCRIPTION_MINI_APP_URL at render, like the menu.
+                    # No per-button URL: opens the global SUBSCRIPTION_MINI_APP_URL at render.
                     row = {"key": key, "label": label, "btype": btype, "enabled": bool(it.enabled)}
                 else:  # screen
-                    row = {"key": key, "label": label, "btype": btype, "stext": (it.stext or ""), "enabled": bool(it.enabled)}
+                    row = {
+                        "key": key,
+                        "label": label,
+                        "btype": btype,
+                        "stext": (it.stext or ""),
+                        "enabled": bool(it.enabled),
+                    }
             if icon:
                 row["icon"] = icon
             color = (it.color or "").strip()  # already hex-validated by the pydantic model
@@ -688,7 +721,9 @@ async def get_screens(container: AppContainer = Depends(get_container)) -> dict[
     screens: list[dict[str, Any]] = []
     for sdef in SAFE_SCREENS:
         cfg = all_cfg.get(sdef.key) or {}
-        items_cfg = cfg.get("items") if isinstance(cfg.get("items"), list) else []
+        items_cfg = cfg.get("items")
+        if not isinstance(items_cfg, list):
+            items_cfg = []
         defaults = {b.key: b for b in sdef.buttons}
         buttons: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -698,45 +733,85 @@ async def get_screens(container: AppContainer = Depends(get_container)) -> dict[
                 continue
             seen.add(key)
             if bool(it.get("custom")):
-                buttons.append({
-                    "key": key, "label": str(it.get("label") or ""), "default_label": None,
-                    "color": it.get("color"), "icon": it.get("icon"),
-                    "enabled": bool(it.get("enabled", True)), "custom": True,
-                    "action": it.get("action"), "url": it.get("url"), "row": it.get("row"),
-                })
+                buttons.append(
+                    {
+                        "key": key,
+                        "label": str(it.get("label") or ""),
+                        "default_label": None,
+                        "color": it.get("color"),
+                        "icon": it.get("icon"),
+                        "enabled": bool(it.get("enabled", True)),
+                        "custom": True,
+                        "action": it.get("action"),
+                        "url": it.get("url"),
+                        "row": it.get("row"),
+                    }
+                )
             else:
                 d = defaults.get(key)
-                buttons.append({
-                    "key": key, "label": str(it.get("label") or "") or (d.label if d else ""),
-                    "default_label": d.label if d else None, "color": it.get("color"),
-                    "icon": it.get("icon"), "enabled": bool(it.get("enabled", True)),
-                    "custom": False, "action": None, "url": None, "row": it.get("row"),
-                })
+                buttons.append(
+                    {
+                        "key": key,
+                        "label": str(it.get("label") or "") or (d.label if d else ""),
+                        "default_label": d.label if d else None,
+                        "color": it.get("color"),
+                        "icon": it.get("icon"),
+                        "enabled": bool(it.get("enabled", True)),
+                        "custom": False,
+                        "action": None,
+                        "url": None,
+                        "row": it.get("row"),
+                    }
+                )
         for b in sdef.buttons:
             if b.key not in seen:
-                buttons.append({
-                    "key": b.key, "label": b.label, "default_label": b.label, "color": None,
-                    "icon": None, "enabled": True, "custom": False, "action": None,
-                    "url": None, "row": None,
-                })
+                buttons.append(
+                    {
+                        "key": b.key,
+                        "label": b.label,
+                        "default_label": b.label,
+                        "color": None,
+                        "icon": None,
+                        "enabled": True,
+                        "custom": False,
+                        "action": None,
+                        "url": None,
+                        "row": None,
+                    }
+                )
         per_row = cfg.get("per_row") if cfg.get("per_row") in (1, 2, 3) else 1
         layout = "custom" if cfg.get("layout") == "custom" else "uniform"
-        screens.append({
-            "key": sdef.key, "title_ru": sdef.title_ru, "title_en": sdef.title_en,
-            "buttons": buttons, "per_row": per_row, "layout": layout,
-            "text": all_txt.get(sdef.key, ""),
-            "text_default": default_text_for(sdef.key),
-            "text_placeholders": placeholders_for(sdef.key),
-            "text_sample": sample_for(sdef.key),
-            "buttons_default": [
-                {"key": b.key, "label": b.label, "default_label": b.label, "color": None,
-                 "icon": None, "enabled": True, "custom": False, "action": None,
-                 "url": None, "row": None}
-                for b in sdef.buttons
-            ],
-            "per_row_default": 1,
-            "layout_default": "uniform",
-        })
+        screens.append(
+            {
+                "key": sdef.key,
+                "title_ru": sdef.title_ru,
+                "title_en": sdef.title_en,
+                "buttons": buttons,
+                "per_row": per_row,
+                "layout": layout,
+                "text": all_txt.get(sdef.key, ""),
+                "text_default": default_text_for(sdef.key),
+                "text_placeholders": placeholders_for(sdef.key),
+                "text_sample": sample_for(sdef.key),
+                "buttons_default": [
+                    {
+                        "key": b.key,
+                        "label": b.label,
+                        "default_label": b.label,
+                        "color": None,
+                        "icon": None,
+                        "enabled": True,
+                        "custom": False,
+                        "action": None,
+                        "url": None,
+                        "row": None,
+                    }
+                    for b in sdef.buttons
+                ],
+                "per_row_default": 1,
+                "layout_default": "uniform",
+            }
+        )
     return {"screens": screens}
 
 
@@ -772,21 +847,27 @@ async def save_screen_buttons(
                 raise HTTPException(status_code=422, detail=f"button {key}: label required")
             action = (it.action or "").strip().lower()
             url = (it.url or "").strip()
-            row: dict[str, Any] = {"key": key, "custom": True, "label": label,
-                                   "enabled": bool(it.enabled)}
+            row: dict[str, Any] = {
+                "key": key,
+                "custom": True,
+                "label": label,
+                "enabled": bool(it.enabled),
+            }
             if url:
                 if not url.startswith(("http://", "https://", "tg://")):
                     raise HTTPException(status_code=422, detail=f"button {key}: bad url")
                 row["url"] = url
             elif action:
                 if action not in valid_actions:
-                    raise HTTPException(status_code=422, detail=f"button {key}: unknown action {action!r}")
+                    raise HTTPException(
+                        status_code=422, detail=f"button {key}: unknown action {action!r}"
+                    )
                 row["action"] = action
             else:
                 raise HTTPException(status_code=422, detail=f"button {key}: needs action or url")
         else:
             if key not in default_keys:
-                continue  # unknown system button — silently ignore
+                continue  # unknown system button - silently ignore
             row = {"key": key, "enabled": bool(it.enabled)}
             label = (it.label or "").strip()
             if label:
@@ -826,7 +907,7 @@ async def reset_default(
     identity: AdminIdentity = Depends(require_admin),
     container: AppContainer = Depends(get_container),
 ) -> dict[str, Any]:
-    """Replace the menu with the built-in default — a real, editable starting menu."""
+    """Replace the menu with the built-in default - a real, editable starting menu."""
     async with container.uow() as uow:
         await uow.menu_nodes.delete_by()
         for row in _default_menu_rows():

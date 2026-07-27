@@ -2,15 +2,15 @@
 
 Most built-in screens (Подключение, История, Соглашение, Политика, Пробный, Баланс,
 Реферал, Поддержка) render a fixed set of navigation buttons in code. This module lets the
-owner rename / recolor / reorder / hide those buttons and add their own — WITHOUT touching
-the bot's logic — by rewriting the already-built keyboard right before it's sent.
+owner rename / recolor / reorder / hide those buttons and add their own - WITHOUT touching
+the bot's logic - by rewriting the already-built keyboard right before it's sent.
 
 The hook lives in ``banners.render_screen``: it loads ``SCREEN_BUTTONS`` (a JSON object keyed
 by screen), and if this screen has an override, ``apply_screen_buttons`` reshuffles the live
 markup. No override ⇒ the markup passes through byte-for-byte, so an unconfigured bot behaves
 exactly as before (important: these screens sit next to the payment flow).
 
-Only STATIC buttons are managed — a button is identified by its callback signature (or the
+Only STATIC buttons are managed - a button is identified by its callback signature (or the
 web-app/url role). Dynamic buttons a handler builds from state (plan lists, autopay toggles,
 device rows) are NOT in the safe registry and, if present, are preserved untouched at the end.
 """
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -27,7 +28,7 @@ from src.bot.keyboards import style_for_hex
 
 @dataclass(frozen=True, slots=True)
 class SysButton:
-    key: str  # stable identity (see button_identity) — matches the live button's signature
+    key: str  # stable identity (see button_identity) - matches the live button's signature
     label: str  # default caption, exactly as the bot renders it out of the box
 
 
@@ -40,15 +41,17 @@ class ScreenDef:
 
 
 # The safe subset registers, for each screen, ONLY its static navigation buttons (back/menu
-# links and fixed actions). Dynamic buttons a handler builds from state — plan lists, payment
-# methods, autopay toggles, device rows, traffic packs — are intentionally absent: they are
+# links and fixed actions). Dynamic buttons a handler builds from state - plan lists, payment
+# methods, autopay toggles, device rows, traffic packs - are intentionally absent: they are
 # never matched, so apply_screen_buttons keeps them in place at the end, untouched. This is why
-# even the payment-adjacent screens are safe to expose — the owner can only rename/reorder the
+# even the payment-adjacent screens are safe to expose - the owner can only rename/reorder the
 # static nav buttons; the money-carrying buttons pass through byte-for-byte. The cabinet itself
 # is NOT here: it has its own dedicated editor.
 SAFE_SCREENS: tuple[ScreenDef, ...] = (
     ScreenDef(
-        "connect", "Подключение", "Connect",
+        "connect",
+        "Подключение",
+        "Connect",
         (
             SysButton("app", "📱 Открыть приложение"),
             SysButton("act:subscription", "👤 Моя подписка"),
@@ -56,18 +59,24 @@ SAFE_SCREENS: tuple[ScreenDef, ...] = (
         ),
     ),
     ScreenDef(
-        "history", "История операций", "History",
+        "history",
+        "История операций",
+        "History",
         (SysButton("act:cabinet", "‹ Кабинет"),),
     ),
     ScreenDef(
-        "trial", "Пробный период", "Trial",
+        "trial",
+        "Пробный период",
+        "Trial",
         (
             SysButton("act:subscription", "👤 Моя подписка"),
             SysButton("nav:root", "‹ Меню"),
         ),
     ),
     ScreenDef(
-        "balance", "Баланс", "Balance",
+        "balance",
+        "Баланс",
+        "Balance",
         (
             SysButton("topup:menu", "⭐ Пополнить"),
             SysButton("act:support", "🆘 Поддержка"),
@@ -75,7 +84,9 @@ SAFE_SCREENS: tuple[ScreenDef, ...] = (
         ),
     ),
     ScreenDef(
-        "referral", "Пригласить друга", "Referral",
+        "referral",
+        "Пригласить друга",
+        "Referral",
         (
             SysButton("url", "📤 Поделиться"),
             SysButton("withdraw:start", "💸 Вывести"),
@@ -83,7 +94,9 @@ SAFE_SCREENS: tuple[ScreenDef, ...] = (
         ),
     ),
     ScreenDef(
-        "support", "Поддержка", "Support",
+        "support",
+        "Поддержка",
+        "Support",
         (
             SysButton("url", "💬 Открыть поддержку"),
             SysButton("app", "💬 Открыть поддержку"),  # miniapp-mode support opens as a WebApp
@@ -91,15 +104,21 @@ SAFE_SCREENS: tuple[ScreenDef, ...] = (
         ),
     ),
     ScreenDef(
-        "terms", "Пользовательское соглашение", "Terms",
+        "terms",
+        "Пользовательское соглашение",
+        "Terms",
         (SysButton("nav:root", "‹ Меню"),),
     ),
     ScreenDef(
-        "privacy", "Политика конфиденциальности", "Privacy",
+        "privacy",
+        "Политика конфиденциальности",
+        "Privacy",
         (SysButton("nav:root", "‹ Меню"),),
     ),
     ScreenDef(
-        "subscription", "Моя подписка", "My subscription",
+        "subscription",
+        "Моя подписка",
+        "My subscription",
         (
             SysButton("act:connect", "🔌 Подключить"),
             SysButton("plan", "🔄 Продлить"),
@@ -108,51 +127,72 @@ SAFE_SCREENS: tuple[ScreenDef, ...] = (
             SysButton("traffic:menu", "➕ Трафик"),
             SysButton("autopay:toggle", "🔁 Автопродление"),  # live ✅/❌ state kept at render
             SysButton("autopay:card", "💳 Автосписание картой"),  # only when autopay is on
-            SysButton("app", "📱 Открыть приложение"),  # appended when SUBSCRIPTION_MINI_APP_URL set
+            # appended when SUBSCRIPTION_MINI_APP_URL is set
+            SysButton("app", "📱 Открыть приложение"),
             SysButton("nav:root", "‹ Меню"),
         ),
     ),
     ScreenDef(
-        "buy", "Тарифы", "Plans",
+        "buy",
+        "Тарифы",
+        "Plans",
         (SysButton("nav:root", "‹ Меню"),),
     ),
     ScreenDef(
-        "durations", "Выбор срока", "Duration",
+        "durations",
+        "Выбор срока",
+        "Duration",
         (SysButton("act:buy", "‹ Назад"),),
     ),
     ScreenDef(
-        "payment", "Способ оплаты", "Payment",
+        "payment",
+        "Способ оплаты",
+        "Payment",
         (SysButton("act:promocode", "🎟 У меня промокод"),),
     ),
     ScreenDef(
-        "topup", "Пополнение баланса", "Top up",
+        "topup",
+        "Пополнение баланса",
+        "Top up",
         (SysButton("act:balance", "‹ Назад"),),
     ),
     ScreenDef(
-        "traffic", "Докупить трафик", "Traffic",
+        "traffic",
+        "Докупить трафик",
+        "Traffic",
         (SysButton("act:subscription", "‹ Назад"),),
     ),
     ScreenDef(
-        "devices", "Устройства", "Devices",
+        "devices",
+        "Устройства",
+        "Devices",
         (SysButton("nav:root", "‹ Меню"),),
     ),
     ScreenDef(
-        "nodes", "Статус серверов", "Servers",
+        "nodes",
+        "Статус серверов",
+        "Servers",
         (SysButton("nav:root", "‹ Меню"),),
     ),
     ScreenDef(
-        "proxy", "MTProto-прокси", "MTProto proxy",
+        "proxy",
+        "MTProto-прокси",
+        "MTProto proxy",
         (
             SysButton("url", "🔌 Подключить прокси"),
             SysButton("nav:root", "‹ Меню"),
         ),
     ),
     ScreenDef(
-        "withdraw", "Вывод заработка", "Withdraw",
+        "withdraw",
+        "Вывод заработка",
+        "Withdraw",
         (SysButton("act:referral", "‹ Назад"),),
     ),
     ScreenDef(
-        "promocode", "Промокод", "Promo code",
+        "promocode",
+        "Промокод",
+        "Promo code",
         (SysButton("act:cabinet", "‹ Кабинет"),),
     ),
 )
@@ -200,7 +240,7 @@ def _identities(buttons: list[InlineKeyboardButton]) -> list[str]:
     return out
 
 
-def _restyle(btn: InlineKeyboardButton, item: dict) -> InlineKeyboardButton:
+def _restyle(btn: InlineKeyboardButton, item: dict[str, Any]) -> InlineKeyboardButton:
     """A copy of a live (system) button with the owner's label/color/icon applied."""
     upd: dict[str, object] = {}
     label = str(item.get("label") or "").strip()
@@ -223,7 +263,7 @@ def _restyle(btn: InlineKeyboardButton, item: dict) -> InlineKeyboardButton:
     return btn.model_copy(update=upd) if upd else btn
 
 
-def _build_custom(item: dict) -> InlineKeyboardButton | None:
+def _build_custom(item: dict[str, Any]) -> InlineKeyboardButton | None:
     """A brand-new button the owner added: points at a bot action or an external URL."""
     label = str(item.get("label") or "").strip()
     if not label:
@@ -270,23 +310,23 @@ def _group_rows(
 
 
 def apply_screen_buttons(
-    screen_key: str, markup: InlineKeyboardMarkup, cfg: dict | None
+    screen_key: str, markup: InlineKeyboardMarkup, cfg: dict[str, Any] | None
 ) -> InlineKeyboardMarkup:
     """Rewrite a screen's keyboard per the owner's override. No override ⇒ return it unchanged.
 
-    Never drops a button the config didn't mention (a conditional/dynamic one) — those are kept
+    Never drops a button the config didn't mention (a conditional/dynamic one) - those are kept
     in place at the end, so a mis-scoped override can only reorder/relabel, never brick a screen.
     """
     if not cfg or not isinstance(cfg.get("items"), list) or not cfg["items"]:
         return markup
     live = [b for row in markup.inline_keyboard for b in row]
     ids = _identities(live)
-    by_id = dict(zip(ids, live))
+    by_id = dict(zip(ids, live, strict=True))
 
     ordered: list[tuple[InlineKeyboardButton, object]] = []
     for it in cfg["items"]:
         if not it.get("enabled", True):
-            continue  # hidden (system) or disabled (custom) — leave it out
+            continue  # hidden (system) or disabled (custom) - leave it out
         if it.get("custom"):
             btn = _build_custom(it)
             if btn is not None:
@@ -300,18 +340,18 @@ def apply_screen_buttons(
     # Safety net: any live button the config never referenced (e.g. a newly added dynamic one)
     # is appended untouched so nothing silently vanishes.
     referenced = {str(it.get("key")) for it in cfg["items"] if not it.get("custom")}
-    for k, b in zip(ids, live):
+    for k, b in zip(ids, live, strict=True):
         if k not in referenced:
             ordered.append((b, None))
 
     rows = _group_rows(ordered, cfg.get("per_row"), cfg.get("layout"))
     rows = [r for r in rows if r]
     if not rows:
-        return markup  # never send an empty keyboard — fall back to the original
+        return markup  # never send an empty keyboard - fall back to the original
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def load_screen_configs(raw: str | None) -> dict[str, dict]:
+def load_screen_configs(raw: str | None) -> dict[str, dict[str, Any]]:
     """Parse the ``SCREEN_BUTTONS`` blob (a JSON object keyed by screen) into a dict."""
     text = (raw or "").strip()
     if not text:

@@ -14,7 +14,7 @@ JSON item shapes::
 
 Built-in items may override ``label``; their callback and feature-gate come from the catalogue.
 Custom items carry their own label and an ``action`` code, rendered as ``act:<action>:0`` (the
-same convention the main menu uses — see ``bot/menu_render``). Any item may carry an ``icon`` —
+same convention the main menu uses - see ``bot/menu_render``). Any item may carry an ``icon`` -
 the numeric ``custom_emoji_id`` of a premium emoji; it is passed to Telegram as the button's
 ``icon_custom_emoji_id`` (see LesVPN MenuLayout for the same mechanism). A gated built-in whose
 feature is switched off (balance/referral) is skipped even when listed, so a disabled feature
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,14 +47,14 @@ CABINET_BUTTONS: tuple[CabinetButton, ...] = (
     CabinetButton("promocode", "🎟 Промокод", "act:promocode"),
     CabinetButton("support", "🆘 Поддержка", "act:support:0"),
     # Open-mini-app button: a first-class built-in editable in the cabinet editor (label/color/
-    # emoji only, like any built-in — no type selector). It has no callback: cabinet_rows renders
+    # emoji only, like any built-in - no type selector). It has no callback: cabinet_rows renders
     # it as a native web_app button pointed at SUBSCRIPTION_MINI_APP_URL, and SKIPS it when no URL
     # is configured (so it never shows a dead button). Injected enabled-by-default in parse_config
     # so existing installs get it without a migration; before it existed the cabinet appended this
     # button in code, so this keeps behaviour identical while making it editable.
     CabinetButton("app", "📱 Открыть приложение", ""),
     # Back-to-menu button: a first-class built-in so the owner can rename / reorder / hide it in
-    # the cabinet editor like any other button. Its callback is fixed (nav:root) — the editor
+    # the cabinet editor like any other button. Its callback is fixed (nav:root) - the editor
     # exposes label/color/emoji only (built-ins never show the type selector). Injected as enabled
     # by default in parse_config so existing installs keep the button without a migration.
     CabinetButton("back", "‹ Назад", "nav:root"),
@@ -68,7 +69,7 @@ def custom_callback(action: str | None) -> str:
     return f"act:{(action or '').strip().lower()}:0"
 
 
-def _custom_target(it: dict, extra: dict) -> tuple[str, dict]:
+def _custom_target(it: dict[str, Any], extra: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     """Resolve a custom cabinet button to (callback_data, extra) by its ``btype``.
 
     ``action`` -> ``act:<code>:0`` callback (default). ``link``/``miniapp`` carry the URL in
@@ -139,7 +140,7 @@ def _config_root(raw: str | None) -> tuple[object, int | None, str | None]:
     return text, None, None
 
 
-def parse_config(raw: str | None) -> list[dict]:
+def parse_config(raw: str | None) -> list[dict[str, Any]]:
     """``CABINET_BUTTONS`` -> normalized list of item dicts.
 
     Each item is ``{key, label, action, icon, color, enabled, custom}``. Unknown built-in keys,
@@ -148,7 +149,7 @@ def parse_config(raw: str | None) -> list[dict]:
     Accepts the object form, a bare JSON list, or legacy CSV (see ``_config_root``).
     """
     source, _, _ = _config_root(raw)
-    items: list[dict] = []
+    items: list[dict[str, Any]] = []
     seen: set[str] = set()
 
     if isinstance(source, list):
@@ -165,8 +166,18 @@ def parse_config(raw: str | None) -> list[dict]:
             row = row if isinstance(row, int) else None
             if key in _BY_KEY:
                 label = str(it.get("label") or "").strip() or _BY_KEY[key].label
-                items.append({"key": key, "label": label, "action": None, "icon": icon,
-                              "color": color, "enabled": enabled, "custom": False, "row": row})
+                items.append(
+                    {
+                        "key": key,
+                        "label": label,
+                        "action": None,
+                        "icon": icon,
+                        "color": color,
+                        "enabled": enabled,
+                        "custom": False,
+                        "row": row,
+                    }
+                )
                 seen.add(key)
             else:
                 label = str(it.get("label") or "").strip()
@@ -184,46 +195,99 @@ def parse_config(raw: str | None) -> list[dict]:
                         continue
                 elif btype in ("link", "miniapp"):
                     url = str(it.get("url") or "").strip()
-                    # A half-typed link/miniapp button is dropped, never rendered — a bad URL
+                    # A half-typed link/miniapp button is dropped, never rendered - a bad URL
                     # would make the whole cabinet keyboard fail to send.
                     if not (url.startswith("https://") or url.startswith("tg://")):
                         continue
                 elif btype == "screen":
                     stext = str(it.get("stext") or "")
                 # ``back`` needs only a label.
-                items.append({"key": key, "label": label, "action": action, "icon": icon,
-                              "color": color, "enabled": enabled, "custom": True, "row": row,
-                              "btype": btype, "url": url, "stext": stext})
+                items.append(
+                    {
+                        "key": key,
+                        "label": label,
+                        "action": action,
+                        "icon": icon,
+                        "color": color,
+                        "enabled": enabled,
+                        "custom": True,
+                        "row": row,
+                        "btype": btype,
+                        "url": url,
+                        "stext": stext,
+                    }
+                )
                 seen.add(key)
     else:
         # Legacy CSV of enabled built-in keys, in order.
         for token in str(source).split(","):
             k = token.strip().lower()
             if k in _BY_KEY and k not in seen:
-                items.append({"key": k, "label": _BY_KEY[k].label, "action": None, "icon": None,
-                              "color": None, "enabled": True, "custom": False, "row": None})
+                items.append(
+                    {
+                        "key": k,
+                        "label": _BY_KEY[k].label,
+                        "action": None,
+                        "icon": None,
+                        "color": None,
+                        "enabled": True,
+                        "custom": False,
+                        "row": None,
+                    }
+                )
                 seen.add(k)
 
     # Keep the two special built-ins present for configs that predate them (legacy CSV, or JSON
-    # written before they joined the catalogue) — such configs never mention them, so they aren't
+    # written before they joined the catalogue) - such configs never mention them, so they aren't
     # in ``seen``; an owner who deliberately hid one saved it disabled, so it IS in ``seen`` and we
     # leave that choice alone. «Открыть приложение» is slotted just before «Назад» (or last if no
-    # back), so the mini-app CTA sits above the exit and «Назад» stays the final button — matching
+    # back), so the mini-app CTA sits above the exit and «Назад» stays the final button - matching
     # the order the cabinet used when both were appended in code.
     if items and "app" not in seen:
         at = next((i for i, it in enumerate(items) if it["key"] == "back"), len(items))
-        items.insert(at, {"key": "app", "label": _BY_KEY["app"].label, "action": None,
-                          "icon": None, "color": None, "enabled": True, "custom": False,
-                          "row": None})
+        items.insert(
+            at,
+            {
+                "key": "app",
+                "label": _BY_KEY["app"].label,
+                "action": None,
+                "icon": None,
+                "color": None,
+                "enabled": True,
+                "custom": False,
+                "row": None,
+            },
+        )
         seen.add("app")
     if items and "back" not in seen:
-        items.append({"key": "back", "label": _BY_KEY["back"].label, "action": None, "icon": None,
-                      "color": None, "enabled": True, "custom": False, "row": None})
+        items.append(
+            {
+                "key": "back",
+                "label": _BY_KEY["back"].label,
+                "action": None,
+                "icon": None,
+                "color": None,
+                "enabled": True,
+                "custom": False,
+                "row": None,
+            }
+        )
         seen.add("back")
 
     if not items:
-        items = [{"key": b.key, "label": b.label, "action": None, "icon": None, "color": None,
-                  "enabled": True, "custom": False, "row": None} for b in CABINET_BUTTONS]
+        items = [
+            {
+                "key": b.key,
+                "label": b.label,
+                "action": None,
+                "icon": None,
+                "color": None,
+                "enabled": True,
+                "custom": False,
+                "row": None,
+            }
+            for b in CABINET_BUTTONS
+        ]
     return items
 
 
@@ -243,14 +307,14 @@ def cabinet_mode(raw: str | None) -> str:
 
 def cabinet_rows(
     raw: str | None, *, flags: dict[str, bool], miniapp_url: str | None = None
-) -> list[list[tuple[str, str, dict]]]:
+) -> list[list[tuple[str, str, dict[str, Any]]]]:
     """Cabinet keyboard as physical rows of (label, callback, extra), honouring the layout mode.
 
     ``uniform`` chunks the enabled buttons ``per_row`` wide (default 2). ``custom`` groups them by
     each item's ``row`` (a new physical row starts when ``row`` changes), always capped at 3 per
-    row to match the Bot API grid. Gating and premium-emoji/color handling mirror ``cabinet_buttons``.
-    The built-in ``app`` button renders as a native ``web_app`` button pointed at ``miniapp_url`` and
-    is dropped when no URL is configured (so it never shows a dead mini-app button).
+    row to match the Bot API grid. Gating and premium-emoji/color handling mirror
+    ``cabinet_buttons``. The built-in ``app`` button renders as a native ``web_app`` button pointed
+    at ``miniapp_url`` and is dropped when no URL is configured (never a dead mini-app button).
     """
     from src.bot.keyboards import style_for_hex  # hex -> success/danger/primary, same as the menu
 
@@ -258,11 +322,11 @@ def cabinet_rows(
     width = min(3, max(1, per_row)) if isinstance(per_row, int) else 2
     has_app = bool(miniapp_url and miniapp_url.startswith("https://"))
 
-    entries: list[tuple[str, str, dict, int | None]] = []
+    entries: list[tuple[str, str, dict[str, Any], int | None]] = []
     for it in parse_config(raw):
         if not it["enabled"]:
             continue
-        extra: dict = {}
+        extra: dict[str, Any] = {}
         if it.get("icon"):
             extra["icon_custom_emoji_id"] = it["icon"]
         style = style_for_hex(it.get("color"))
@@ -285,7 +349,7 @@ def cabinet_rows(
                 continue
             entries.append((it["label"], b.callback, extra, it.get("row")))
 
-    rows: list[list[tuple[str, str, dict]]] = []
+    rows: list[list[tuple[str, str, dict[str, Any]]]] = []
     if layout == "custom":
         current: int | None = None
         started = False
@@ -298,7 +362,7 @@ def cabinet_rows(
             rows[-1].append((label, cb, extra))
     else:
         for i in range(0, len(entries), width):
-            rows.append([(lbl, cb, extra) for (lbl, cb, extra, _r) in entries[i:i + width]])
+            rows.append([(lbl, cb, extra) for (lbl, cb, extra, _r) in entries[i : i + width]])
     return rows
 
 
@@ -307,10 +371,46 @@ def parse_cabinet_buttons(raw: str | None) -> list[str]:
     return [it["key"] for it in parse_config(raw) if it["enabled"] and not it["custom"]]
 
 
-def cabinet_buttons(raw: str | None, *, flags: dict[str, bool]) -> list[tuple[str, str, dict]]:
+def normalize_button_url(u: str) -> str | None:
+    """A sendable button URL, or None if it can't be one. Telegram REQUIRES a scheme: a bare
+    ``t.me/x`` (which owners naturally type) has none and makes Telegram reject the ENTIRE
+    message (BUTTON_URL_INVALID), bricking the whole screen. Add https:// to a bare t.me/...;
+    otherwise require an explicit http(s)/tg scheme."""
+    u = u.strip()
+    if u.startswith(("https://", "http://", "tg://")):
+        return u
+    if u.startswith("t.me/") or u.startswith("www.t.me/"):
+        return "https://" + u
+    return None
+
+
+def parse_custom_buttons(raw: str | None) -> list[dict[str, str]]:
+    """Legacy owner link-buttons (``CABINET_CUSTOM_BUTTONS``): a JSON list of {label, url}. The
+    unified ``CABINET_BUTTONS`` editor supersedes this for new buttons, but installs that stored
+    the old config still get their links appended so an upgrade never drops them. Invalid entries
+    dropped; the URL is normalised to carry a scheme so a bad value can't break the render."""
+    try:
+        items = json.loads(raw) if raw else []
+    except (ValueError, TypeError):
+        return []
+    out: list[dict[str, str]] = []
+    if isinstance(items, list):
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            label = str(it.get("label") or "").strip()[:64]
+            url = normalize_button_url(str(it.get("url") or ""))
+            if label and url:
+                out.append({"label": label, "url": url})
+    return out
+
+
+def cabinet_buttons(
+    raw: str | None, *, flags: dict[str, bool]
+) -> list[tuple[str, str, dict[str, Any]]]:
     """(label, callback, extra) triples for the enabled cabinet buttons in owner order.
 
-    ``extra`` holds the keyword args for ``InlineKeyboardButton`` beyond text/callback — currently
+    ``extra`` holds the keyword args for ``InlineKeyboardButton`` beyond text/callback - currently
     ``icon_custom_emoji_id`` when the button carries a premium-emoji icon, else empty. Built-in
     buttons use the owner's label override (or the catalogue default) and are skipped when their
     feature flag (``flags`` maps a gate name -> on/off) is off. Custom buttons render their own
@@ -318,11 +418,11 @@ def cabinet_buttons(raw: str | None, *, flags: dict[str, bool]) -> list[tuple[st
     """
     from src.bot.keyboards import style_for_hex  # hex -> success/danger/primary, same as the menu
 
-    out: list[tuple[str, str, dict]] = []
+    out: list[tuple[str, str, dict[str, Any]]] = []
     for it in parse_config(raw):
         if not it["enabled"]:
             continue
-        extra: dict = {}
+        extra: dict[str, Any] = {}
         if it.get("icon"):
             extra["icon_custom_emoji_id"] = it["icon"]
         style = style_for_hex(it.get("color"))

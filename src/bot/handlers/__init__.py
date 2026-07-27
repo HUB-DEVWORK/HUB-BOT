@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from aiogram import Router
-
 from typing import TYPE_CHECKING
+
+from aiogram import Router
 
 if TYPE_CHECKING:
     from src.bot.modules.loader import ModuleSystem
@@ -21,7 +21,7 @@ from src.bot.handlers import (
 )
 
 
-def build_router(modules: "ModuleSystem | None" = None) -> Router:
+def build_router(modules: ModuleSystem | None = None) -> Router:
     from src.bot.handlers.admin._common import ClearStaleForm
 
     root = Router(name="root")

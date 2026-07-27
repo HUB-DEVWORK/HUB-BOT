@@ -5,7 +5,7 @@ into the image and *uploaded* modules living in a shared writable volume
 (``EXTERNAL_MODULES_DIR``). This route is the web control plane over that:
 
 * list every discovered module with its effective on/off state,
-* flip ``MODULE_<NAME>_ENABLED`` (takes effect on the next bot restart —
+* flip ``MODULE_<NAME>_ENABLED`` (takes effect on the next bot restart -
   the enable gate resolves once at startup),
 * upload a new module as a **zip** or as a **folder** (multi-file multipart),
 * delete an uploaded module,
@@ -13,7 +13,7 @@ into the image and *uploaded* modules living in a shared writable volume
 
 SECURITY: an uploaded module is arbitrary Python that runs with the bot's full
 privileges once enabled + restarted. This endpoint is admin-JWT gated; it never
-executes uploaded code itself — it only writes files to disk. Validation here
+executes uploaded code itself - it only writes files to disk. Validation here
 (name shape, zip-slip guard, no shadowing a built-in, size/count caps) is about
 integrity, not sandboxing.
 """
@@ -60,7 +60,7 @@ def _builtin_dir() -> Path:
 def _validate_name(name: str) -> str:
     name = (name or "").strip()
     if not _NAME_RE.match(name):
-        raise HTTPException(400, f"недопустимое имя модуля: {name!r} (a-z, 0-9, _; 2–40 симв.)")
+        raise HTTPException(400, f"недопустимое имя модуля: {name!r} (a-z, 0-9, _; 2-40 симв.)")
     if name in _RESERVED:
         raise HTTPException(400, f"имя {name!r} зарезервировано")
     if (_builtin_dir() / name).is_dir():
@@ -90,14 +90,13 @@ def _split_top(relpaths: list[str]) -> tuple[str, dict[str, str]]:
     if len(dirs) != 1:
         raise HTTPException(
             400,
-            "в загрузке должна быть ровно одна корневая папка модуля "
-            f"(нашёл: {sorted(tops)})",
+            f"в загрузке должна быть ровно одна корневая папка модуля (нашёл: {sorted(tops)})",
         )
     top = next(iter(dirs))
     stripped: dict[str, str] = {}
     for rp in relpaths:
         if rp == top or not rp.startswith(top + "/"):
-            # a stray file at the archive root alongside the module dir — ignore it
+            # a stray file at the archive root alongside the module dir - ignore it
             continue
         stripped[rp[len(top) + 1 :]] = rp
     return top, stripped
@@ -142,7 +141,9 @@ def _install(name: str, files: dict[str, bytes]) -> None:
         raise HTTPException(500, f"не удалось записать модуль: {exc}") from exc
 
 
-async def _audit_install(container: AppContainer, identity: AdminIdentity, name: str, via: str) -> None:
+async def _audit_install(
+    container: AppContainer, identity: AdminIdentity, name: str, via: str
+) -> None:
     async with container.uow() as uow:
         await audit(uow, identity, "module.upload", f"module:{name}", via=via)
         await uow.commit()
@@ -159,7 +160,7 @@ async def list_modules(container: AppContainer = Depends(get_container)) -> dict
         for m in mods:
             try:
                 state[m.name] = bool(await container.bot_config.value(uow, m.enable_key))
-            except Exception:  # noqa: BLE001 — fall back to manifest default
+            except Exception:
                 state[m.name] = m.default_enabled
     return {
         "modules": [
@@ -300,7 +301,7 @@ async def restart_bot(
     return {
         "ok": False,
         "status": "no-updater",
-        "hint": "Модуль обновлений (updater) не подключён — перезапусти бота вручную: "
+        "hint": "Модуль обновлений (updater) не подключён - перезапусти бота вручную: "
         "`./scripts/dc.sh restart bot`.",
     }
 
@@ -321,6 +322,6 @@ async def restart_web(
     return {
         "ok": False,
         "status": "no-updater",
-        "hint": "Модуль обновлений (updater) не подключён — перезапусти web вручную: "
+        "hint": "Модуль обновлений (updater) не подключён - перезапусти web вручную: "
         "`./scripts/dc.sh restart web`.",
     }

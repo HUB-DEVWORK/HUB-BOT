@@ -5,7 +5,7 @@ A module is a package under ``src.bot.modules.<name>`` that exposes a
 entry point. During ``register`` the module hands the core its aiogram router,
 config params, DB migration and middlewares through a :class:`Registrar`.
 
-Everything except ``MANIFEST`` is optional — the smallest useful module is a
+Everything except ``MANIFEST`` is optional - the smallest useful module is a
 ``router.py`` plus a ``MANIFEST`` (the loader auto-wires a bare ``router`` if
 no ``register`` is defined; see loader).
 """
@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # avoid importing aiogram / config at contract-load time
     from aiogram import Router
+
     from src.core.config_registry import ParamSpec
 
 
@@ -62,15 +63,15 @@ class Registrar:
     """
 
     module: str
-    routers: list[tuple["Router", int]] = field(default_factory=list)
-    config: list["ParamSpec"] = field(default_factory=list)
+    routers: list[tuple[Router, int]] = field(default_factory=list)
+    config: list[ParamSpec] = field(default_factory=list)
     migrations: list[Callable[..., Any]] = field(default_factory=list)
     middlewares: list[MiddlewareSpec] = field(default_factory=list)
 
-    def add_router(self, router: "Router", priority: int | None = None) -> None:
+    def add_router(self, router: Router, priority: int | None = None) -> None:
         self.routers.append((router, priority if priority is not None else DEFAULT_ROUTER_PRIORITY))
 
-    def add_config(self, specs: "Sequence[ParamSpec] | ParamSpec") -> None:
+    def add_config(self, specs: Sequence[ParamSpec] | ParamSpec) -> None:
         try:
             self.config.extend(specs)  # type: ignore[arg-type]
         except TypeError:
@@ -85,10 +86,10 @@ class Registrar:
 
 
 __all__ = (
+    "DEFAULT_ROUTER_PRIORITY",
+    "ROUTER_PRIORITY_MAX",
+    "ROUTER_PRIORITY_MIN",
+    "MiddlewareSpec",
     "ModuleManifest",
     "Registrar",
-    "MiddlewareSpec",
-    "DEFAULT_ROUTER_PRIORITY",
-    "ROUTER_PRIORITY_MIN",
-    "ROUTER_PRIORITY_MAX",
 )

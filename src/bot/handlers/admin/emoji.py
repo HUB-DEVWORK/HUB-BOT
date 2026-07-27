@@ -81,7 +81,8 @@ async def emoji_home(cb: CallbackQuery, state: FSMContext) -> None:
         custom_emoji_id=_EXAMPLE_ID,
     )
     # Sent raw (parse_mode=None) so the live example emoji renders from `entities`, not HTML.
-    await cb.message.answer(text, entities=[entity], reply_markup=back_kb(), parse_mode=None)
+    if isinstance(cb.message, Message):
+        await cb.message.answer(text, entities=[entity], reply_markup=back_kb(), parse_mode=None)
     await cb.answer()
 
 
@@ -102,9 +103,7 @@ async def emoji_read(message: Message, state: FSMContext) -> None:
         token = f"[ce:{emoji_id}:{glyph}]"
         preview = f'<tg-emoji emoji-id="{emoji_id}">{hesc(glyph)}</tg-emoji>'
         blocks.append(
-            f"ID: <code>{emoji_id}</code>\n"
-            f"Токен: <code>{hesc(token)}</code>\n"
-            f"Превью: {preview}"
+            f"ID: <code>{emoji_id}</code>\nТокен: <code>{hesc(token)}</code>\nПревью: {preview}"
         )
     head = "✅ Нашёл кастомное эмодзи:" if len(found) == 1 else f"✅ Нашёл {len(found)} эмодзи:"
     text = (

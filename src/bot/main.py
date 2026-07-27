@@ -14,8 +14,8 @@ from aiogram.fsm.storage.redis import RedisStorage
 
 from src.bot.errors import setup_error_handler
 from src.bot.handlers import build_router
-from src.bot.modules.loader import ModuleSystem
 from src.bot.middlewares import AbortFormOnCommand, ContextMiddleware
+from src.bot.modules.loader import ModuleSystem
 from src.core.config import get_settings
 from src.core.logging import configure_logging, get_logger
 from src.infrastructure.di import AppContainer
@@ -80,14 +80,14 @@ async def run() -> None:
         async with container.uow() as uow:
             await modules.run_migrations(uow.session)
             await uow.commit()
-    except Exception:  # noqa: BLE001 — the bot must start even if module setup fails
+    except Exception:
         log.error("module_system_setup_failed", exc_info=True)
 
     dp.include_router(build_router(modules))
     modules.apply_middlewares(dp)
     try:
         await modules.apply_setup(bot, dp, container)
-    except Exception:  # noqa: BLE001 — a module's setup must never stop the bot
+    except Exception:
         log.error("module_apply_setup_failed", exc_info=True)
     setup_error_handler(dp, container)
 

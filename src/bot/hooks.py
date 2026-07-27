@@ -32,9 +32,14 @@ DEFAULT_HOOK_TIMEOUT = 5.0
 # name -> list of (func, owner_module_or_None)
 _hooks: dict[str, list[tuple[Callable[..., Any], str | None]]] = {}
 
+
 # Installed by the loader once module enable-state is known. Default: everything
 # on (so hooks work even before the loader wires the config-backed checker).
-_is_enabled: Callable[[str], bool] = lambda _name: True
+def _default_enabled(_name: str) -> bool:
+    return True
+
+
+_is_enabled: Callable[[str], bool] = _default_enabled
 
 
 def set_enabled_checker(fn: Callable[[str], bool]) -> None:
@@ -48,16 +53,16 @@ def owner(func: Callable[..., Any]) -> str | None:
     m = getattr(func, "__module__", "") or ""
     prefix = "src.bot.modules."
     if m.startswith(prefix):
-        rest = m[len(prefix):]
+        rest = m[len(prefix) :]
         return rest.split(".", 1)[0] or None
     return None
 
 
-def register_hook(name: str, func: Callable[..., Any] | None = None):
+def register_hook(name: str, func: Callable[..., Any] | None = None) -> Callable[..., Any]:
     """Register ``func`` for hook ``name``. Usable as decorator or direct call."""
     if func is None:
 
-        def deco(f: Callable[..., Any]):
+        def deco(f: Callable[..., Any]) -> Callable[..., Any]:
             _hooks.setdefault(name, []).append((f, owner(f)))
             log.info("hook_registered", hook=name, func=f.__name__, owner=owner(f))
             return f
@@ -84,7 +89,7 @@ def registered_hooks() -> dict[str, list[str]]:
     return {k: [own or "core" for (_f, own) in lst] for k, lst in _hooks.items()}
 
 
-async def run_hooks(name: str, *, require_enabled: bool = True, **kwargs) -> list[Any]:
+async def run_hooks(name: str, *, require_enabled: bool = True, **kwargs: Any) -> list[Any]:
     """Invoke every hook registered for ``name``; collect truthy results.
 
     Hooks owned by a disabled module are skipped when ``require_enabled`` is set.
@@ -101,9 +106,9 @@ async def run_hooks(name: str, *, require_enabled: bool = True, **kwargs) -> lis
                 res = await asyncio.wait_for(res, timeout=DEFAULT_HOOK_TIMEOUT)
             if res:
                 results.append(res)
-        except (TimeoutError, asyncio.TimeoutError):
+        except TimeoutError:
             log.error("hook_timeout", hook=name, func=getattr(func, "__name__", str(func)))
-        except Exception as e:  # noqa: BLE001 — isolate a bad hook from the caller
+        except Exception as e:
             log.error(
                 "hook_error",
                 hook=name,
@@ -115,13 +120,13 @@ async def run_hooks(name: str, *, require_enabled: bool = True, **kwargs) -> lis
 
 
 __all__ = (
+    "DEFAULT_HOOK_TIMEOUT",
+    "owner",
     "register_hook",
-    "unregister_module_hooks",
+    "registered_hooks",
     "run_hooks",
     "set_enabled_checker",
-    "registered_hooks",
-    "owner",
-    "DEFAULT_HOOK_TIMEOUT",
+    "unregister_module_hooks",
 )
 
 
