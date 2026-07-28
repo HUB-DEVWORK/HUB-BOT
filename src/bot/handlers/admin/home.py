@@ -51,12 +51,14 @@ _TITLE = "🛠 <b>Админ-панель</b>\n\nВсё управление б�
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message, container: AppContainer) -> None:
-    await message.answer(_TITLE, reply_markup=_menu(await _admin_url(container)), parse_mode="HTML")
+    menu = _menu(await _admin_url(container))
+    await message.answer(_TITLE, reply_markup=menu, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "admin:menu")
 async def admin_menu(cb: CallbackQuery, container: AppContainer) -> None:
-    await show_screen(cb, _TITLE, _menu(await _admin_url(container)))
+    menu = _menu(await _admin_url(container))
+    await show_screen(cb, _TITLE, menu)
     await cb.answer()
 
 

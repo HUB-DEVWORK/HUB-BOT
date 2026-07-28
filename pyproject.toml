@@ -1,6 +1,6 @@
 [project]
 name = "vpn-shop-base"
-version = "1.9.15"
+version = "1.9.16"
 description = "Base/core foundation for a Telegram VPN-shop bot + mini-app on the Remnawave panel"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -80,6 +80,7 @@ ignore = ["B008"]  # FastAPI Depends() in defaults
 "src/core/error_codes.py" = ["RUF001", "RUF002", "RUF003", "E501"]
 "scripts/gen_error_docs.py" = ["RUF001", "RUF002", "RUF003", "E501"]
 "tests/unit/test_error_codes.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/unit/test_screen_text.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_telemetry_server.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/unit/test_telemetry_reporter.py" = ["RUF001", "RUF002", "RUF003"]
 # RU scenario print-outs that mirror the user's bug report, verbatim.

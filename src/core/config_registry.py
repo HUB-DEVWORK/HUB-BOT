@@ -731,6 +731,16 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Show traffic usage",
     ),
     _p(
+        "MESSAGE_CLEANUP_ENABLED",
+        C.INTERFACE,
+        BOOL,
+        False,
+        "Очистка чата",
+        "Chat cleanup",
+        "Удалять сообщения пользователя после ответа, чтобы в чате был только экран бота",
+        "Delete the user's messages after replying so only the bot screen remains",
+    ),
+    _p(
         "CONNECTION_APPS",
         C.INTERFACE,
         STR,
@@ -787,6 +797,30 @@ REGISTRY: tuple[ParamSpec, ...] = (
         'JSON-список своих кнопок-ссылок: [{"label":"Наш канал","url":"https://t.me/..."}]. '
         "Проще редактировать в конструкторе",
         'JSON list of custom link buttons: [{"label":"...","url":"https://..."}]',
+    ),
+    _p(
+        "SCREEN_BUTTONS",
+        C.INTERFACE,
+        STR,
+        "",
+        "Кнопки экранов бота",
+        "Bot screen buttons",
+        "JSON: по каждому экрану — переименовать/скрыть/переставить кнопки и добавить свои. "
+        "Пусто — экраны как есть. Редактируется в конструкторе.",
+        "JSON keyed by screen: rename/hide/reorder buttons and add custom ones. "
+        "Empty — screens unchanged. Edited in the builder.",
+    ),
+    _p(
+        "SCREEN_TEXTS",
+        C.INTERFACE,
+        STR,
+        "",
+        "Тексты экранов бота",
+        "Bot screen texts",
+        "JSON: свой текст для статичных экранов (Подключение, Поддержка, Соглашение и т.д.). "
+        "Пусто — текст как в боте. Метки {значение} работают только на экранах с данными.",
+        "JSON keyed by screen: custom text for static screens. "
+        "Empty — default text. {token} placeholders apply only on data-driven screens.",
     ),
     _p(
         "CABINET_TEXT",
@@ -1043,6 +1077,11 @@ CATEGORY_NAMES: dict[ConfigCategory, dict[str, str]] = {
     C.SUPPORT: {"ru": "ИИ-поддержка", "en": "AI support"},
     C.INTERFACE: {"ru": "Интерфейс бота", "en": "Bot interface"},
 }
+
+
+def all_specs() -> tuple[ParamSpec, ...]:
+    """The core registry (settings-screen order)."""
+    return REGISTRY
 
 
 def spec(key: str) -> ParamSpec:

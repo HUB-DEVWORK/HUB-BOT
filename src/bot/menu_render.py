@@ -41,10 +41,21 @@ async def send_main_menu(
         button_color = str(await cfg.value(uow, "BUTTON_COLOR_DEFAULT") or "") or None
         menu_mode = str(await cfg.value(uow, "MAIN_MENU_MODE") or "inline")
         menu_emoji = str(await cfg.value(uow, "MENU_TEXT_EMOJI") or "")
+        admin_ids_raw = str(await cfg.value(uow, "ADMIN_IDS") or "")
 
     from src.bot.cabinet_text import apply_custom_emoji
 
     start_text = apply_custom_emoji(start_text, menu_emoji)
+
+    # Staff gate for the admin shortcut — mirror middlewares.py: role OR owner_ids OR
+    # ADMIN_IDS, not role alone (the owner runs as a plain USER and reaches the panel via
+    # owner_ids/ADMIN_IDS, so a role-only check would hide the button from him).
+    _admin_ids = {int(x) for x in admin_ids_raw.replace(";", ",").split(",") if x.strip().isdigit()}
+    is_staff = (
+        db_user.role.is_staff
+        or db_user.telegram_id in container.settings.app.owner_ids
+        or db_user.telegram_id in _admin_ids
+    )
 
     # A constructor-placed «Пробный период» button (action=trial) is rendered unconditionally,
     # so once the user has used their trial (or trials are off) it lingers as a dead-end. Drop
@@ -52,6 +63,11 @@ async def send_main_menu(
     # below, which already only appears while the trial is available.
     if not (trial_enabled and db_user.is_trial_available):
         nodes = [n for n in nodes if not (n.kind.value == "action" and n.payload == "trial")]
+
+    # «Администратор» is staff-only: a menu node renders for everyone, so drop an admin action
+    # node for ordinary users — same gate style as the trial button just above.
+    if not is_staff:
+        nodes = [n for n in nodes if not (n.kind.value == "action" and n.payload == "admin")]
 
     # Runtime "smart" shortcuts (trial/proxy/nodes) applicable for this shop + user — shared by
     # the inline menu and the reply bottom-bar so they never drift (default_menu.SMART_EXTRAS).
@@ -81,8 +97,6 @@ async def send_main_menu(
 
     has_miniapp_node = any(n.kind.value == "miniapp" for n in nodes)
     extras: list[tuple[str, str]] = [(extra_label[c], f"act:{c}:0") for c in applicable]
-    if db_user.role.is_staff:
-        extras.append(("🛠 Админка", "admin:menu"))
 
     if nodes:
         markup = menu_keyboard(

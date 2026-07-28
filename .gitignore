@@ -43,3 +43,4 @@ CLAUDE.md
 .vscode/
 migration_inbox/
 admin/tsconfig.tsbuildinfo
+.installans

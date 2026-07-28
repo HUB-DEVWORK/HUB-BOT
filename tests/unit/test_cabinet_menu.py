@@ -11,11 +11,16 @@ from src.bot.cabinet_menu import (
 _ALL = {"BALANCE_ENABLED": True, "REFERRAL_ENABLED": True}
 
 
+# parse_config injects the built-in «app» + «back» buttons enabled-by-default so an upgraded
+# install never loses its mini-app / exit buttons; the legacy helpers surface them too.
+_TAIL = ["app", "back"]
+
+
 def test_parse_orders_and_drops_unknown() -> None:
-    assert parse_cabinet_buttons("history,balance") == ["history", "balance"]  # owner order kept
-    assert parse_cabinet_buttons("balance, bogus , support") == ["balance", "support"]
-    assert parse_cabinet_buttons("BALANCE") == ["balance"]  # case-insensitive
-    assert parse_cabinet_buttons("balance,balance") == ["balance"]  # de-duped
+    assert parse_cabinet_buttons("history,balance") == ["history", "balance", *_TAIL]  # order kept
+    assert parse_cabinet_buttons("balance, bogus , support") == ["balance", "support", *_TAIL]
+    assert parse_cabinet_buttons("BALANCE") == ["balance", *_TAIL]  # case-insensitive
+    assert parse_cabinet_buttons("balance,balance") == ["balance", *_TAIL]  # de-duped
 
 
 def test_parse_empty_falls_back_to_all() -> None:
@@ -26,8 +31,10 @@ def test_parse_empty_falls_back_to_all() -> None:
 
 
 def test_cabinet_buttons_render_in_owner_order() -> None:
+    # cabinet_buttons now yields (label, callback, extra) triples — extra carries icon/style.
+    # The owner's listed buttons come first, in order, then the injected app + back tail.
     out = cabinet_buttons("support,subscription", flags=_ALL)
-    assert [label for label, _cb in out] == ["🆘 Поддержка", "🔑 Моя подписка"]
+    assert [label for label, _cb, _extra in out][:2] == ["🆘 Поддержка", "🔑 Моя подписка"]
     assert out[1][1] == "act:subscription:0"
 
 
@@ -37,7 +44,7 @@ def test_disabled_feature_button_is_skipped_even_if_listed() -> None:
         "subscription,balance,referral,history",
         flags={"BALANCE_ENABLED": False, "REFERRAL_ENABLED": False},
     )
-    keys = [cb for _label, cb in out]
+    keys = [cb for _label, cb, _extra in out]
     assert "act:balance:0" not in keys and "act:referral:0" not in keys
     assert "act:subscription:0" in keys and "act:history:0" in keys
 
@@ -45,8 +52,8 @@ def test_disabled_feature_button_is_skipped_even_if_listed() -> None:
 def test_removing_a_button_hides_it() -> None:
     out = cabinet_buttons(
         "subscription,balance", flags=_ALL
-    )  # history/referral/promo/support dropped
-    assert [cb for _l, cb in out] == ["act:subscription:0", "act:balance:0"]
+    )  # history/referral/promo/support dropped (app + back always injected)
+    assert [cb for _l, cb, _extra in out] == ["act:subscription:0", "act:balance:0", "", "nav:root"]
 
 
 def test_registered_config_key() -> None:

@@ -32,7 +32,7 @@ WORKDIR /app
 # (compose pins postgres:16) — an older pg_dump refuses to dump a newer server — and Debian
 # bookworm only ships 15, so pull postgresql-client-16 from the PGDG apt repo.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg unzip \
     && install -d /usr/share/postgresql-common/pgdg \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
         -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from html import escape as hesc
+from typing import Any
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -323,22 +324,67 @@ async def act_cabinet(
     # Owner-configurable button set (CABINET_BUTTONS): order + which buttons show. A disabled
     # feature (balance/referral) is still skipped even when listed, so «отключил в настройках»
     # actually hides it. The grid reflows. See src/bot/cabinet_menu.py.
-    from src.bot.cabinet_menu import cabinet_buttons, parse_custom_buttons
+    from src.bot.cabinet_menu import cabinet_rows, parse_custom_buttons
 
-    entries = cabinet_buttons(
-        cabinet_cfg, flags={"BALANCE_ENABLED": balance_on, "REFERRAL_ENABLED": referral_on}
+    # «Открыть приложение» (mini-app) and «Назад» are now owner-editable list buttons — both come
+    # in via `rows`, no hardcoded appends. cabinet_rows renders «app» as a web_app button from
+    # miniapp_url (and skips it when unset); parse_config keeps «back» present so the cabinet can't
+    # lose its only exit even on a config that predates these buttons.
+    rows = cabinet_rows(
+        cabinet_cfg,
+        flags={"BALANCE_ENABLED": balance_on, "REFERRAL_ENABLED": referral_on},
+        miniapp_url=miniapp_url,
     )
-    kb: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text=t, callback_data=c) for t, c in entries[i : i + 2]]
-        for i in range(0, len(entries), 2)
-    ]
-    # Owner's own link-buttons (CABINET_CUSTOM_BUTTONS) — one per row, below the built-ins.
+
+    def _cab_btn(text: str, cb: str, extra: dict[str, Any]) -> InlineKeyboardButton:
+        # link/miniapp buttons carry url/web_app in extra and MUST NOT also set callback_data.
+        if "url" in extra or "web_app" in extra:
+            return InlineKeyboardButton(text=text, **extra)
+        return InlineKeyboardButton(text=text, callback_data=cb, **extra)
+
+    kb: list[list[InlineKeyboardButton]] = [[_cab_btn(t, c, x) for t, c, x in row] for row in rows]
+    # Back-compat: installs that configured the legacy CABINET_CUSTOM_BUTTONS keep their link
+    # buttons after the unified rows (new custom buttons live in CABINET_BUTTONS, different key,
+    # so nothing renders twice).
     for btn in parse_custom_buttons(cabinet_custom):
         kb.append([InlineKeyboardButton(text=btn["label"], url=btn["url"])])
-    if miniapp_url.startswith("https://"):
-        kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
-    kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
     await render_screen(cb, container, "cabinet", text, InlineKeyboardMarkup(inline_keyboard=kb))
+    await ack(cb)
+
+
+@router.callback_query(F.data.startswith("cabsub:"))
+async def act_cabsub(cb: CallbackQuery, container: AppContainer, db_user: User) -> None:
+    """Owner-defined cabinet sub-screen (Подменю): the button's stored text + back to cabinet.
+
+    Opt-in: only custom cabinet buttons the owner set to type «Подменю» reach here. A missing or
+    non-screen key just bounces back silently, so a stale callback never errors.
+    """
+    from src.bot.cabinet_menu import parse_config
+    from src.bot.screen_text import caption_for
+
+    key = (cb.data or "").split(":", 1)[1]
+    async with container.uow() as uow:
+        cabinet_cfg = str(await container.bot_config.value(uow, "CABINET_BUTTONS") or "")
+    item = next(
+        (
+            it
+            for it in parse_config(cabinet_cfg)
+            if it.get("custom") and it.get("key") == key and it.get("btype") == "screen"
+        ),
+        None,
+    )
+    if item is None:
+        await ack(cb)
+        return
+    name = hesc(db_user.first_name or db_user.username or "друг")
+    caption = caption_for(
+        str(item.get("stext") or ""),
+        str(item.get("label") or "…"),
+        {"имя": name, "id": str(db_user.telegram_id)},
+    )
+    await render_screen(
+        cb, container, key, caption, simple_keyboard([("‹ Кабинет", "act:cabinet:0")])
+    )
     await ack(cb)
 
 
@@ -806,6 +852,23 @@ async def act_proxy(cb: CallbackQuery | Message, container: AppContainer, db_use
     )
     await render_screen(cb, container, "proxy", text, markup)
     await ack(cb)
+
+
+@router.callback_query(F.data.startswith("act:admin"))
+async def act_admin(
+    cb: CallbackQuery, container: AppContainer, db_user: User, is_admin: bool = False
+) -> None:
+    """Constructor «Администратор» action — open the in-bot admin panel (admins only).
+
+    Registered before ``act_unknown`` so ``act:admin`` reaches here. The admin router's own
+    IsAdmin gate never sees this callback (it lives on a different router), so re-check ``is_admin``
+    (the auth middleware computed it: role OR owner_ids OR ADMIN_IDS)."""
+    if not is_admin:
+        await send_main_menu(cb, container, db_user)  # not an admin -> just reopen the menu
+        return
+    from src.bot.handlers.admin.home import admin_menu
+
+    await admin_menu(cb, container)
 
 
 @router.callback_query(F.data.startswith("act:"))

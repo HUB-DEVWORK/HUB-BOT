@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -31,6 +32,32 @@ class AbortFormOnCommand(BaseMiddleware):
             if state is not None and await state.get_state() is not None:
                 await state.clear()
         return await handler(event, data)
+
+
+class UserMessageCleanupMiddleware(BaseMiddleware):
+    """Chat cleanup: after the handler runs, delete the user's own incoming message so only the
+    bot's current screen is left in the chat. Opt-in via MESSAGE_CLEANUP_ENABLED, OFF by default,
+    so an existing bot is unchanged until the owner turns it on. Best-effort: a delete that fails
+    (message too old / already gone / no rights) is swallowed. A successful-payment service
+    message is never deleted.
+    """
+
+    async def __call__(self, handler: Handler, event: TelegramObject, data: dict[str, Any]) -> Any:
+        result = await handler(event, data)
+        if not isinstance(event, Message) or event.successful_payment is not None:
+            return result
+        container: AppContainer | None = data.get("container")
+        if container is None:
+            return result
+        try:
+            async with container.uow() as uow:
+                enabled = bool(await container.bot_config.value(uow, "MESSAGE_CLEANUP_ENABLED"))
+        except Exception:
+            return result
+        if enabled:
+            with contextlib.suppress(Exception):
+                await event.delete()
+        return result
 
 
 def _tg_user(event: TelegramObject) -> TgUser | None:

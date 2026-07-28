@@ -14,7 +14,11 @@ from aiogram.fsm.storage.redis import RedisStorage
 
 from src.bot.errors import setup_error_handler
 from src.bot.handlers import build_router
-from src.bot.middlewares import AbortFormOnCommand, ContextMiddleware
+from src.bot.middlewares import (
+    AbortFormOnCommand,
+    ContextMiddleware,
+    UserMessageCleanupMiddleware,
+)
 from src.core.config import get_settings
 from src.core.logging import configure_logging, get_logger
 from src.infrastructure.di import AppContainer
@@ -68,6 +72,10 @@ async def run() -> None:
     # Inner (post-FSM-resolution): a command aborts a pending form so a later stray message
     # can't be captured as promocode/withdrawal input.
     dp.message.middleware(AbortFormOnCommand())
+    # «Очистка чата»: удаляет входящее сообщение юзера после обработки (тумблер
+    # MESSAGE_CLEANUP_ENABLED, по умолчанию выкл). Inner-middleware — идёт после разбора FSM.
+    dp.message.middleware(UserMessageCleanupMiddleware())
+
     dp.include_router(build_router())
     setup_error_handler(dp, container)
 
