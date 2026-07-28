@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from aiogram import Router
-
-if TYPE_CHECKING:
-    from src.bot.modules.loader import ModuleSystem
 
 from src.bot.handlers import (
     actions,
@@ -21,7 +16,7 @@ from src.bot.handlers import (
 )
 
 
-def build_router(modules: ModuleSystem | None = None) -> Router:
+def build_router() -> Router:
     from src.bot.handlers.admin._common import ClearStaleForm
 
     root = Router(name="root")
@@ -30,11 +25,6 @@ def build_router(modules: ModuleSystem | None = None) -> Router:
     root.include_router(promo.router)  # before tickets: state-gated code input wins
     root.include_router(withdraw.router)  # ditto: withdrawal details input
     root.include_router(purchase.router)
-    # module routers occupy priority slots 20..80 — before reply_menu/tickets/actions so
-    # their own callbacks are never swallowed by the catch-alls (see module-system doc §3).
-    if modules is not None:
-        for r in modules.routers():
-            root.include_router(r)
     root.include_router(reply_menu.router)  # before tickets: bottom-bar taps beat the catch-all
     root.include_router(tickets.router)
     root.include_router(actions.router)  # last: nav + generic actions

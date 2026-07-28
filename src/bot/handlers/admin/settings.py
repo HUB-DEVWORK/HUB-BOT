@@ -18,6 +18,7 @@ _TOGGLES: list[tuple[str, str]] = [
     ("AUTO_RENEWAL_ENABLED", "Автопродление"),
     ("REFERRAL_ENABLED", "Рефералка"),
     ("BALANCE_ENABLED", "Оплата с баланса"),
+    ("MESSAGE_CLEANUP_ENABLED", "Очистка чата"),
 ]
 _TOGGLE_KEYS = {k for k, _ in _TOGGLES}
 

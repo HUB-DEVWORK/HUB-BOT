@@ -171,10 +171,10 @@ export default function Settings() {
           <h1 className="h1">
             {keySet && !searching ? (
               <span className="row" style={{ gap: 10 }}>
-                <button className="btn secondary sm" onClick={() => nav("/modules")}>
+                <button className="btn secondary sm" onClick={() => nav("/settings")}>
                   ‹
                 </button>
-                🧩 {keyTitle || t.modules}
+                {keyTitle || t.settings}
               </span>
             ) : cat && !searching ? (
               <span className="row" style={{ gap: 10 }}>

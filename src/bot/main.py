@@ -14,8 +14,11 @@ from aiogram.fsm.storage.redis import RedisStorage
 
 from src.bot.errors import setup_error_handler
 from src.bot.handlers import build_router
-from src.bot.middlewares import AbortFormOnCommand, ContextMiddleware
-from src.bot.modules.loader import ModuleSystem
+from src.bot.middlewares import (
+    AbortFormOnCommand,
+    ContextMiddleware,
+    UserMessageCleanupMiddleware,
+)
 from src.core.config import get_settings
 from src.core.logging import configure_logging, get_logger
 from src.infrastructure.di import AppContainer
@@ -69,26 +72,11 @@ async def run() -> None:
     # Inner (post-FSM-resolution): a command aborts a pending form so a later stray message
     # can't be captured as promocode/withdrawal input.
     dp.message.middleware(AbortFormOnCommand())
-    # Module system: discover baked-in modules, resolve which are enabled from
-    # MODULE_<NAME>_ENABLED config, load them, and splice their routers/hooks/
-    # migrations/middlewares. A broken module is logged and skipped, never fatal.
-    modules = ModuleSystem()
-    try:
-        modules.discover()
-        await modules.resolve_enabled(container)
-        modules.load()
-        async with container.uow() as uow:
-            await modules.run_migrations(uow.session)
-            await uow.commit()
-    except Exception:
-        log.error("module_system_setup_failed", exc_info=True)
+    # «Очистка чата»: удаляет входящее сообщение юзера после обработки (тумблер
+    # MESSAGE_CLEANUP_ENABLED, по умолчанию выкл). Inner-middleware — идёт после разбора FSM.
+    dp.message.middleware(UserMessageCleanupMiddleware())
 
-    dp.include_router(build_router(modules))
-    modules.apply_middlewares(dp)
-    try:
-        await modules.apply_setup(bot, dp, container)
-    except Exception:
-        log.error("module_apply_setup_failed", exc_info=True)
+    dp.include_router(build_router())
     setup_error_handler(dp, container)
 
     await _apply_bot_config(bot, container)

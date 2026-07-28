@@ -13,7 +13,6 @@ Conventions:
 
 from __future__ import annotations
 
-import contextlib
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
@@ -732,6 +731,16 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Show traffic usage",
     ),
     _p(
+        "MESSAGE_CLEANUP_ENABLED",
+        C.INTERFACE,
+        BOOL,
+        False,
+        "Очистка чата",
+        "Chat cleanup",
+        "Удалять сообщения пользователя после ответа, чтобы в чате был только экран бота",
+        "Delete the user's messages after replying so only the bot screen remains",
+    ),
+    _p(
         "CONNECTION_APPS",
         C.INTERFACE,
         STR,
@@ -1070,28 +1079,9 @@ CATEGORY_NAMES: dict[ConfigCategory, dict[str, str]] = {
 }
 
 
-# --- module params ------------------------------------------------------------
-# The module system contributes its params here at import time (see
-# ``_load_module_config`` below). They live alongside the core REGISTRY so the
-# settings screen, ``bot_config`` and ``coerce`` treat them identically. Kept in
-# a separate list so ``REGISTRY`` stays the static core catalog.
-_MODULE_SPECS: list[ParamSpec] = []
-
-
-def register_module_params(specs: Any) -> None:
-    """Append module ParamSpecs to the effective registry (idempotent per key)."""
-    for sp in specs:
-        if sp.key in _BY_KEY:
-            if _BY_KEY[sp.key] is sp:
-                continue  # same spec re-registered (module re-import) -> no-op
-            raise RuntimeError(f"duplicate config key from module: {sp.key}")
-        _MODULE_SPECS.append(sp)
-        _BY_KEY[sp.key] = sp
-
-
 def all_specs() -> tuple[ParamSpec, ...]:
-    """Core REGISTRY plus every registered module param (settings-screen order)."""
-    return REGISTRY + tuple(_MODULE_SPECS)
+    """The core registry (settings-screen order)."""
+    return REGISTRY
 
 
 def spec(key: str) -> ParamSpec:
@@ -1115,71 +1105,3 @@ def coerce(key: str, raw: Any) -> Any:
     if s.type is INT:
         return int(raw)
     return "" if raw is None else str(raw)
-
-
-def _load_module_config() -> None:
-    """Discover module manifests + light ``config.py`` and register their params.
-
-    Runs at import time in *every* process (bot and web), so module params —
-    including the auto ``MODULE_<NAME>_ENABLED`` toggle — appear on the settings
-    screen and are coercible without importing any aiogram/router code.
-    """
-    import importlib
-    import pkgutil
-
-    try:
-        pkg = importlib.import_module("src.bot.modules")
-    except Exception:
-        return
-
-    reserved = {"api", "loader", "hooks"}
-    for info in pkgutil.iter_modules(pkg.__path__):
-        if not info.ispkg or info.name in reserved or info.name.startswith("_"):
-            continue
-        name = info.name
-        try:
-            manifest = importlib.import_module(f"src.bot.modules.{name}.manifest").MANIFEST
-        except Exception:
-            continue
-
-        specs: list[ParamSpec] = [
-            _p(
-                manifest.enable_key(),
-                C.INTERFACE,
-                BOOL,
-                bool(manifest.default_enabled),
-                f"Модуль: {manifest.title_ru}",
-                f"Module: {manifest.title_en}",
-                "Включить/выключить модуль",
-                "Enable/disable this module",
-            )
-        ]
-        try:
-            cfg = importlib.import_module(f"src.bot.modules.{name}.config")
-            specs.extend(getattr(cfg, "CONFIG", ()))
-        except ModuleNotFoundError:
-            pass
-        except Exception:
-            continue
-
-        try:
-            register_module_params(specs)
-        except RuntimeError:
-            # Duplicate key across modules — skip the offending set, keep others.
-            for sp in specs:
-                with contextlib.suppress(RuntimeError):
-                    register_module_params([sp])
-
-
-def refresh_module_config() -> None:
-    """Re-seed module config after external modules are spliced onto the
-    package path. Idempotent (duplicate keys are skipped), so it is safe to
-    call again once ``src/bot/modules/__init__.py`` has appended the ext dir.
-    Fixes the import-order race where config_registry is first imported (via
-    the DI container) before the ext splice is visible, leaving external
-    modules ``MODULE_<NAME>_ENABLED`` keys unregistered in that process.
-    """
-    _load_module_config()
-
-
-_load_module_config()

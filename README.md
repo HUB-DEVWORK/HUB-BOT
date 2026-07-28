@@ -283,12 +283,6 @@ infrastructure/ (Postgres, Redis, Remnawave, платежи) ──────�
 
 ---
 
-## 💬 Сообщество
-
-Вопросы, идеи, обмен опытом — [t.me/vpnhub_community](https://t.me/vpnhub_community).
-
----
-
 <div align="center">
 
 **MIT** · сделано для тех, кто продаёт VPN, а не настраивает ботов

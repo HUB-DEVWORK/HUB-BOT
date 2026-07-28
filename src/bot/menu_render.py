@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Sequence
-from typing import Any
 
 from aiogram.types import CallbackQuery, Message
 
 from src.bot.banners import banner_for
 from src.bot.default_menu import SMART_EXTRAS
-from src.bot.hooks import run_hooks
 from src.bot.keyboards import (
     default_menu_markup,
     default_reply_markup,
@@ -24,26 +22,6 @@ from src.bot.screen import show_media_screen
 from src.infrastructure.database.models.menu_node import MenuNode
 from src.infrastructure.database.models.user import User
 from src.infrastructure.di import AppContainer
-
-
-def _hook_buttons(results: list[Any]) -> list[tuple[str, str]]:
-    """Flatten ``main_menu`` hook results into (label, callback_data) buttons.
-
-    A hook may return a single ``(label, data)`` tuple or a list of them; anything
-    that is not a 2-tuple of strings is ignored (a misbehaving module can't corrupt
-    the menu).
-    """
-
-    def is_btn(x: Any) -> bool:
-        return isinstance(x, (list, tuple)) and len(x) == 2 and all(isinstance(e, str) for e in x)
-
-    out: list[tuple[str, str]] = []
-    for res in results:
-        items = [res] if is_btn(res) else (res if isinstance(res, (list, tuple)) else [])
-        for it in items:
-            if is_btn(it):
-                out.append((it[0], it[1]))
-    return out
 
 
 async def send_main_menu(
@@ -119,8 +97,6 @@ async def send_main_menu(
 
     has_miniapp_node = any(n.kind.value == "miniapp" for n in nodes)
     extras: list[tuple[str, str]] = [(extra_label[c], f"act:{c}:0") for c in applicable]
-    # module extension point: modules may contribute extra main-menu buttons.
-    extras.extend(_hook_buttons(await run_hooks("main_menu", container=container, db_user=db_user)))
 
     if nodes:
         markup = menu_keyboard(

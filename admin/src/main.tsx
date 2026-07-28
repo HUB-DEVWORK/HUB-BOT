@@ -18,7 +18,6 @@ import Dashboard from "./screens/Dashboard";
 import Login from "./screens/Login";
 import Maintenance from "./screens/Maintenance";
 import Miniapp from "./screens/Miniapp";
-import Modules from "./screens/Modules";
 import Notifications from "./screens/Notifications";
 import Partners from "./screens/Partners";
 import Payments from "./screens/Payments";
@@ -70,7 +69,6 @@ const router = createHashRouter([
       { path: "servers", element: <Servers /> },
       { path: "settings", element: <Settings /> },
       { path: "maintenance", element: <Maintenance /> },
-      { path: "modules", element: <Modules /> },
     ],
   },
 ]);

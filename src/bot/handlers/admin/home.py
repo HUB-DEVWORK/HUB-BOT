@@ -12,7 +12,7 @@ from src.infrastructure.di import AppContainer
 router = Router(name="admin-home")
 
 
-def _menu(admin_url: str, extras: list[tuple[str, str]] | None = None) -> InlineKeyboardMarkup:
+def _menu(admin_url: str) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats"),
@@ -35,11 +35,6 @@ def _menu(admin_url: str, extras: list[tuple[str, str]] | None = None) -> Inline
             InlineKeyboardButton(text="🔄 Обновление", callback_data="admin:update"),
         ],
     ]
-    # Module-contributed admin buttons (admin_menu hook), 2 per row, after the
-    # static grid and before the web-admin / back rows.
-    extras = extras or []
-    for i in range(0, len(extras), 2):
-        rows.append([InlineKeyboardButton(text=t, callback_data=cb) for t, cb in extras[i : i + 2]])
     if admin_url.startswith("https://"):
         rows.append([InlineKeyboardButton(text="🌐 Веб-админка", url=admin_url)])
     rows.append([InlineKeyboardButton(text="‹ В меню бота", callback_data="nav:root")])
@@ -51,27 +46,18 @@ async def _admin_url(container: AppContainer) -> str:
         return str(await container.bot_config.value(uow, "ADMIN_PANEL_URL") or "")
 
 
-async def _extra_buttons(container: AppContainer) -> list[tuple[str, str]]:
-    """Collect (label, callback_data) buttons from enabled modules' admin_menu hooks."""
-    # Lazy imports: hooks/menu_render pull the module layer, avoid an import cycle at load.
-    from src.bot.hooks import run_hooks
-    from src.bot.menu_render import _hook_buttons
-
-    return _hook_buttons(await run_hooks("admin_menu", container=container))
-
-
 _TITLE = "🛠 <b>Админ-панель</b>\n\nВсё управление ботом — прямо здесь."
 
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message, container: AppContainer) -> None:
-    menu = _menu(await _admin_url(container), await _extra_buttons(container))
+    menu = _menu(await _admin_url(container))
     await message.answer(_TITLE, reply_markup=menu, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "admin:menu")
 async def admin_menu(cb: CallbackQuery, container: AppContainer) -> None:
-    menu = _menu(await _admin_url(container), await _extra_buttons(container))
+    menu = _menu(await _admin_url(container))
     await show_screen(cb, _TITLE, menu)
     await cb.answer()
 

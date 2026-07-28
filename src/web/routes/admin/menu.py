@@ -16,26 +16,7 @@ from src.web.deps import get_container
 from src.web.routes.admin._common import audit
 from src.web.routes.admin.deps import AdminIdentity, require_admin
 
-
-async def require_bot_menu_module(container: AppContainer = Depends(get_container)) -> None:
-    """Gate the bot-menu editor behind the ``bot_menu`` module toggle.
-
-    The editor section is owned by the ``bot_menu`` module (2026-07-25): the panel
-    only shows it, and this API only serves it, while ``MODULE_BOT_MENU_ENABLED`` is on.
-    Module off -> 404, as if the section were not installed.
-    """
-    try:
-        async with container.uow() as uow:
-            enabled = bool(await container.bot_config.value(uow, "MODULE_BOT_MENU_ENABLED"))
-    except BotConfigError:
-        # Module scaffolding not installed -> key unregistered. Fail open so the
-        # editor stays reachable; only an explicit OFF toggle should 404.
-        return
-    if not enabled:
-        raise HTTPException(status_code=404, detail="модуль «Меню бота» выключен")
-
-
-router = APIRouter(prefix="/bot-menu", dependencies=[Depends(require_bot_menu_module)])
+router = APIRouter(prefix="/bot-menu")
 
 
 class NodeIn(BaseModel):

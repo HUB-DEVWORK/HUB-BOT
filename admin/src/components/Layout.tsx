@@ -116,14 +116,6 @@ export default function Layout() {
     refetchInterval: 60_000,
   });
 
-  const modules = useQuery({
-    queryKey: ["modules", "nav"],
-    queryFn: () =>
-      api.get<{ modules: { name: string; enabled: boolean }[] }>("/api/admin/modules"),
-    refetchInterval: 60_000,
-  });
-  const botMenuEnabled = !!modules.data?.modules.find((m) => m.name === "bot_menu")?.enabled;
-
   const items: {
     group?: string;
     icon: string;
@@ -135,12 +127,8 @@ export default function Layout() {
     { group: t.gProduct, icon: "👥", path: "/users", label: t.users, badge: counters.data?.all },
     { icon: "💳", path: "/tariffs", label: t.tariffs },
     { icon: "🏷️", path: "/promos", label: t.promos },
-    ...(botMenuEnabled
-      ? [
-          { group: t.gConstructor, icon: "🧱", path: "/bot-buttons", label: t.botButtons },
-          { icon: "🖼️", path: "/bot-images", label: t.botImages },
-        ]
-      : [{ group: t.gConstructor, icon: "🖼️", path: "/bot-images", label: t.botImages }]),
+    { group: t.gConstructor, icon: "🧱", path: "/bot-buttons", label: t.botButtons },
+    { icon: "🖼️", path: "/bot-images", label: t.botImages },
     { icon: "📱", path: "/miniapp", label: t.miniapp },
     { group: t.gMarketing, icon: "📣", path: "/broadcasts", label: t.broadcasts },
     { icon: "⏰", path: "/smart", label: t.smart },
@@ -157,7 +145,6 @@ export default function Layout() {
     { group: t.gSystem, icon: "🌍", path: "/servers", label: t.servers },
     { icon: "⚙️", path: "/settings", label: t.settings },
     { icon: "🛠️", path: "/maintenance", label: t.maintenance },
-    { icon: "🧩", path: "/modules", label: t.modules },
   ];
 
   const current = items.find(
