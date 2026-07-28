@@ -59,15 +59,23 @@ def _parse_dt(value: Any) -> dt.datetime | None:
 
 
 def _used_bytes(data: dict[str, Any]) -> int:
-    """Read used traffic. On Remnawave the user carries ``userTraffic`` (number or object);
-    fall back to the older ``trafficUsedBytes`` / ``usedTrafficBytes`` spellings."""
+    """Read used traffic. Modern panels ship ``userTraffic`` as an OBJECT with
+    ``usedTrafficBytes`` inside (numbers may arrive as JSON strings); older ones send it
+    as a plain number; the oldest spell it ``trafficUsedBytes``/``usedTrafficBytes``
+    at the top level. Missing the object keys here zeroed the counter on fresh panels —
+    and the screen refresh then pinned the DB value at 0 over the webhook-written one."""
     value: Any = data.get("userTraffic")
     if isinstance(value, dict):
-        value = value.get("total") or value.get("used") or value.get("usedBytes") or 0
-    if value is None:
+        value = (
+            value.get("usedTrafficBytes")
+            or value.get("total")
+            or value.get("used")
+            or value.get("usedBytes")
+        )
+    if not value:
         value = data.get("trafficUsedBytes") or data.get("usedTrafficBytes") or 0
     try:
-        return int(value)
+        return int(float(value))
     except (TypeError, ValueError):
         return 0
 

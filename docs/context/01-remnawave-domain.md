@@ -96,7 +96,9 @@ HMAC-валидируются секретом `REMNAWAVE__WEBHOOK_SECRET`. Ти
 у клиента `_to_panel_user` уже под них выровнен:
 
 - **User** (`GET /api/users`): `uuid`, `shortUuid` (НЕ `shortId`), `username`, `status`,
-  `expireAt`, `trafficLimitBytes`, `userTraffic` (использованный трафик; НЕ `usedTrafficBytes`),
+  `expireAt`, `trafficLimitBytes`, `userTraffic` (использованный трафик; на свежих панелях это
+  ОБЪЕКТ `{usedTrafficBytes, lifetimeUsedTrafficBytes, onlineAt, ...}`, числа могут приходить
+  строками; на старых — плоское число; top-level `usedTrafficBytes` там нет),
   `hwidDeviceLimit`, `subscriptionUrl`, `telegramId`, `activeInternalSquads` (список),
   `externalSquadUuid` (НЕ `activeExternalSquad`), `tag`, `trafficLimitStrategy`, `email`,
   `vlessUuid`/`trojanPassword`/`ssPassword` (секреты протоколов).

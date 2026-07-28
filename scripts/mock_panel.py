@@ -62,8 +62,17 @@ def _base_url(request: Request) -> str:
     return PUBLIC_URL or str(request.base_url).rstrip("/")
 
 
+def _public_user(u: dict[str, Any]) -> dict[str, Any]:
+    # Mirror the modern panel shape: used traffic lives in a nested userTraffic object
+    # (internally we keep a plain number so tests can wind it via PATCH userTraffic).
+    out = dict(u)
+    used = int(out.pop("userTraffic", 0) or 0)
+    out["userTraffic"] = {"usedTrafficBytes": used, "lifetimeUsedTrafficBytes": used}
+    return out
+
+
 def _user_payload(u: dict[str, Any]) -> dict[str, Any]:
-    return {"response": u}
+    return {"response": _public_user(u)}
 
 
 def _make_user(body: dict[str, Any], request: Request) -> dict[str, Any]:
@@ -102,7 +111,7 @@ async def create_user(request: Request) -> dict[str, Any]:
 
 @app.get("/api/users/by-telegram-id/{telegram_id}")
 async def by_telegram(telegram_id: int) -> dict[str, Any]:
-    found = [u for u in USERS.values() if u.get("telegramId") == telegram_id]
+    found = [_public_user(u) for u in USERS.values() if u.get("telegramId") == telegram_id]
     return {"response": found}
 
 
