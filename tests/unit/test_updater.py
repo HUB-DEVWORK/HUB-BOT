@@ -126,3 +126,20 @@ def test_auto_update_setting_registered() -> None:
     assert row is not None, "AUTO_UPDATE_ENABLED must be registered"
     assert row.type is ConfigParamType.BOOL
     assert row.default is False  # opt-in: never auto-install unless the owner turns it on
+
+
+def test_signals_writable_reflects_directory_permissions(tmp_path, monkeypatch) -> None:
+    """A live sidecar + unwritable volume must be distinguishable from «updater not wired»:
+    both used to surface as the same «модуль обновлений не подключён»."""
+    from src.infrastructure.services import updater as mod
+
+    signals = tmp_path / "update-signals"
+    signals.mkdir()
+    monkeypatch.setattr(mod, "UPDATE_REQUEST_FILE", str(signals / "request"))
+    assert mod.signals_writable() is True
+
+    signals.chmod(0o500)  # read+exec only — what the bot hit on a foreign-owned volume
+    try:
+        assert mod.signals_writable() is False
+    finally:
+        signals.chmod(0o700)

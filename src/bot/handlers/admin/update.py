@@ -85,13 +85,26 @@ async def apply(cb: CallbackQuery, container: AppContainer) -> None:
             "отдельное сообщение — ✅ если успешно или ⚠️ если что-то не так (данные в бэкапе целы)."
         )
     else:
-        text = (
-            "⚠️ <b>Авто-обновление недоступно</b>\n\n"
-            "Модуль обновлений (updater) не запущен на этом сервере — так бывает у установок, "
-            "сделанных до его появления.\n\n"
-            "Выполните на сервере <b>один раз</b> — скрипт сам включит модуль, и дальше кнопка "
-            "«Обновить» будет работать:\n"
-            "<code>cd &lt;папка бота&gt; &amp;&amp; ./scripts/update.sh</code>"
-        )
+        from src.infrastructure.services.updater import _updater_alive, signals_writable
+
+        if _updater_alive() and not signals_writable():
+            # Sidecar is running, but the shared volume belongs to another uid — the bot (user
+            # `app`) can't drop the marker. Nothing to reinstall, just fix the rights.
+            text = (
+                "⚠️ <b>Не удалось запросить обновление</b>\n\n"
+                "Модуль обновлений запущен, но у бота нет прав на запись в общий каталог "
+                "сигналов. Выполните на сервере:\n"
+                "<code>docker exec -u 0 vpnhub-bot-1 chmod 0777 /app/update-signals</code>\n\n"
+                "После этого кнопка «Обновить» заработает (правка одноразовая)."
+            )
+        else:
+            text = (
+                "⚠️ <b>Авто-обновление недоступно</b>\n\n"
+                "Модуль обновлений (updater) не запущен на этом сервере — так бывает у "
+                "установок, сделанных до его появления.\n\n"
+                "Выполните на сервере <b>один раз</b> — скрипт сам включит модуль, и дальше "
+                "кнопка «Обновить» будет работать:\n"
+                "<code>cd &lt;папка бота&gt; &amp;&amp; ./scripts/update.sh</code>"
+            )
     await show_screen(cb, text, back_kb())
     await cb.answer()

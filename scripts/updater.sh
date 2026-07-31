@@ -12,6 +12,13 @@ MARKER="${UPDATE_REQUEST_FILE:-/repo/update-signals/request}"
 LOG="$(dirname "$MARKER")/last-update.log"
 
 mkdir -p "$(dirname "$MARKER")"
+# The app containers run as the unprivileged `app` user, but this shared volume can end up owned
+# by someone else (it is seeded from whichever container mounted it first — for us that is this
+# sidecar, whose /repo bind carries the HOST owner). Then the bot cannot create the request
+# marker: «Обновить» reports «модуль обновлений не подключён» while the sidecar is very much
+# alive. We run as root here, so make the directory writable for everyone — the only thing that
+# lands in it is the marker, the log and the heartbeat.
+chmod 0777 "$(dirname "$MARKER")" 2>/dev/null || true
 # The bind-mounted repo is owned by the host user; git refuses to run in a "dubious" dir as root.
 git config --global --add safe.directory "$REPO" 2>/dev/null || true
 

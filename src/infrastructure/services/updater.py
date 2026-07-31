@@ -44,6 +44,16 @@ def _updater_alive() -> bool:
     return (time.time() - st.st_mtime) < _HEARTBEAT_MAX_AGE
 
 
+def signals_writable() -> bool:
+    """The sidecar is alive but the shared volume may be owned by another uid — we run as the
+    unprivileged `app` user. Distinguishes «updater not wired» from «wired but I can't write»,
+    which used to surface as the same misleading «модуль обновлений не подключён»."""
+    import os
+    from pathlib import Path
+
+    return os.access(Path(UPDATE_REQUEST_FILE).parent, os.W_OK)
+
+
 def _write_marker(content: str) -> bool:
     """Drop a request marker for the updater sidecar. Returns False when the sidecar isn't running
     (so the caller honestly tells the operator to act by hand) or the write fails."""
