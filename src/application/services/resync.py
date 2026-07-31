@@ -54,6 +54,11 @@ class RemnawaveResyncService:
         for sub in subs:
             report.checked += 1
             assert sub.remnawave_uuid is not None
+            if sub.grace_until is not None:
+                # In a grace window: the panel's reduced traffic + short expiry are intentional.
+                # Re-applying the authoritative paid spec here would undo grace (full traffic, and
+                # the past paid expiry would instantly disable the user). The grace sweep owns it.
+                continue
             try:
                 panel = await self._client.get_user_by_uuid(sub.remnawave_uuid)
             except Exception as exc:

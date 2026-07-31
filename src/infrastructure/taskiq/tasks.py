@@ -730,6 +730,68 @@ async def resync_panel() -> int:
     return report.healed
 
 
+@broker.task(schedule=[{"cron": "*/15 * * * *"}])
+async def apply_grace() -> int:
+    """«Спасательный круг»: a just-expired PAID subscription gets a short limited-traffic window
+    instead of going dark; when the window lapses the user is turned off. Paying (renew) lifts
+    grace and restores full limits. Trials never get grace. No-op unless GRACE_ENABLED.
+
+    Runs every 15 min. Panel calls per sub are isolated (one failure doesn't abort the sweep),
+    and the whole transition is idempotent: a sub already in grace isn't re-entered, and a
+    cooldown stops grace being farmed on every expiry.
+    """
+    container = get_container()
+    now = dt.datetime.now(dt.UTC)
+    started: list[tuple[int, int, int, str]] = []  # (telegram_id, days, gb, plan)
+    ended: list[tuple[int, str]] = []  # (telegram_id, plan)
+    async with container.uow() as uow:
+        if not bool(await container.bot_config.value(uow, "GRACE_ENABLED")):
+            return 0
+        days = int(await container.bot_config.value(uow, "GRACE_DAYS") or 0)
+        gb = int(await container.bot_config.value(uow, "GRACE_TRAFFIC_GB") or 0)
+        cooldown = int(await container.bot_config.value(uow, "GRACE_COOLDOWN_DAYS") or 0)
+        if days <= 0:
+            return 0
+        # Close lapsed windows first, then enrol the freshly expired.
+        for sub in await uow.subscriptions.grace_expired(now, limit=500):
+            user = await uow.users.get(sub.user_id)
+            try:
+                await container.subscriptions.end_grace(uow, sub)
+            except Exception as exc:
+                log.warning("grace end failed", sub=sub.id, error=str(exc))
+                continue
+            if user and user.telegram_id:
+                ended.append((user.telegram_id, str((sub.plan_snapshot or {}).get("name") or "")))
+        cutoff = now - dt.timedelta(days=cooldown)
+        for sub in await uow.subscriptions.grace_candidates(
+            now, lookback=dt.timedelta(days=2), cooldown_cutoff=cutoff, limit=500
+        ):
+            user = await uow.users.get(sub.user_id)
+            try:
+                await container.subscriptions.enter_grace(
+                    uow,
+                    sub,
+                    days=days,
+                    traffic_gb=gb,
+                    telegram_id=user.telegram_id if user else None,
+                )
+            except Exception as exc:
+                log.warning("grace enter failed", sub=sub.id, error=str(exc))
+                continue
+            if user and user.telegram_id:
+                started.append(
+                    (user.telegram_id, days, gb, str((sub.plan_snapshot or {}).get("name") or ""))
+                )
+        await uow.commit()
+    for tg, d, g, plan in started:
+        await _lifecycle_dm(container, tg, "grace_started", days=d, gb=g, plan=plan)
+    for tg, plan in ended:
+        await _lifecycle_dm(container, tg, "grace_ended", plan=plan)
+    if started or ended:
+        log.info("grace applied", entered=len(started), ended=len(ended))
+    return len(started) + len(ended)
+
+
 @broker.task(schedule=[{"cron": "*/10 * * * *"}])
 async def issue_nalogo_receipts() -> int:
     """Register unreceipted paid subscriptions as income in «Мой налог» (retry queue)."""

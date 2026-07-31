@@ -18,12 +18,22 @@ from src.core.constants import (
     UNLIMITED_EXPIRE_DAYS,
     UNLIMITED_TRAFFIC_BYTES,
 )
-from src.core.exceptions import RemnawaveVersionError
+from src.core.exceptions import RemnawaveError, RemnawaveVersionError
 from src.core.logging import get_logger
 
 _USERNAME_MAX = 34
 _UNKNOWN_VERSION = (0, 0, 0)
 log = get_logger(__name__)
+
+
+def _already_in_state(exc: Exception, state: str) -> bool:
+    """True when the panel refused a no-op toggle: 400 «User already enabled/disabled» (A030).
+
+    For an idempotent enable/disable that rejection IS the desired end state, not a failure —
+    treating it as an error aborted grace mid-way (panel updated, local row not), which made the
+    sweep re-apply the panel side every run.
+    """
+    return f"already {state}" in str(exc).lower()
 
 
 class RemnawaveService:
@@ -91,3 +101,32 @@ class RemnawaveService:
     async def apply(self, panel_uuid: uuid.UUID, spec: ProvisionSpec) -> PanelUser:
         """Push a spec change (renew/change) to an existing panel user."""
         return await self._client.update_user(panel_uuid, spec)
+
+    async def enable(self, panel_uuid: uuid.UUID) -> None:
+        """Re-enable a disabled panel user (grace entry / self-heal).
+
+        Idempotent: pushing a future expiry already flips the panel user back to ACTIVE, so the
+        panel then answers 400 «User already enabled» — the state we wanted anyway. Any other
+        panel error propagates.
+        """
+        try:
+            await self._client.enable_user(panel_uuid)
+        except RemnawaveError as exc:
+            if not _already_in_state(exc, "enabled"):
+                raise
+
+    async def disable(self, panel_uuid: uuid.UUID) -> None:
+        """Disable a panel user (grace expiry — kill access without deleting).
+
+        Idempotent for the same reason as :meth:`enable`: a user the panel already disabled
+        (e.g. by expiry) must not abort the grace sweep.
+        """
+        try:
+            await self._client.disable_user(panel_uuid)
+        except RemnawaveError as exc:
+            if not _already_in_state(exc, "disabled"):
+                raise
+
+    async def reset_traffic(self, panel_uuid: uuid.UUID) -> None:
+        """Zero the used-traffic counter so a fresh grace allowance is actually usable."""
+        await self._client.reset_traffic(panel_uuid)

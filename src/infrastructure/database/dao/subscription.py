@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from src.core.enums import SubscriptionStatus
 from src.infrastructure.database.dao.base import BaseDAO
 from src.infrastructure.database.models.subscription import Subscription
 
 _USABLE = (SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL, SubscriptionStatus.LIMITED)
+# Grace entry looks at paid subs that just crossed expiry — ACTIVE/LIMITED, or already flipped
+# EXPIRED by the panel/resync in the same window. Bounded by a look-back so enabling the feature
+# never sweeps the whole historical backlog of long-dead subs.
+_GRACE_CANDIDATE_STATUS = (
+    SubscriptionStatus.ACTIVE,
+    SubscriptionStatus.LIMITED,
+    SubscriptionStatus.EXPIRED,
+)
 
 
 class SubscriptionDAO(BaseDAO[Subscription]):
@@ -55,6 +64,47 @@ class SubscriptionDAO(BaseDAO[Subscription]):
             .where(
                 Subscription.status == SubscriptionStatus.DISABLED,
                 Subscription.remnawave_uuid.is_not(None),
+            )
+            .order_by(Subscription.id)
+            .limit(limit)
+        )
+        return (await self.session.scalars(stmt)).all()
+
+    async def grace_candidates(
+        self, now: dt.datetime, *, lookback: dt.timedelta, cooldown_cutoff: dt.datetime, limit: int
+    ) -> Sequence[Subscription]:
+        """Paid subs that just expired and are eligible to enter the grace window.
+
+        Not trials; provisioned on the panel; expired within ``lookback`` (so enabling grace
+        never resurrects the whole backlog); not already in grace; and past the cooldown since
+        their last grace (``grace_started_at`` NULL = never graced)."""
+        stmt = (
+            select(Subscription)
+            .where(
+                Subscription.status.in_(_GRACE_CANDIDATE_STATUS),
+                Subscription.is_trial.is_(False),
+                Subscription.remnawave_uuid.is_not(None),
+                Subscription.grace_until.is_(None),
+                Subscription.expire_at.is_not(None),
+                Subscription.expire_at <= now,
+                Subscription.expire_at > now - lookback,
+                or_(
+                    Subscription.grace_started_at.is_(None),
+                    Subscription.grace_started_at <= cooldown_cutoff,
+                ),
+            )
+            .order_by(Subscription.id)
+            .limit(limit)
+        )
+        return (await self.session.scalars(stmt)).all()
+
+    async def grace_expired(self, now: dt.datetime, *, limit: int) -> Sequence[Subscription]:
+        """Subs whose grace window has now closed — ready to be fully turned off."""
+        stmt = (
+            select(Subscription)
+            .where(
+                Subscription.grace_until.is_not(None),
+                Subscription.grace_until <= now,
             )
             .order_by(Subscription.id)
             .limit(limit)

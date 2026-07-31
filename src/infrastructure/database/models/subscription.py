@@ -103,6 +103,13 @@ class Subscription(IntPk, TimestampMixin, Base):
     last_webhook_at: Mapped[dt.datetime | None] = mapped_column(AwareDateTime)
     last_revoke_at: Mapped[dt.datetime | None] = mapped_column(AwareDateTime)
 
+    # Grace / «спасательный круг»: while set, the sub is in a post-expiry limited window
+    # (panel: enabled, short expiry + small traffic cap). Cleared on renew. ``grace_started_at``
+    # gates the cooldown so grace can't be farmed every expiry. Authoritative paid limits on the
+    # row are left untouched, so a renew restores full traffic/expiry without extra bookkeeping.
+    grace_until: Mapped[dt.datetime | None] = mapped_column(AwareDateTime, index=True)
+    grace_started_at: Mapped[dt.datetime | None] = mapped_column(AwareDateTime)
+
     user: Mapped[User] = relationship(back_populates="subscriptions")
 
     @property

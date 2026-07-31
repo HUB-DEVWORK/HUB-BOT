@@ -19,6 +19,8 @@ from src.infrastructure.database.models.user import User
 if TYPE_CHECKING:
     from src.infrastructure.database.uow import UnitOfWork
 
+_GIB = 1024**3
+
 
 def _plan_snapshot(plan: Plan) -> dict[str, Any]:
     """Freeze the plan shape at purchase time (gotcha #8)."""
@@ -145,6 +147,7 @@ class SubscriptionService:
         base = subscription.expire_at or dt.datetime.now(dt.UTC)
         subscription.expire_at = max(base, dt.datetime.now(dt.UTC)) + dt.timedelta(days=days)
         subscription.status = SubscriptionStatus.ACTIVE
+        subscription.grace_until = None  # paying lifts the grace window; full limits are restored
         spec = self._remnawave.build_spec(
             short_id=subscription.short_id,
             telegram_id=telegram_id,
@@ -178,6 +181,8 @@ class SubscriptionService:
             if expire_at > dt.datetime.now(dt.UTC)
             else SubscriptionStatus.EXPIRED
         )
+        if subscription.status is SubscriptionStatus.ACTIVE:
+            subscription.grace_until = None  # moving the expiry forward lifts the grace window
         spec = self._remnawave.build_spec(
             short_id=subscription.short_id,
             telegram_id=telegram_id,
@@ -218,6 +223,7 @@ class SubscriptionService:
         subscription.plan_snapshot = _plan_snapshot(plan)
         subscription.is_trial = False
         subscription.status = SubscriptionStatus.ACTIVE
+        subscription.grace_until = None
         subscription.traffic_limit_bytes = (
             req.traffic_limit_bytes
             if req.traffic_limit_bytes is not None
@@ -271,6 +277,55 @@ class SubscriptionService:
             external_squad=subscription.external_squad,
         )
         await self._remnawave.apply(subscription.remnawave_uuid, spec)
+        return subscription
+
+    async def enter_grace(
+        self,
+        uow: UnitOfWork,
+        subscription: Subscription,
+        *,
+        days: int,
+        traffic_gb: int,
+        telegram_id: int | None = None,
+    ) -> Subscription:
+        """Put a just-expired PAID sub into the grace window (panel-first).
+
+        On the panel: short expiry (now + ``days``), a small traffic cap and a used-counter reset
+        so the allowance is actually usable, and enabled (expiry may have disabled it). The row's
+        authoritative paid limits are deliberately NOT changed — a later renew restores full
+        traffic/expiry for free. ``grace_until`` marks the window; ``grace_started_at`` gates the
+        cooldown.
+        """
+        if subscription.remnawave_uuid is None:
+            raise PurchaseError("cannot grace a subscription with no panel user")
+        now = dt.datetime.now(dt.UTC)
+        grace_until = now + dt.timedelta(days=days)
+        spec = self._remnawave.build_spec(
+            short_id=subscription.short_id,
+            telegram_id=telegram_id,
+            expire_at=grace_until,
+            traffic_limit_bytes=max(0, traffic_gb) * _GIB,  # 0 -> unlimited
+            device_limit=subscription.device_limit,
+            internal_squads=tuple(subscription.internal_squads or ()),
+            external_squad=subscription.external_squad,
+        )
+        await self._remnawave.apply(subscription.remnawave_uuid, spec)
+        await self._remnawave.reset_traffic(subscription.remnawave_uuid)
+        await self._remnawave.enable(subscription.remnawave_uuid)
+        subscription.status = SubscriptionStatus.LIMITED
+        subscription.grace_until = grace_until
+        subscription.grace_started_at = now
+        return subscription
+
+    async def end_grace(self, uow: UnitOfWork, subscription: Subscription) -> Subscription:
+        """Close a lapsed grace window: disable on the panel and mark EXPIRED locally.
+
+        ``grace_started_at`` is kept so the cooldown still applies to any future expiry.
+        """
+        subscription.grace_until = None
+        subscription.status = SubscriptionStatus.EXPIRED
+        if subscription.remnawave_uuid is not None:
+            await self._remnawave.disable(subscription.remnawave_uuid)
         return subscription
 
     @staticmethod
