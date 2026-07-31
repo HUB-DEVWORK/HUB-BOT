@@ -52,6 +52,24 @@ cd "$(dirname "$0")/.."
 COMPOSE="docker compose --env-file .env -f docker/compose.prod.yml"
 [ -f .env ] || fail ".env не найден — сначала установка: ./scripts/install.sh"
 
+# Self-heal the updater profile. Installs made before the updater existed (or copied from
+# .env.example, which had no COMPOSE_PROFILES) never start the sidecar, so «Обновить» in the bot
+# answers «модуль обновлений не подключён» и предлагает запустить этот самый скрипт — который
+# раньше ничего не чинил. Дописываем профиль один раз, идемпотентно.
+ensure_updater_profile() {
+  local cur new
+  cur=$(grep -E '^COMPOSE_PROFILES=' .env | head -1 | cut -d= -f2- || true)
+  case ",${cur}," in *,updater,*) return 0 ;; esac
+  if grep -qE '^COMPOSE_PROFILES=' .env; then
+    new=$([ -n "$cur" ] && echo "${cur},updater" || echo "updater")
+    sed -i.bak -E "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=${new}|" .env && rm -f .env.bak
+  else
+    printf '\nCOMPOSE_PROFILES=updater\n' >>.env
+  fi
+  echo "  ✓ включил профиль updater — авто-обновление заработает после этого запуска"
+}
+ensure_updater_profile
+
 notify_owner() { # best-effort Telegram DM of the update outcome to the owners; never fails us
   command -v curl >/dev/null 2>&1 || return 0
   local text=$1 token ids id

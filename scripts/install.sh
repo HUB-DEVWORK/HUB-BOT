@@ -188,6 +188,17 @@ ensure_swap
 step 3 "Пара вопросов"
 if [ -f .env ]; then
   ok ".env уже существует — использую его (удалите файл для чистой установки)"
+  # Дочиниваем профиль updater у установок, сделанных до его появления: без него
+  # авто-обновление из бота недоступно, а повторный запуск установщика раньше это не лечил.
+  if ! grep -qE '^COMPOSE_PROFILES=.*updater' .env; then
+    if grep -qE '^COMPOSE_PROFILES=' .env; then
+      _cp=$(grep -E '^COMPOSE_PROFILES=' .env | head -1 | cut -d= -f2- || true)
+      sed -i.bak -E "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=${_cp:+$_cp,}updater|" .env && rm -f .env.bak
+    else
+      printf '\nCOMPOSE_PROFILES=updater\n' >>.env
+    fi
+    ok "включил профиль updater (авто-обновление)"
+  fi
 else
   ask "Токен бота из @BotFather: "; read -r BOT_TOKEN
   [ -n "$BOT_TOKEN" ] || fail "токен обязателен"
