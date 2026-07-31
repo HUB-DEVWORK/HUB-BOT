@@ -24,6 +24,7 @@ type Row = {
 };
 
 type Detail = Row & {
+  is_trial_available: boolean;
   referral_code: string;
   referral_invited: number;
   referral_earned_minor: number;
@@ -83,7 +84,9 @@ export default function Users() {
   const [tab, setTab] = useState<"overview" | "finance" | "tickets" | "actions">("overview");
   const [extDays, setExtDays] = useState(""); // custom "+N days"
   const [extUntil, setExtUntil] = useState(""); // absolute expiry date (YYYY-MM-DD)
-  const [grantPlan, setGrantPlan] = useState(""); // tariff to hand out (not just days)
+  const [grantPlan, setGrantPlan] = useState("");
+  const [msgText, setMsgText] = useState(""); // DM to the customer
+  const [discount, setDiscount] = useState(""); // tariff to hand out (not just days)
   const [grantDays, setGrantDays] = useState("30");
 
   useEffect(() => {
@@ -406,6 +409,64 @@ export default function Users() {
                         onClick={() => void adjustBalance(50000)}
                       >
                         +500 ₽
+                      </button>
+                    </div>
+                    <div className="caps">{t.actMore}</div>
+                    <div className="row" style={{ marginBottom: 6 }}>
+                      <input
+                        className="inp sm"
+                        placeholder={t.actMsgPh}
+                        value={msgText}
+                        style={{ flex: 1, minWidth: 150 }}
+                        onChange={(e) => setMsgText(e.target.value)}
+                      />
+                      <button
+                        className="btn secondary sm"
+                        disabled={!msgText.trim() || act.isPending}
+                        onClick={() => {
+                          act.mutate({ path: "/message", body: { text: msgText } });
+                          setMsgText("");
+                        }}
+                      >
+                        {t.actMsgSend}
+                      </button>
+                    </div>
+                    <div className="row" style={{ marginBottom: 8 }}>
+                      <input
+                        className="inp sm"
+                        type="number"
+                        min={0}
+                        max={100}
+                        placeholder="%"
+                        value={discount}
+                        style={{ width: 70 }}
+                        onChange={(e) => setDiscount(e.target.value)}
+                      />
+                      <button
+                        className="btn secondary sm"
+                        disabled={discount === "" || act.isPending}
+                        onClick={() =>
+                          act.mutate({ path: "/discount", body: { percent: Number(discount) } })
+                        }
+                      >
+                        {t.actDiscount}
+                      </button>
+                      <button
+                        className="btn secondary sm"
+                        onClick={() =>
+                          act.mutate({
+                            path: "/trial",
+                            body: { available: !d.is_trial_available },
+                          })
+                        }
+                      >
+                        {d.is_trial_available ? t.actTrialOff : t.actTrialOn}
+                      </button>
+                      <button
+                        className="btn secondary sm"
+                        onClick={() => act.mutate({ path: "/sync" })}
+                      >
+                        {t.actSync}
                       </button>
                     </div>
                     <div className="caps">{t.grantSub}</div>

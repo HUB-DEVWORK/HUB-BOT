@@ -55,6 +55,7 @@ from src.infrastructure.events import InProcessEventBus
 from src.infrastructure.payments.base import BasePaymentGateway
 from src.infrastructure.payments.crypto import SecretBox
 from src.infrastructure.payments.factory import GatewayFactory
+from src.infrastructure.services.notification import LogNotifier
 from src.infrastructure.services.telemetry import TelemetryReporter
 from tests.fakes.panel import FakeRemnawaveClient
 
@@ -97,6 +98,9 @@ class ApiTestContainer:
         self.payments = PaymentService(self.purchase, self.event_bus, self.referrals)
         self.promo = PromoService()
         self.bot_config = BotConfigService(self.secret_box)
+        # Routes that DM a customer (user card «Сообщение», refunds, withdrawals) need one;
+        # the logging notifier keeps the harness offline but exercises the same call path.
+        self.notifier = LogNotifier()
         self.panel_sync = PanelSyncService(self.remnawave_client)
         self.traffic = TrafficService(self.remnawave_client)  # no cache: deterministic
         self.telemetry = TelemetryReporter(
@@ -1383,3 +1387,52 @@ async def test_grant_subscription_from_admin(
         assert sub.remnawave_uuid == first_uuid  # без дубля на панели
         assert sub.expire_at is not None and sub.expire_at > first_expire
         assert len(await uow.subscriptions.list(user_id=user_id)) == 1
+
+
+async def test_customer_actions_discount_trial_message(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    """Operator ask (competitor parity): set a discount, revoke/restore the trial and DM the
+    customer straight from their card."""
+    from src.application.services.ids import generate_referral_code
+    from src.core.enums import AuthType
+    from src.infrastructure.database.models.user import User
+
+    http, container = client
+    async with container.uow() as uow:
+        buyer = User(
+            telegram_id=778899,
+            auth_type=AuthType.TELEGRAM,
+            referral_code=generate_referral_code(),
+        )
+        await uow.users.add(buyer)
+        await uow.commit()
+        user_id = buyer.id
+
+    auth = await _login(http)
+    assert (
+        await http.post(f"/api/admin/users/{user_id}/discount", json={"percent": 25}, headers=auth)
+    ).status_code == 200
+    assert (
+        await http.post(
+            f"/api/admin/users/{user_id}/trial", json={"available": False}, headers=auth
+        )
+    ).status_code == 200
+    assert (
+        await http.post(
+            f"/api/admin/users/{user_id}/message", json={"text": "привет"}, headers=auth
+        )
+    ).status_code == 200
+
+    async with container.uow() as uow:
+        user = await uow.users.get(user_id)
+        assert user is not None
+        assert user.personal_discount_pct == 25
+        assert user.is_trial_available is False
+
+    # границы: скидка вне 0..100 отклоняется, а не портит цену
+    assert (
+        await http.post(f"/api/admin/users/{user_id}/discount", json={"percent": 150}, headers=auth)
+    ).status_code == 422
+    # синк без подписки на панели — понятная 400, а не 500
+    assert (await http.post(f"/api/admin/users/{user_id}/sync", headers=auth)).status_code == 400

@@ -371,6 +371,105 @@ async def grant_subscription(
     return OkOut()
 
 
+class MessageIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+
+
+@router.post("/{user_id}/message", response_model=OkOut)
+async def message_user(
+    user_id: int,
+    body: MessageIn,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> OkOut:
+    """DM the customer from the bot — operators asked not to leave the cabinet for this."""
+    async with container.uow() as uow:
+        user = await uow.users.get(user_id)
+        if user is None:
+            raise HTTPException(404, "user not found")
+        if user.telegram_id is None:
+            raise HTTPException(400, "user has no telegram account")
+        telegram_id = user.telegram_id
+        await audit(uow, identity, "user.message", f"user:{user_id}", chars=len(body.text))
+        await uow.commit()
+    try:
+        await container.notifier.notify_user(telegram_id, body.text)
+    except Exception as exc:  # blocked the bot / chat gone — say so, not a silent "sent"
+        raise HTTPException(502, f"не доставлено: {exc}") from exc
+    return OkOut()
+
+
+class DiscountIn(BaseModel):
+    percent: int = Field(..., ge=0, le=100)
+
+
+@router.post("/{user_id}/discount", response_model=OkOut)
+async def set_discount(
+    user_id: int,
+    body: DiscountIn,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> OkOut:
+    """Personal discount for this customer (0 clears it)."""
+    async with container.uow() as uow:
+        user = await uow.users.get(user_id)
+        if user is None:
+            raise HTTPException(404, "user not found")
+        user.personal_discount_pct = body.percent
+        await audit(uow, identity, "user.discount", f"user:{user_id}", percent=body.percent)
+        await uow.commit()
+    return OkOut()
+
+
+class TrialIn(BaseModel):
+    available: bool
+
+
+@router.post("/{user_id}/trial", response_model=OkOut)
+async def set_trial(
+    user_id: int,
+    body: TrialIn,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> OkOut:
+    """Give back or take away the free-trial entitlement."""
+    async with container.uow() as uow:
+        user = await uow.users.get(user_id)
+        if user is None:
+            raise HTTPException(404, "user not found")
+        user.is_trial_available = body.available
+        await audit(uow, identity, "user.trial", f"user:{user_id}", available=body.available)
+        await uow.commit()
+    return OkOut()
+
+
+@router.post("/{user_id}/sync", response_model=OkOut)
+async def sync_user(
+    user_id: int,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> OkOut:
+    """Re-push the subscription to the panel when local data and the panel drifted apart."""
+    async with container.uow() as uow:
+        user = await uow.users.get(user_id)
+        if user is None:
+            raise HTTPException(404, "user not found")
+        sub = (
+            await uow.subscriptions.get(user.current_subscription_id)
+            if user.current_subscription_id
+            else None
+        )
+        if sub is None or sub.remnawave_uuid is None:
+            raise HTTPException(400, "у пользователя нет подписки на панели")  # noqa: RUF001
+        try:
+            await container.subscriptions.push_limits(uow, sub, telegram_id=user.telegram_id)
+        except RemnawaveError as exc:
+            raise HTTPException(502, f"panel error: {exc}") from exc
+        await audit(uow, identity, "user.sync", f"user:{user_id}")
+        await uow.commit()
+    return OkOut()
+
+
 @router.post("/{user_id}/block", response_model=OkOut)
 async def block_user(
     user_id: int,
