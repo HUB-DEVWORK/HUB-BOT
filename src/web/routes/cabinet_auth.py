@@ -15,6 +15,7 @@ import hashlib
 import re as _re
 import secrets
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
@@ -510,8 +511,17 @@ async def telegram_login_poll(
 
 
 def _redirect_uri(cabinet_url: str) -> str:
-    # The web SPA (this same page) reads ?code&state on load — no separate route.
-    return cabinet_url.rstrip("/")
+    """Where the provider sends the browser back — must match the console entry byte-for-byte.
+
+    The web cabinet SPA (the page that reads ``?code&state`` on load) is mounted at ``/web``;
+    ``/`` is the public landing, which has no OAuth handling at all. CABINET_URL is autofilled
+    with the BARE domain, so the callback used to land on the landing page: the code was
+    dropped, nothing happened, and the operator saw «авторизация не проходит» with no error.
+    Append ``/web`` for a bare host; an explicit path the operator pinned themselves is kept.
+    """
+    url = cabinet_url.strip().rstrip("/")
+    path = urlparse(url).path
+    return f"{url}/web" if path in ("", "/") else url
 
 
 async def _oauth_provider(container: AppContainer, name: str):  # type: ignore[no-untyped-def]

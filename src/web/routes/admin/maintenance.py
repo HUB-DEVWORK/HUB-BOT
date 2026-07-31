@@ -70,7 +70,9 @@ async def bootstrap_public_urls(container: AppContainer) -> None:
             # Trailing slash: /app serves relative assets, which 404 against the root without it.
             updates["SUBSCRIPTION_MINI_APP_URL"] = f"{base}/app/"
         if not str(await cfg.value(uow, "CABINET_URL") or "").strip():
-            updates["CABINET_URL"] = base
+            # /web — where the cabinet SPA actually lives ("/" is the public landing). A bare
+            # host here also broke the OAuth callback, which must come back to the SPA.
+            updates["CABINET_URL"] = f"{base}/web/"
         if updates:
             await cfg.set_values(uow, updates)
             await uow.commit()

@@ -82,12 +82,19 @@ function brand() {
   if (brandTitle) return el("div", { class: "brand" }, [el("span", {}, brandTitle)]);
   return el("div", { class: "brand" }, [el("span", {}, "VPN"), el("span", { class: "b" }, "HUB")]);
 }
+// Social logins the owner actually configured; until /config answers we show none (an
+// unconfigured button used to 400 with "provider not configured" — a dead button).
+let oauthProviders = [];
 async function loadBrand() {
   try {
     const c = await api("GET", `${C}/config`);
     if (c && c.title) {
       brandTitle = String(c.title);
       document.title = brandTitle;
+    }
+    if (c && Array.isArray(c.oauth_providers)) {
+      oauthProviders = c.oauth_providers;
+      render();
     }
   } catch {}
 }
@@ -153,13 +160,15 @@ async function tgLoginGo(holder) {
 
 function oauthButtons() {
   const tgHolder = el("div", {});
+  const labels = { vk: "Войти через ВКонтакте", yandex: "Войти через Яндекс", google: "Войти через Google" };
+  const social = oauthProviders
+    .filter((p) => labels[p])
+    .map((p) => el("button", { class: "btn oauth", onclick: () => oauthGo(p) }, labels[p]));
   return el("div", {}, [
     el("div", { class: "divider" }, "или"),
     el("button", { class: "btn oauth", onclick: () => tgLoginGo(tgHolder) }, "Войти через Telegram"),
     tgHolder,
-    el("button", { class: "btn oauth", onclick: () => oauthGo("vk") }, "Войти через ВКонтакте"),
-    el("button", { class: "btn oauth", onclick: () => oauthGo("yandex") }, "Войти через Яндекс"),
-    el("button", { class: "btn oauth", onclick: () => oauthGo("google") }, "Войти через Google"),
+    ...social,
   ]);
 }
 
@@ -458,6 +467,14 @@ async function render() {
 
 async function boot() {
   const params = new URLSearchParams(location.search);
+  // The provider can bounce back with an error instead of a code (user pressed «Отмена»,
+  // redirect URI mismatch…). Say so — silently showing the login form again reads as
+  // «авторизация не проходит».
+  if (params.get("error") && !params.get("code")) {
+    const desc = params.get("error_description") || params.get("error");
+    toast(`Вход не удался: ${desc}`);
+    history.replaceState({}, "", location.pathname);
+  }
   // OAuth callback: /web?code=...&state=... (VK ID also appends &device_id=...)
   if (params.get("code") && params.get("state")) {
     const provider = params.get("provider") || localStorage.getItem("wc_oauth_provider") || "google";

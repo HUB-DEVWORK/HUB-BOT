@@ -841,8 +841,19 @@ async def traffic(
 @router.get("/config")
 async def app_config(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
     """Public theming config (no auth) so the shell can paint before initData checks."""
+    from src.infrastructure.services.oauth import PROVIDER_NAMES
+
     async with container.uow() as uow:
         miniapp = await uow.miniapp.get_or_create()
+        cfg = container.bot_config
+        # Which social logins are actually set up — the login page hides the rest instead of
+        # showing a button that 400s with "provider not configured".
+        oauth_providers = [
+            name
+            for name in PROVIDER_NAMES
+            if str(await cfg.value(uow, f"OAUTH_{name.upper()}_CLIENT_ID") or "")
+            and str(await cfg.value(uow, f"OAUTH_{name.upper()}_CLIENT_SECRET") or "")
+        ]
         await uow.commit()
     return {
         "template": miniapp.template,
@@ -850,6 +861,7 @@ async def app_config(container: AppContainer = Depends(get_container)) -> dict[s
         "greeting": miniapp.greeting,
         "accent_color": miniapp.accent_color,
         "published_at": miniapp.published_at.isoformat() if miniapp.published_at else None,
+        "oauth_providers": oauth_providers,
     }
 
 

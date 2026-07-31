@@ -436,7 +436,18 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "Регистрация/логин по email на сайте и покупка без Telegram",
         "Email register/login on a site and purchase without Telegram",
     ),
-    _p("CABINET_URL", C.INTERFACE, STR, "", "URL веб-кабинета", "Web cabinet URL"),
+    _p(
+        "CABINET_URL",
+        C.INTERFACE,
+        STR,
+        "",
+        "URL веб-кабинета",
+        "Web cabinet URL",
+        "Адрес страницы кабинета — обычно https://ваш-домен/web/ (на «/» лежит лендинг). "
+        "Отсюда же берётся Redirect URI для входа через Google/Яндекс/VK.",
+        'The cabinet page URL — usually https://your-domain/web/ ("/" serves the landing). '
+        "The OAuth redirect URI is derived from it.",
+    ),
     _p(
         "CABINET_EMAIL_VERIFICATION",
         C.INTERFACE,
@@ -459,6 +470,10 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "",
         "Google OAuth client id",
         "Google OAuth client id",
+        "console.cloud.google.com → APIs & Services → Credentials → OAuth client ID (Web). "
+        "В «Authorized redirect URIs» впишите ровно: https://ваш-домен/web",
+        "console.cloud.google.com → Credentials → OAuth client ID (Web). Authorized redirect "
+        "URI must be exactly: https://your-domain/web",
     ),
     _p(
         "OAUTH_GOOGLE_CLIENT_SECRET",
@@ -467,6 +482,8 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "",
         "Google OAuth secret",
         "Google OAuth secret",
+        "Client secret из того же OAuth-клиента Google",
+        "Client secret of the same Google OAuth client",
     ),
     _p(
         "OAUTH_YANDEX_CLIENT_ID",
@@ -475,6 +492,10 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "",
         "Yandex OAuth client id",
         "Yandex OAuth client id",
+        "oauth.yandex.ru → создать приложение → Веб-сервисы, доступ «Электронная почта» "
+        "(login:email). Redirect URI впишите ровно: https://ваш-домен/web",
+        "oauth.yandex.ru → new app → Web services, scope login:email. Redirect URI must be "
+        "exactly: https://your-domain/web",
     ),
     _p(
         "OAUTH_YANDEX_CLIENT_SECRET",
@@ -483,6 +504,8 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "",
         "Yandex OAuth secret",
         "Yandex OAuth secret",
+        "Пароль приложения из oauth.yandex.ru",
+        "App password from oauth.yandex.ru",
     ),
     _p(
         "OAUTH_VK_CLIENT_ID",
@@ -491,6 +514,8 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "",
         "VK ID client id (id.vk.com)",
         "VK ID client id (id.vk.com)",
+        "id.vk.com → приложение → «Доверенный redirect URL»: https://ваш-домен/web",
+        "id.vk.com → app → trusted redirect URL: https://your-domain/web",
     ),
     _p(
         "OAUTH_VK_CLIENT_SECRET",
@@ -499,6 +524,8 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "",
         "VK ID защищённый ключ",
         "VK ID client secret",
+        "Защищённый ключ приложения VK ID",
+        "VK ID app secure key",
     ),
     _p(
         "NALOGO_ENABLED",
