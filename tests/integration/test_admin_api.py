@@ -896,7 +896,9 @@ async def test_bootstrap_public_urls_autowires_bot_miniapp_link(
         assert (
             str(await cfg.value(uow, "SUBSCRIPTION_MINI_APP_URL")) == "https://vpn.example.com/app/"
         )
-        assert str(await cfg.value(uow, "CABINET_URL")) == "https://vpn.example.com"
+        # /web/ — the cabinet SPA lives there ("/" is the landing). A bare host also
+        # broke the OAuth callback, which must return to the SPA.
+        assert str(await cfg.value(uow, "CABINET_URL")) == "https://vpn.example.com/web/"
         # a value the owner set by hand is never overwritten on the next boot
         await cfg.set_values(uow, {"SUBSCRIPTION_MINI_APP_URL": "https://custom.example/mini"})
         await uow.commit()
@@ -1321,3 +1323,63 @@ async def test_promogroup_crud_and_single_default(
         g["name"] for g in (await http.get("/api/admin/promogroups", headers=auth)).json()["items"]
     ]
     assert names == ["Silver"]
+
+
+async def test_grant_subscription_from_admin(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    """Operator ask: hand a user a SUBSCRIPTION (a tariff), not just days.
+
+    /extend 400s when the user has none, so this was impossible from the cabinet. /grant
+    provisions it from a plan, and re-granting the same plan extends the SAME panel account
+    instead of minting a duplicate.
+    """
+    from src.application.services.ids import generate_referral_code
+    from src.core.enums import AuthType
+    from src.infrastructure.database.models.user import User
+    from tests.factories import make_plan
+
+    http, container = client
+    async with container.uow() as uow:
+        plan, _ = await make_plan(uow, code="grant-plan")
+        buyer = User(
+            telegram_id=777001,
+            auth_type=AuthType.TELEGRAM,
+            referral_code=generate_referral_code(),
+        )
+        await uow.users.add(buyer)
+        await uow.commit()
+        user_id, plan_id = buyer.id, plan.id
+
+    auth = await _login(http)
+    # без подписки /extend бессилен — ровно то, на что жаловался оператор
+    assert (
+        await http.post(f"/api/admin/users/{user_id}/extend", json={"days": 30}, headers=auth)
+    ).status_code == 400
+
+    res = await http.post(
+        f"/api/admin/users/{user_id}/grant", json={"plan_id": plan_id, "days": 30}, headers=auth
+    )
+    assert res.status_code == 200, res.text
+    async with container.uow() as uow:
+        user = await uow.users.get(user_id)
+        assert user is not None and user.current_subscription_id is not None
+        sub = await uow.subscriptions.get(user.current_subscription_id)
+        assert sub is not None and sub.plan_id == plan_id
+        assert sub.expire_at is not None
+        assert not user.has_had_paid_subscription  # подарок ≠ покупка
+        first_uuid, first_expire = sub.remnawave_uuid, sub.expire_at
+
+    # повторная выдача того же тарифа = продление той же учётки на панели
+    res2 = await http.post(
+        f"/api/admin/users/{user_id}/grant", json={"plan_id": plan_id, "days": 30}, headers=auth
+    )
+    assert res2.status_code == 200, res2.text
+    async with container.uow() as uow:
+        user = await uow.users.get(user_id)
+        assert user is not None
+        sub = await uow.subscriptions.get(user.current_subscription_id or 0)
+        assert sub is not None
+        assert sub.remnawave_uuid == first_uuid  # без дубля на панели
+        assert sub.expire_at is not None and sub.expire_at > first_expire
+        assert len(await uow.subscriptions.list(user_id=user_id)) == 1

@@ -83,6 +83,8 @@ export default function Users() {
   const [tab, setTab] = useState<"overview" | "finance" | "tickets" | "actions">("overview");
   const [extDays, setExtDays] = useState(""); // custom "+N days"
   const [extUntil, setExtUntil] = useState(""); // absolute expiry date (YYYY-MM-DD)
+  const [grantPlan, setGrantPlan] = useState(""); // tariff to hand out (not just days)
+  const [grantDays, setGrantDays] = useState("30");
 
   useEffect(() => {
     const h = setTimeout(() => setQDebounced(q), 300);
@@ -103,6 +105,13 @@ export default function Users() {
   const detail = useQuery({
     queryKey: ["user", selId],
     queryFn: () => api.get<Detail>(`/api/admin/users/${selId}`),
+    enabled: selId !== null,
+  });
+  // Tariffs for the "выдать подписку" picker (shares the cache with the Тарифы screen).
+  const plans = useQuery({
+    queryKey: ["plans"],
+    queryFn: () =>
+      api.get<{ items: { id: number; name: string; is_trial: boolean }[] }>("/api/admin/plans"),
     enabled: selId !== null,
   });
 
@@ -397,6 +406,46 @@ export default function Users() {
                         onClick={() => void adjustBalance(50000)}
                       >
                         +500 ₽
+                      </button>
+                    </div>
+                    <div className="caps">{t.grantSub}</div>
+                    <div className="row" style={{ marginBottom: 8 }}>
+                      <select
+                        className="inp sm"
+                        value={grantPlan}
+                        style={{ maxWidth: 190 }}
+                        onChange={(e) => setGrantPlan(e.target.value)}
+                      >
+                        <option value="">{t.grantPlanPh}</option>
+                        {(plans.data?.items ?? [])
+                          .filter((p) => !p.is_trial)
+                          .map((p) => (
+                            <option key={p.id} value={String(p.id)}>
+                              {p.name}
+                            </option>
+                          ))}
+                      </select>
+                      <input
+                        className="inp sm"
+                        type="number"
+                        min={1}
+                        max={3650}
+                        placeholder={t.extendDaysPh}
+                        value={grantDays}
+                        style={{ width: 80 }}
+                        onChange={(e) => setGrantDays(e.target.value)}
+                      />
+                      <button
+                        className="btn sm"
+                        disabled={!grantPlan || !Number(grantDays) || act.isPending}
+                        onClick={() =>
+                          act.mutate({
+                            path: "/grant",
+                            body: { plan_id: Number(grantPlan), days: Number(grantDays) },
+                          })
+                        }
+                      >
+                        {t.grantGive}
                       </button>
                     </div>
                     <div className="caps">{t.giveDays}</div>

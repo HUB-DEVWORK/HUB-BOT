@@ -295,6 +295,82 @@ async def extend_subscription(
     return OkOut()
 
 
+class GrantIn(BaseModel):
+    plan_id: int
+    days: int = Field(..., ge=1, le=3650)
+
+
+@router.post("/{user_id}/grant", response_model=OkOut)
+async def grant_subscription(
+    user_id: int,
+    body: GrantIn,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> OkOut:
+    """Выдать подписку по тарифу (не просто дни) — как подарок, без оплаты.
+
+    ``/extend`` умеет только продлить существующую подписку и отвечает 400, если её нет, —
+    поэтому выдать тариф новому пользователю из админки было нельзя. Здесь: нет подписки →
+    заводим на панели; есть тот же тариф (или перенесённая без тарифа) → продлеваем ту же
+    учётку; другой тариф → смена тарифа на той же учётке. Дубликат на панели не создаётся.
+    """
+    from src.application.dto.pricing import PurchaseRequest
+    from src.core.enums import PurchaseType
+
+    async with container.uow() as uow:
+        user = await uow.users.get(user_id)
+        if user is None:
+            raise HTTPException(404, "user not found")
+        plan = await uow.plans.get(body.plan_id)
+        if plan is None:
+            raise HTTPException(404, "plan not found")
+        sub = (
+            await uow.subscriptions.get(user.current_subscription_id)
+            if user.current_subscription_id
+            else None
+        )
+        req = PurchaseRequest(
+            user_id=user.id,
+            plan_id=plan.id,
+            duration_days=body.days,
+            currency=user.currency,
+            purchase_type=PurchaseType.NEW,
+        )
+        try:
+            if sub is None or sub.remnawave_uuid is None:
+                # mark_paid=False: подарок от админа — не помечаем юзера как платившего
+                # (иначе ломается сегментация промо «только новым» и конверсия в отчётах).
+                await container.subscriptions.grant(
+                    uow, user=user, plan=plan, req=req, is_trial=False, mark_paid=False
+                )
+                mode = "new"
+            elif sub.plan_id is not None and sub.plan_id != plan.id:
+                await container.subscriptions.change(uow, sub, user=user, plan=plan, req=req)
+                mode = "change"
+            else:
+                await container.subscriptions.renew(
+                    uow,
+                    sub,
+                    days=body.days,
+                    telegram_id=user.telegram_id,
+                    adopt_plan=plan if sub.plan_id is None else None,
+                )
+                mode = "renew"
+        except RemnawaveError as exc:
+            raise HTTPException(502, f"panel error: {exc}") from exc
+        except DomainError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        await audit(
+            uow,
+            identity,
+            "user.grant",
+            f"user:{user_id}",
+            detail=f"plan={plan.id} days={body.days} mode={mode}",
+        )
+        await uow.commit()
+    return OkOut()
+
+
 @router.post("/{user_id}/block", response_model=OkOut)
 async def block_user(
     user_id: int,
