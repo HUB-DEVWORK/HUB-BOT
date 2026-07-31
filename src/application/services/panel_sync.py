@@ -67,7 +67,9 @@ class PanelSyncService:
         """Mirror internal squads (upsert by uuid; keep local pricing/flags)."""
         panel_squads = await self._client.get_internal_squads()
         existing = {sq.squad_uuid: sq for sq in await uow.server_squads.list()}
+        seen: set[object] = set()
         for ps in panel_squads:
+            seen.add(ps.uuid)
             row = existing.get(ps.uuid)
             if row is None:
                 row = ServerSquad(squad_uuid=ps.uuid, display_name=ps.name, original_name=ps.name)
@@ -77,4 +79,14 @@ class PanelSyncService:
                 if not row.display_name:
                     row.display_name = ps.name
             row.current_users = ps.members_count
+
+        # Vanished from the panel -> DELETE, same as nodes above. Without this a squad the owner
+        # deleted on the panel stayed in the tariff editor forever ("сквады не обновляются": new
+        # ones appeared, old ones never left). Guard: only prune when the panel returned a healthy
+        # list — a hiccup returning 0 squads must not wipe every squad (that would also blank the
+        # provisioning fallback and break new subscriptions).
+        if panel_squads:
+            for uuid_, row in existing.items():
+                if uuid_ not in seen:
+                    await uow.server_squads.delete(row)
         return len(panel_squads)
