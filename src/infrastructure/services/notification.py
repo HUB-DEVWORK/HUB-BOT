@@ -20,8 +20,9 @@ log = get_logger(__name__)
 class LogNotifier:
     """Satisfies the Notifier protocol by logging. Used when no bot token is configured."""
 
-    async def notify_user(self, telegram_id: int, text: str) -> None:
+    async def notify_user(self, telegram_id: int, text: str) -> bool:
         log.info("notify_user", telegram_id=telegram_id, text=text)
+        return True
 
     async def notify_admins(self, text: str, *, topic: str | None = None) -> None:
         log.info("notify_admins", topic=topic, text=text)
@@ -46,11 +47,19 @@ class TelegramNotifier:
             self._bot = Bot(token=self._token)
         return self._bot
 
-    async def notify_user(self, telegram_id: int, text: str) -> None:
+    async def notify_user(self, telegram_id: int, text: str) -> bool:
+        """Returns whether Telegram actually accepted the message.
+
+        Background senders ignore the result (a blocked user must not break a sweep), but the
+        cabinet's «Сообщение» button needs the truth: it used to answer «отправлено» while the
+        message had bounced with "chat not found".
+        """
         try:
             await self._get_bot().send_message(telegram_id, text)
         except Exception:
             log.warning("notify_user_failed", telegram_id=telegram_id, exc_info=True)
+            return False
+        return True
 
     async def notify_admins(self, text: str, *, topic: str | None = None) -> None:
         prefix = f"[{topic}] " if topic else ""

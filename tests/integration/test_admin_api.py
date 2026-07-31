@@ -1436,3 +1436,34 @@ async def test_customer_actions_discount_trial_message(
     ).status_code == 422
     # синк без подписки на панели — понятная 400, а не 500
     assert (await http.post(f"/api/admin/users/{user_id}/sync", headers=auth)).status_code == 400
+
+
+async def test_message_reports_undelivered(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    """Бот заблокирован / чат не найден -> админ видит ошибку, а не «отправлено»."""
+    from src.application.services.ids import generate_referral_code
+    from src.core.enums import AuthType
+    from src.infrastructure.database.models.user import User
+
+    http, container = client
+
+    class _DeadNotifier:
+        async def notify_user(self, telegram_id: int, text: str) -> bool:
+            return False  # Telegram отверг сообщение
+
+    container.notifier = _DeadNotifier()  # type: ignore[assignment]
+    async with container.uow() as uow:
+        u = User(
+            telegram_id=778800,
+            auth_type=AuthType.TELEGRAM,
+            referral_code=generate_referral_code(),
+        )
+        await uow.users.add(u)
+        await uow.commit()
+        uid = u.id
+
+    auth = await _login(http)
+    res = await http.post(f"/api/admin/users/{uid}/message", json={"text": "т"}, headers=auth)
+    assert res.status_code == 502
+    assert "не доставлено" in res.text

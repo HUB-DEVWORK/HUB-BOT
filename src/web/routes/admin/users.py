@@ -392,10 +392,11 @@ async def message_user(
         telegram_id = user.telegram_id
         await audit(uow, identity, "user.message", f"user:{user_id}", chars=len(body.text))
         await uow.commit()
-    try:
-        await container.notifier.notify_user(telegram_id, body.text)
-    except Exception as exc:  # blocked the bot / chat gone — say so, not a silent "sent"
-        raise HTTPException(502, f"не доставлено: {exc}") from exc
+    # The notifier swallows send errors (a blocked user must not break background sweeps), so
+    # trust its verdict rather than the absence of an exception — otherwise the admin sees "✓"
+    # for a message that bounced.
+    if not await container.notifier.notify_user(telegram_id, body.text):
+        raise HTTPException(502, "не доставлено: пользователь заблокировал бота или чат не найден")
     return OkOut()
 
 
