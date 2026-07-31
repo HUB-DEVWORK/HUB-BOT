@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.application.services.ids import generate_referral_code, generate_short_id
 from src.application.services.pgdump import looks_like_pgdump, parse_copy_blocks
+from src.application.services.plan_rebuild import rebuild_plans
 from src.core.enums import (
     Availability,
     Currency,
@@ -245,6 +246,9 @@ class RemnashopImportService:
         await self._import_subscriptions(uow, data["subscriptions"], by_sid, current_ids, summary)
         await self._import_transactions(uow, data["transactions"], by_sid, summary)
         await self._import_promocodes(uow, data["promocodes"], summary)
+        # Rebuild the tariff catalog from the imported subscriptions — without it the
+        # operator lands with users but an empty tariff list and plan-less subs.
+        await rebuild_plans(uow, source="remnashop", summary=summary)
         return summary
 
     @staticmethod

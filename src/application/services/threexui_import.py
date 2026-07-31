@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.application.dto.panel import ProvisionSpec
 from src.application.services.ids import generate_referral_code, generate_short_id
+from src.application.services.plan_rebuild import rebuild_plans
 from src.core.enums import Currency, SubscriptionStatus
 from src.core.exceptions import RemnawaveError
 from src.core.logging import get_logger
@@ -441,4 +442,7 @@ class ThreexuiImportService:
             owner = await uow.users.get(user_id)
             if owner is not None and owner.current_subscription_id is None:
                 owner.current_subscription_id = sub.id
+        # Rebuild the tariff catalog from the imported subscriptions — without it the
+        # operator lands with users but an empty tariff list and plan-less subs.
+        await rebuild_plans(uow, source="3x-ui", summary=summary)
         return summary

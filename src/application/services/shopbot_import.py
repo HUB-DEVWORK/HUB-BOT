@@ -21,6 +21,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING, Any
 
 from src.application.services.ids import generate_referral_code, generate_short_id
+from src.application.services.plan_rebuild import rebuild_plans
 from src.core.enums import (
     Currency,
     PaymentGatewayType,
@@ -146,6 +147,9 @@ class ShopbotImportService:
         await self._import_keys(uow, data["vpn_keys"], by_tid, summary)
         await self._import_transactions(uow, data["transactions"], by_tid, summary)
         await self._import_promocodes(uow, data["promo_codes"], summary)
+        # Rebuild the tariff catalog from the imported subscriptions — without it the
+        # operator lands with users but an empty tariff list and plan-less subs.
+        await rebuild_plans(uow, source="remnawave-shopbot", summary=summary)
         return summary
 
     async def _import_users(

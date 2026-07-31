@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.application.services.ids import generate_referral_code, generate_short_id
 from src.application.services.pgdump import looks_like_pgdump, parse_copy_blocks
+from src.application.services.plan_rebuild import rebuild_plans
 from src.core.enums import (
     Currency,
     Locale,
@@ -170,6 +171,9 @@ class JolymmielsImportService:
         by_cid, by_tid = await self._import_customers(uow, data["customer"], summary)
         await self._link_referrals(uow, data["referral"], by_tid, summary)
         await self._import_purchases(uow, data["purchase"], by_cid, summary)
+        # Rebuild the tariff catalog from the imported subscriptions — without it the
+        # operator lands with users but an empty tariff list and plan-less subs.
+        await rebuild_plans(uow, source="remnawave-telegram-shop", summary=summary)
         return summary
 
     async def _resolve_uuid(self, telegram_id: int) -> Any:
@@ -217,10 +221,13 @@ class JolymmielsImportService:
             if expire is None and not link:
                 continue
             panel_uuid = await self._resolve_uuid(tid)
+            # Этот источник держит одну подписку на клиента (срок лежит на customer). Без uuid
+            # панели дедупить не по чему, кроме пользователя, иначе повторный импорт заводит
+            # вторую подписку тому же человеку.
             sub = (
                 await uow.subscriptions.find_one(remnawave_uuid=panel_uuid)
                 if panel_uuid is not None
-                else None
+                else next(iter(await uow.subscriptions.list(user_id=user.id)), None)
             )
             if sub is None:
                 short = _short_id_from_url(link)
