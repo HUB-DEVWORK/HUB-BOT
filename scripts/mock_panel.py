@@ -123,12 +123,30 @@ async def get_user(uid: str) -> dict[str, Any]:
     return _user_payload(user)
 
 
+@app.patch("/api/users")
+async def patch_user_v2(request: Request) -> dict[str, Any]:
+    """Backend v2 shape: PATCH /api/users with the uuid IN THE BODY (what our client sends).
+
+    The mock only had PATCH /api/users/{uuid}, so every renew/extend against it answered
+    405 — «panel error: panel 405» on the +N days buttons, plan changes and autopay.
+    """
+    body = await request.json()
+    uid = str(body.get("uuid") or "")
+    if not uid or uid not in USERS:
+        raise HTTPException(404, "user not found")
+    return _apply_user_patch(uid, body)
+
+
 @app.patch("/api/users/{uid}")
 async def patch_user(uid: str, request: Request) -> dict[str, Any]:
     user = USERS.get(uid)
     if user is None:
         raise HTTPException(404, "user not found")
-    body = await request.json()
+    return _apply_user_patch(uid, await request.json())
+
+
+def _apply_user_patch(uid: str, body: dict[str, Any]) -> dict[str, Any]:
+    user = USERS[uid]
     for key in (
         "expireAt",
         "trafficLimitBytes",
