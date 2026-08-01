@@ -60,7 +60,7 @@ class RemnawaveResyncService:
                 # the past paid expiry would instantly disable the user). The grace sweep owns it.
                 continue
             try:
-                panel = await self._client.get_user_by_uuid(sub.remnawave_uuid)
+                panel = await self._client.get_user(sub.remnawave_uuid)
             except Exception as exc:
                 log.warning("resync fetch failed", sub=sub.id, error=str(exc))
                 continue
@@ -119,7 +119,7 @@ class RemnawaveResyncService:
         for sub in subs:
             assert sub.remnawave_uuid is not None
             try:
-                panel = await self._client.get_user_by_uuid(sub.remnawave_uuid)
+                panel = await self._client.get_user(sub.remnawave_uuid)
                 if panel is not None and panel.is_enabled:
                     await self._client.disable_user(sub.remnawave_uuid)
                     fixed += 1

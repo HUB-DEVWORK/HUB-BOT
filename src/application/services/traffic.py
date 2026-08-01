@@ -55,7 +55,7 @@ class TrafficService:
             return sub.traffic_used_bytes
         try:
             panel = await asyncio.wait_for(
-                self._client.get_user_by_uuid(sub.remnawave_uuid), timeout=self._timeout
+                self._client.get_user(sub.remnawave_uuid), timeout=self._timeout
             )
         except Exception as exc:
             log.warning("traffic_refresh_failed", sub_id=sub.id, error=str(exc)[:200])

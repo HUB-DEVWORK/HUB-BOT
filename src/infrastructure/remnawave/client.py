@@ -18,8 +18,10 @@ import httpx
 from src.application.dto.panel import (
     PanelDevice,
     PanelNode,
+    PanelRef,
     PanelSquad,
     PanelUser,
+    PanelUserRef,
     PanelVersion,
     ProvisionSpec,
 )
@@ -48,6 +50,13 @@ def _unwrap(data: Any) -> Any:
     if isinstance(data, dict) and "response" in data:
         return data["response"]
     return data
+
+
+def _as_ref(ref: PanelRef) -> PanelUserRef:
+    """Normalize the accepted union: a bare uuid is a plain 2.x address."""
+    if isinstance(ref, PanelUserRef):
+        return ref
+    return PanelUserRef(uuid=ref)
 
 
 def _parse_dt(value: Any) -> dt.datetime | None:
@@ -219,20 +228,26 @@ class RemnawaveHttpClient:
             raw=raw or "0.0.0", major=major, minor=minor, patch=patch, capabilities=frozenset(caps)
         )
 
+    def _v2_uuid(self, ref: PanelRef) -> uuid.UUID:
+        panel_uuid = _as_ref(ref).uuid
+        if panel_uuid is None:
+            raise RemnawaveError("panel user reference carries no 2.x uuid")
+        return panel_uuid
+
     async def create_user(self, spec: ProvisionSpec) -> PanelUser:
         data = await self._request("POST", _PATHS["users"], json=_spec_payload(spec))
         return _to_panel_user(dict(data))
 
-    async def update_user(self, panel_uuid: uuid.UUID, spec: ProvisionSpec) -> PanelUser:
+    async def update_user(self, ref: PanelRef, spec: ProvisionSpec) -> PanelUser:
         # Backend v2 updates a user via PATCH /api/users with the uuid IN THE BODY —
         # PATCH /api/users/{uuid} 404s. (Verified against a live 2.x panel.)
-        payload = _spec_payload(spec) | {"uuid": str(panel_uuid)}
+        payload = _spec_payload(spec) | {"uuid": str(self._v2_uuid(ref))}
         data = await self._request("PATCH", _PATHS["users"], json=payload)
         return _to_panel_user(dict(data))
 
-    async def get_user_by_uuid(self, panel_uuid: uuid.UUID) -> PanelUser | None:
+    async def get_user(self, ref: PanelRef) -> PanelUser | None:
         try:
-            data = await self._request("GET", _PATHS["user"].format(uuid=panel_uuid))
+            data = await self._request("GET", _PATHS["user"].format(uuid=self._v2_uuid(ref)))
         except RemnawaveError:
             return None
         return _to_panel_user(dict(data)) if data else None
@@ -248,33 +263,35 @@ class RemnawaveHttpClient:
             return _to_panel_user(dict(data[0])) if data else None
         return _to_panel_user(dict(data))
 
-    async def _action(self, panel_uuid: uuid.UUID, action: str) -> None:
-        await self._request("POST", _PATHS["user_actions"].format(uuid=panel_uuid, action=action))
+    async def _action(self, ref: PanelRef, action: str) -> None:
+        await self._request(
+            "POST", _PATHS["user_actions"].format(uuid=self._v2_uuid(ref), action=action)
+        )
 
-    async def enable_user(self, panel_uuid: uuid.UUID) -> None:
-        await self._action(panel_uuid, "enable")
+    async def enable_user(self, ref: PanelRef) -> None:
+        await self._action(ref, "enable")
 
-    async def disable_user(self, panel_uuid: uuid.UUID) -> None:
-        await self._action(panel_uuid, "disable")
+    async def disable_user(self, ref: PanelRef) -> None:
+        await self._action(ref, "disable")
 
-    async def delete_user(self, panel_uuid: uuid.UUID) -> None:
-        await self._request("DELETE", _PATHS["user"].format(uuid=panel_uuid))
+    async def delete_user(self, ref: PanelRef) -> None:
+        await self._request("DELETE", _PATHS["user"].format(uuid=self._v2_uuid(ref)))
 
-    async def reset_traffic(self, panel_uuid: uuid.UUID) -> None:
-        await self._action(panel_uuid, "reset-traffic")
+    async def reset_traffic(self, ref: PanelRef) -> None:
+        await self._action(ref, "reset-traffic")
 
-    async def revoke_subscription(self, panel_uuid: uuid.UUID) -> PanelUser:
+    async def revoke_subscription(self, ref: PanelRef) -> PanelUser:
         data = await self._request(
-            "POST", _PATHS["user_actions"].format(uuid=panel_uuid, action="revoke")
+            "POST", _PATHS["user_actions"].format(uuid=self._v2_uuid(ref), action="revoke")
         )
         return _to_panel_user(dict(data))
 
-    async def drop_connections(self, panel_uuid: uuid.UUID) -> None:
-        await self._action(panel_uuid, "drop-connections")
+    async def drop_connections(self, ref: PanelRef) -> None:
+        await self._action(ref, "drop-connections")
 
-    async def get_devices(self, panel_uuid: uuid.UUID) -> list[PanelDevice]:
+    async def get_devices(self, ref: PanelRef) -> list[PanelDevice]:
         """HWID devices of one panel user (GET /api/hwid/devices/{uuid})."""
-        data = await self._request("GET", f"/api/hwid/devices/{panel_uuid}")
+        data = await self._request("GET", f"/api/hwid/devices/{self._v2_uuid(ref)}")
         raw = data.get("devices") if isinstance(data, dict) else data
         devices: list[PanelDevice] = []
         for item in raw or []:
@@ -290,12 +307,12 @@ class RemnawaveHttpClient:
             )
         return devices
 
-    async def delete_device(self, panel_uuid: uuid.UUID, hwid: str) -> None:
+    async def delete_device(self, ref: PanelRef, hwid: str) -> None:
         """Unbind one HWID (POST /api/hwid/devices/delete — panel-verified route)."""
         await self._request(
             "POST",
             "/api/hwid/devices/delete",
-            json={"userUuid": str(panel_uuid), "hwid": hwid},
+            json={"userUuid": str(self._v2_uuid(ref)), "hwid": hwid},
         )
 
     async def start_users_ips_job(self, node_uuid: str) -> str:

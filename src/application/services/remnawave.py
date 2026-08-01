@@ -8,20 +8,20 @@ concrete client's job.
 from __future__ import annotations
 
 import datetime as dt
-import uuid
 
 from src.application.common.panel import RemnawaveClient
-from src.application.dto.panel import PanelUser, PanelVersion, ProvisionSpec
+from src.application.dto.panel import PanelRef, PanelUser, PanelVersion, ProvisionSpec
 from src.core.constants import (
     BYTES_PER_GB,
     MIN_REMNAWAVE_VERSION,
+    PANEL_USERNAME_MAX,
+    PANEL_USERNAME_PREFIX,
     UNLIMITED_EXPIRE_DAYS,
     UNLIMITED_TRAFFIC_BYTES,
 )
 from src.core.exceptions import RemnawaveError, RemnawaveVersionError
 from src.core.logging import get_logger
 
-_USERNAME_MAX = 34
 _UNKNOWN_VERSION = (0, 0, 0)
 log = get_logger(__name__)
 
@@ -65,8 +65,8 @@ class RemnawaveService:
         return gb * BYTES_PER_GB
 
     @staticmethod
-    def username_for(short_id: str, *, prefix: str = "sub_") -> str:
-        return f"{prefix}{short_id}"[:_USERNAME_MAX]
+    def username_for(short_id: str, *, prefix: str = PANEL_USERNAME_PREFIX) -> str:
+        return f"{prefix}{short_id}"[:PANEL_USERNAME_MAX]
 
     def build_spec(
         self,
@@ -98,11 +98,11 @@ class RemnawaveService:
         """Create the panel user for a subscription (panel-first, ADR-0005)."""
         return await self._client.create_user(spec)
 
-    async def apply(self, panel_uuid: uuid.UUID, spec: ProvisionSpec) -> PanelUser:
+    async def apply(self, ref: PanelRef, spec: ProvisionSpec) -> PanelUser:
         """Push a spec change (renew/change) to an existing panel user."""
-        return await self._client.update_user(panel_uuid, spec)
+        return await self._client.update_user(ref, spec)
 
-    async def enable(self, panel_uuid: uuid.UUID) -> None:
+    async def enable(self, ref: PanelRef) -> None:
         """Re-enable a disabled panel user (grace entry / self-heal).
 
         Idempotent: pushing a future expiry already flips the panel user back to ACTIVE, so the
@@ -110,23 +110,23 @@ class RemnawaveService:
         panel error propagates.
         """
         try:
-            await self._client.enable_user(panel_uuid)
+            await self._client.enable_user(ref)
         except RemnawaveError as exc:
             if not _already_in_state(exc, "enabled"):
                 raise
 
-    async def disable(self, panel_uuid: uuid.UUID) -> None:
+    async def disable(self, ref: PanelRef) -> None:
         """Disable a panel user (grace expiry — kill access without deleting).
 
         Idempotent for the same reason as :meth:`enable`: a user the panel already disabled
         (e.g. by expiry) must not abort the grace sweep.
         """
         try:
-            await self._client.disable_user(panel_uuid)
+            await self._client.disable_user(ref)
         except RemnawaveError as exc:
             if not _already_in_state(exc, "disabled"):
                 raise
 
-    async def reset_traffic(self, panel_uuid: uuid.UUID) -> None:
+    async def reset_traffic(self, ref: PanelRef) -> None:
         """Zero the used-traffic counter so a fresh grace allowance is actually usable."""
-        await self._client.reset_traffic(panel_uuid)
+        await self._client.reset_traffic(ref)

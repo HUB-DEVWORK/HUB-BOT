@@ -269,7 +269,7 @@ class AiSupportService:
                 in_panel = None
                 if uuid is not None:
                     try:
-                        in_panel = (await self._rw.get_user_by_uuid(uuid)) is not None
+                        in_panel = (await self._rw.get_user(uuid)) is not None
                     except Exception:
                         in_panel = None
                 inp = "да" if in_panel else ("нет" if in_panel is False else "неизвестно")

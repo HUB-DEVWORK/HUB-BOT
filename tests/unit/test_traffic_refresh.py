@@ -37,9 +37,9 @@ class _CountingClient(FakeRemnawaveClient):
         super().__init__()
         self.calls = 0
 
-    async def get_user_by_uuid(self, panel_uuid: uuid_mod.UUID) -> PanelUser | None:
+    async def get_user(self, panel_uuid: uuid_mod.UUID) -> PanelUser | None:
         self.calls += 1
-        return await super().get_user_by_uuid(panel_uuid)
+        return await super().get_user(panel_uuid)
 
 
 async def _grant(uow: UnitOfWork, fake: FakeRemnawaveClient) -> Any:
@@ -73,7 +73,7 @@ async def test_refresh_pulls_live_value_and_stores_it(uow: UnitOfWork) -> None:
 
 async def test_refresh_survives_panel_error(uow: UnitOfWork) -> None:
     class _DownClient(FakeRemnawaveClient):
-        async def get_user_by_uuid(self, panel_uuid: uuid_mod.UUID) -> PanelUser | None:
+        async def get_user(self, panel_uuid: uuid_mod.UUID) -> PanelUser | None:
             raise RemnawaveError("panel down")
 
     async with uow:
@@ -102,9 +102,9 @@ async def test_refresh_survives_vanished_panel_user(uow: UnitOfWork) -> None:
 
 async def test_refresh_times_out_slow_panel(uow: UnitOfWork) -> None:
     class _SlowClient(FakeRemnawaveClient):
-        async def get_user_by_uuid(self, panel_uuid: uuid_mod.UUID) -> PanelUser | None:
+        async def get_user(self, panel_uuid: uuid_mod.UUID) -> PanelUser | None:
             await asyncio.sleep(0.2)
-            return await super().get_user_by_uuid(panel_uuid)
+            return await super().get_user(panel_uuid)
 
     async with uow:
         fake = _SlowClient()
