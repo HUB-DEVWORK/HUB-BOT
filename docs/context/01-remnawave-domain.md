@@ -6,7 +6,10 @@ Remnawave — самохостовая панель управления VPN. Б
 
 ## Объекты панели
 
-- **User (panel-side)** — идентифицируется UUID; имеет `telegram_id`, `email`, `username`,
+- **User (panel-side)** — на панелях **2.x идентифицируется UUID**, на **3.0+ — числовым `id`**
+  (uuid из user-роутов и вебхуков 3.0 выпилен полностью). Локально подписка хранит оба ключа
+  (`remnawave_uuid` / `remnawave_id`), наружу отдаётся `Subscription.panel_ref`, а клиент сам
+  выбирает ключ под пробнутую версию; имеет `telegram_id`, `email`, `username`,
   `description`, лимит трафика (в **байтах**), стратегию трафика, дату истечения (`expire`),
   лимит устройств HWID, subscription URL, членство в squad'ах.
   **«Безлимит»** моделируется как `expire` = год 2099 / ~3650 дней и трафик `0`.
@@ -53,6 +56,35 @@ Host: localhost
 версию `>= 2.8.0` и строит набор capability-флагов. Пример дрейфа:
 **2.8.0 удалил `POST /system/tools/happ/encrypt`** — бизнес-код проверяет capability, а не версию.
 
+Версия читается из `GET /api/system/metadata` (есть и на 2.8+, и на 3.x; `/health` на 3.0
+версию больше не отдаёт) с фолбэком на `/health` для старых панелей. Мажор `>= 3` даёт
+capability **`v3_api`** и переключает клиент на контракт 3.0.
+
+## Remnawave 3.0 — двойной контракт клиента
+
+3.0 сломала REST API (панель при апгрейде требует env
+`I_UNDERSTAND_REST_API_BREAKING_CHANGES=true`). Клиент (`client.py`) держит обе таблицы
+роутов и выбирает по пробнутому мажору; остальному коду версия панели не видна. Маппинг:
+
+| Было (2.x) | Стало (3.0) |
+|---|---|
+| `GET/DELETE /api/users/{uuid}`, actions по uuid | те же роуты, но **числовой `{id}`** |
+| `PATCH /api/users` c `uuid` в теле | `PATCH /api/users` c `id` (числом) в теле |
+| `GET /api/users/by-telegram-id/{tg}` | `GET /api/users/stream?telegramId=...` (keyset) |
+| — | `POST /api/users/resolve` — id по `username`/`shortUuid` |
+| `POST /api/users/{uuid}/actions/drop-connections` | `POST /api/connections/drop` (body: userIds) |
+| `POST /api/ip-control/fetch-users-ips/{node}` + `/result/{job}` | `POST/GET /api/connections/by-node/{...}` |
+| hwid: `GET devices/{uuid}`, delete body `userUuid` | `GET devices/{id}`, delete body `userId` (число) |
+| `activeInternalSquads`: список uuid-строк | список **объектов** `{uuid, name}` |
+| squad `membersCount` сверху | внутри `info.membersCount` |
+
+Ключевые решения:
+- Подписка, созданная на 2.x, знает только uuid. На 3.0 клиент **сам ре-резолвит** числовой id
+  через `POST /users/resolve` (сначала `username = sub_<short_id>`, затем `shortUuid`) и кэширует;
+  вебхук/ресинк добивают `remnawave_id` в БД. Апгрейд панели владельца → ничего руками не делать.
+- `PATCH` на 3.0 отвергает `expireAt` в прошлом (400) — клиент клампит такие даты к `now+2м`
+  («истечь сейчас» превращается в «истечь почти сразу»).
+
 ## Вебхуки панели → бот
 
 HMAC-валидируются секретом `REMNAWAVE__WEBHOOK_SECRET`. Типы событий:
@@ -65,6 +97,9 @@ HMAC-валидируются секретом `REMNAWAVE__WEBHOOK_SECRET`. Ти
 **Грабли вебхуков:**
 - `user.created` прилетает и для пользователей, которых **создавали не вы** →
   игнорировать, если не помечен `IMPORTED` (иначе двойное создание).
+- **3.0: в payload юзер-событий НЕТ `uuid`** — только числовой `id` (+ `shortUuid`, `username`).
+  Резолв подписки: uuid → `remnawave_id` → username `sub_<short_id>` → shortUuid (фолбэки
+  работают только для payload'ов без uuid); первое совпавшее событие бэкфиллит `remnawave_id`.
 - `torrent_blocker.report` спамит → дедуп через Redis-лок
   `torrent_blocker_lock:{user}:{node}:{ip}` с TTL = длительность блока.
 - Мелькание ноды up/down → коалесить.
@@ -108,6 +143,11 @@ HMAC-валидируются секретом `REMNAWAVE__WEBHOOK_SECRET`. Ти
   `trafficUsedBytes`, `trafficLimitBytes`, `usersOnline`, `isDisabled`, `xrayUptime`.
 - **Версия**: `GET /api/system/health` и `/api/system/stats` версию **НЕ** отдают → probe
   версии не должен ронять старт (`ensure_supported` при неизвестной версии лишь предупреждает).
+  Источник версии — `GET /api/system/metadata` (`response.version`, есть на 2.8+ и 3.x).
+- **3.0 (сверено с contract-схемами backend@3.0.0, на живой 3.0-панели пока не прогонялось):**
+  у юзера `id` — **число**, поля `uuid` нет; `activeInternalSquads` — объекты `{uuid, name}`;
+  `userTraffic` — объект (как на свежих 2.x). Прогнать `scripts/check_panel.py` при первом
+  живом 3.0-подключении.
 - **Write-путь (create/update user) НЕ проверен** — на проде не тестировали; имена input-полей
   выровнять на тестовой панели перед провижинингом.
 

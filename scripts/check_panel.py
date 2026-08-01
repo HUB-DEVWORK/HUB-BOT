@@ -55,6 +55,7 @@ async def main() -> int:
 
     checks = [
         ("system/health", "/api/system/health", None),
+        ("system/metadata (версия)", "/api/system/metadata", None),
         ("system/stats", "/api/system/stats", None),
         ("internal-squads", "/api/internal-squads", None),
         ("nodes", "/api/nodes", None),
