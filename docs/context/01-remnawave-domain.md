@@ -144,10 +144,15 @@ HMAC-валидируются секретом `REMNAWAVE__WEBHOOK_SECRET`. Ти
 - **Версия**: `GET /api/system/health` и `/api/system/stats` версию **НЕ** отдают → probe
   версии не должен ронять старт (`ensure_supported` при неизвестной версии лишь предупреждает).
   Источник версии — `GET /api/system/metadata` (`response.version`, есть на 2.8+ и 3.x).
-- **3.0 (сверено с contract-схемами backend@3.0.0, на живой 3.0-панели пока не прогонялось):**
-  у юзера `id` — **число**, поля `uuid` нет; `activeInternalSquads` — объекты `{uuid, name}`;
-  `userTraffic` — объект (как на свежих 2.x). Прогнать `scripts/check_panel.py` при первом
-  живом 3.0-подключении.
+- **3.0 (проверено на ЖИВОЙ панели 3.0.0, throwaway в docker):** у юзера `id` — **число**,
+  поля `uuid` нет; `activeInternalSquads` — объекты `{uuid, name}`; `userTraffic` — объект
+  (как на свежих 2.x). E2E прогнан по всей поверхности клиента: probe/create/get по id/
+  резолв uuid-only ref через `sub_<short>`/stream по telegramId/actions/update с клампом
+  прошлого expireAt/devices/squads/nodes/delete — всё сходится. Нюансы живой 3.0:
+  без `X-Forwarded-*` панель молча рвёт соединение (наш local-профиль их шлёт);
+  `POST /api/connections/drop` без подключённых нод отвечает 404 «Connected nodes not found»
+  (call-sites это терпят); admin-JWT для ручных curl требует заголовок
+  `X-Remnawave-Client-Type: browser` (API-токена это не касается).
 - **Write-путь (create/update user) НЕ проверен** — на проде не тестировали; имена input-полей
   выровнять на тестовой панели перед провижинингом.
 
