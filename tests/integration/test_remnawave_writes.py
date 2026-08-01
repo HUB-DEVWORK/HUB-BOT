@@ -33,6 +33,13 @@ def _client() -> RemnawaveHttpClient:
     return RemnawaveHttpClient.from_profile(build_profile(cfg))
 
 
+def _mock_v2() -> None:
+    """Pin the lazy version probe to 2.x so the client keeps the legacy routing here."""
+    respx.get(f"{BASE}/api/system/metadata").mock(
+        return_value=httpx.Response(200, json={"response": {"version": "2.8.3"}})
+    )
+
+
 def _spec(**over: object) -> ProvisionSpec:
     base: dict[str, object] = {
         "short_id": "s",
@@ -94,6 +101,7 @@ async def test_create_user_payload_uses_panel_verified_field_names() -> None:
 async def test_update_user_patches_users_collection_with_uuid_in_body() -> None:
     # Backend v2: PATCH /api/users (collection) with the uuid in the body —
     # NOT PATCH /api/users/{uuid}, which 404s on a live 2.x panel.
+    _mock_v2()
     panel_uuid = uuid.uuid4()
     route = respx.patch(f"{BASE}/api/users").mock(
         return_value=httpx.Response(
@@ -113,6 +121,7 @@ async def test_update_user_patches_users_collection_with_uuid_in_body() -> None:
 
 @respx.mock
 async def test_delete_user_issues_delete() -> None:
+    _mock_v2()
     panel_uuid = uuid.uuid4()
     route = respx.delete(f"{BASE}/api/users/{panel_uuid}").mock(return_value=httpx.Response(200))
     client = _client()
@@ -125,6 +134,7 @@ async def test_delete_user_issues_delete() -> None:
 
 @respx.mock
 async def test_revoke_and_user_actions_hit_action_endpoints() -> None:
+    _mock_v2()
     panel_uuid = uuid.uuid4()
     base = f"{BASE}/api/users/{panel_uuid}/actions"
     revoke = respx.post(f"{base}/revoke").mock(

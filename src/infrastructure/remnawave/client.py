@@ -1,8 +1,13 @@
 """Concrete Remnawave HTTP client (httpx) implementing the RemnawaveClient protocol.
 
 Retries transient failures with jittered backoff; raises hard on auth errors. Endpoint paths
-and JSON field names are centralized in ``_PATHS`` / the mappers below — align them to your
-panel version if the smoke test reports a mismatch (docs/context/01).
+and JSON field names are centralized in ``_PATHS`` / ``_PATHS_V3`` / the mappers below —
+align them to your panel version if the smoke test reports a mismatch (docs/context/01).
+
+Dual-contract: Remnawave 3.0 replaced the user uuid with a numeric id, renamed ip-control
+to connections and dropped the by-telegram-id route. The client probes the panel version
+once (``/api/system/metadata``) and routes every user-scoped call through the matching
+contract, so the rest of the app never learns which panel generation it talks to.
 """
 
 from __future__ import annotations
@@ -25,7 +30,13 @@ from src.application.dto.panel import (
     PanelVersion,
     ProvisionSpec,
 )
-from src.core.constants import MIN_REMNAWAVE_VERSION, PANEL_RETRY_ATTEMPTS, PANEL_RETRY_BASE_DELAY
+from src.core.constants import (
+    MIN_REMNAWAVE_VERSION,
+    PANEL_RETRY_ATTEMPTS,
+    PANEL_RETRY_BASE_DELAY,
+    PANEL_USERNAME_MAX,
+    PANEL_USERNAME_PREFIX,
+)
 from src.core.exceptions import RemnawaveAuthError, RemnawaveError, RemnawaveTransientError
 from src.core.logging import get_logger
 from src.infrastructure.remnawave.connection import ConnectionProfile
@@ -42,6 +53,17 @@ _PATHS = {
     "user_actions": "/api/users/{uuid}/actions/{action}",
     "internal_squads": "/api/internal-squads",
     "nodes": "/api/nodes",
+}
+
+# Remnawave >=3.0: users are addressed by their numeric id; ip-control became connections.
+_PATHS_V3 = {
+    "user": "/api/users/{id}",
+    "user_actions": "/api/users/{id}/actions/{action}",
+    "resolve": "/api/users/resolve",
+    "users_stream": "/api/users/stream",
+    "hwid_devices": "/api/hwid/devices/{id}",
+    "connections_by_node": "/api/connections/by-node/{key}",
+    "connections_drop": "/api/connections/drop",
 }
 
 
@@ -90,11 +112,36 @@ def _used_bytes(data: dict[str, Any]) -> int:
         return 0
 
 
+def _numeric_id(value: Any) -> int | None:
+    """The 3.0 numeric user id; tolerate numbers shipped as JSON strings."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _squad_uuids(raw: Any) -> tuple[str, ...]:
+    """activeInternalSquads: 2.x ships uuid strings, 3.0 ships {uuid, name} objects."""
+    out: list[str] = []
+    for item in raw or []:
+        value = item.get("uuid") if isinstance(item, dict) else item
+        if value:
+            out.append(str(value))
+    return tuple(out)
+
+
 def _to_panel_user(data: dict[str, Any]) -> PanelUser:
     # Field names verified against a live panel (see docs/context/01): shortUuid,
     # externalSquadUuid, userTraffic — with legacy fallbacks kept for older versions.
+    # 3.0 payloads carry a numeric `id` and NO uuid; one of the two must be present.
+    raw_uuid = data.get("uuid")
+    panel_id = _numeric_id(data.get("id"))
+    if raw_uuid is None and panel_id is None:
+        raise ValueError("panel user payload carries neither uuid nor numeric id")
     return PanelUser(
-        uuid=uuid.UUID(str(data["uuid"])),
+        uuid=uuid.UUID(str(raw_uuid)) if raw_uuid is not None else None,
         short_id=str(data.get("shortUuid") or data.get("shortId") or ""),
         username=str(data.get("username") or ""),
         is_enabled=str(data.get("status", "ACTIVE")).upper() == "ACTIVE",
@@ -104,10 +151,21 @@ def _to_panel_user(data: dict[str, Any]) -> PanelUser:
         device_limit=data.get("hwidDeviceLimit"),
         subscription_url=data.get("subscriptionUrl") or data.get("subscription_url"),
         telegram_id=data.get("telegramId"),
-        internal_squads=tuple(str(s) for s in data.get("activeInternalSquads") or []),
+        internal_squads=_squad_uuids(data.get("activeInternalSquads")),
         external_squad=data.get("externalSquadUuid") or data.get("activeExternalSquad"),
         tag=data.get("tag"),
+        panel_id=panel_id,
     )
+
+
+def _v3_expire_at(expire_at: dt.datetime) -> str:
+    """3.0 rejects a PATCH with expireAt in the past (400). The closest legal intent
+    for an admin-driven "expire it now" is near-now: clamp to +2 minutes so the panel
+    accepts the write and expires the user almost immediately."""
+    now = dt.datetime.now(dt.UTC)
+    if expire_at.astimezone(dt.UTC) <= now:
+        return (now + dt.timedelta(minutes=2)).isoformat()
+    return expire_at.astimezone(dt.UTC).isoformat()
 
 
 def _spec_payload(spec: ProvisionSpec) -> dict[str, Any]:
@@ -150,6 +208,11 @@ class RemnawaveHttpClient:
 
     def __init__(self, http: httpx.AsyncClient) -> None:
         self._http = http
+        # API generation: 2 or 3, probed lazily from the panel version. None = not yet known.
+        self._mode: int | None = None
+        self._mode_lock = asyncio.Lock()
+        # short_id -> numeric 3.0 user id, filled by resolve calls for pre-3.0 subscriptions.
+        self._id_cache: dict[str, int] = {}
 
     @classmethod
     def from_profile(
@@ -224,9 +287,27 @@ class RemnawaveHttpClient:
             # 3.0 replaced the REST contract: numeric user ids instead of uuids,
             # ip-control renamed to connections, by-telegram-id dropped, etc.
             caps.add("v3_api")
+        if known:
+            self._mode = 3 if major >= 3 else 2
         return PanelVersion(
             raw=raw or "0.0.0", major=major, minor=minor, patch=patch, capabilities=frozenset(caps)
         )
+
+    async def _is_v3(self) -> bool:
+        """Resolve the API generation once; every user-scoped call routes through this.
+
+        A probe that ERRORS leaves the mode unknown (the actual call will fail and be
+        retried later) — only a SUCCESSFUL probe with no readable version pins 2.x, since
+        every 3.0 backend does report its version via /metadata while some live 2.x
+        panels expose none at all.
+        """
+        if self._mode is None:
+            async with self._mode_lock:
+                if self._mode is None:
+                    await self.get_version()
+                    if self._mode is None:
+                        self._mode = 2
+        return self._mode >= 3
 
     def _v2_uuid(self, ref: PanelRef) -> uuid.UUID:
         panel_uuid = _as_ref(ref).uuid
@@ -234,11 +315,48 @@ class RemnawaveHttpClient:
             raise RemnawaveError("panel user reference carries no 2.x uuid")
         return panel_uuid
 
+    async def _v3_id(self, ref: PanelRef) -> int:
+        """Numeric 3.0 user id for a ref; re-resolves it for uuid-only subscriptions.
+
+        A sub provisioned on 2.x knows only its uuid — which a 3.0 panel no longer
+        accepts anywhere. POST /users/resolve maps username (bot-created users are
+        ``sub_<short_id>``) or the panel shortUuid (imported subs stored it as their
+        short_id) back to the numeric id; the answer is cached per client instance
+        and persisted by the webhook backfill / resync paths upstream.
+        """
+        r = _as_ref(ref)
+        if r.panel_id is not None:
+            return r.panel_id
+        if r.short_id:
+            cached = self._id_cache.get(r.short_id)
+            if cached is not None:
+                return cached
+            username = f"{PANEL_USERNAME_PREFIX}{r.short_id}"[:PANEL_USERNAME_MAX]
+            for body in ({"username": username}, {"shortUuid": r.short_id}):
+                try:
+                    data = await self._request("POST", _PATHS_V3["resolve"], json=body)
+                except (RemnawaveAuthError, RemnawaveTransientError):
+                    raise  # panel unreachable / creds bad — not "user unknown"
+                except RemnawaveError:
+                    continue  # not found under this key — try the next one
+                panel_id = _numeric_id(data.get("id")) if isinstance(data, dict) else None
+                if panel_id is not None:
+                    self._id_cache[r.short_id] = panel_id
+                    return panel_id
+        raise RemnawaveError("panel v3: cannot resolve the numeric user id from this reference")
+
     async def create_user(self, spec: ProvisionSpec) -> PanelUser:
         data = await self._request("POST", _PATHS["users"], json=_spec_payload(spec))
         return _to_panel_user(dict(data))
 
     async def update_user(self, ref: PanelRef, spec: ProvisionSpec) -> PanelUser:
+        if await self._is_v3():
+            # 3.0 PATCHes the collection with the numeric id in the body — and refuses
+            # an expireAt in the past, so "expire immediately" is clamped to near-now.
+            payload = _spec_payload(spec) | {"id": await self._v3_id(ref)}
+            payload["expireAt"] = _v3_expire_at(spec.expire_at)
+            data = await self._request("PATCH", _PATHS["users"], json=payload)
+            return _to_panel_user(dict(data))
         # Backend v2 updates a user via PATCH /api/users with the uuid IN THE BODY —
         # PATCH /api/users/{uuid} 404s. (Verified against a live 2.x panel.)
         payload = _spec_payload(spec) | {"uuid": str(self._v2_uuid(ref))}
@@ -247,14 +365,29 @@ class RemnawaveHttpClient:
 
     async def get_user(self, ref: PanelRef) -> PanelUser | None:
         try:
-            data = await self._request("GET", _PATHS["user"].format(uuid=self._v2_uuid(ref)))
+            if await self._is_v3():
+                path = _PATHS_V3["user"].format(id=await self._v3_id(ref))
+            else:
+                path = _PATHS["user"].format(uuid=self._v2_uuid(ref))
+            data = await self._request("GET", path)
         except RemnawaveError:
             return None
         return _to_panel_user(dict(data)) if data else None
 
     async def get_user_by_telegram_id(self, telegram_id: int) -> PanelUser | None:
         try:
-            data = await self._request("GET", _PATHS["user_by_tg"].format(telegram_id=telegram_id))
+            if await self._is_v3():
+                # by-telegram-id is gone in 3.0; the stream route filters by telegramId.
+                data = await self._request(
+                    "GET",
+                    _PATHS_V3["users_stream"],
+                    params={"telegramId": str(telegram_id), "size": 25},
+                )
+                data = data.get("users") if isinstance(data, dict) else data
+            else:
+                data = await self._request(
+                    "GET", _PATHS["user_by_tg"].format(telegram_id=telegram_id)
+                )
         except RemnawaveError:
             return None
         if not data:
@@ -263,10 +396,12 @@ class RemnawaveHttpClient:
             return _to_panel_user(dict(data[0])) if data else None
         return _to_panel_user(dict(data))
 
-    async def _action(self, ref: PanelRef, action: str) -> None:
-        await self._request(
-            "POST", _PATHS["user_actions"].format(uuid=self._v2_uuid(ref), action=action)
-        )
+    async def _action(self, ref: PanelRef, action: str) -> Any:
+        if await self._is_v3():
+            path = _PATHS_V3["user_actions"].format(id=await self._v3_id(ref), action=action)
+        else:
+            path = _PATHS["user_actions"].format(uuid=self._v2_uuid(ref), action=action)
+        return await self._request("POST", path)
 
     async def enable_user(self, ref: PanelRef) -> None:
         await self._action(ref, "enable")
@@ -275,23 +410,41 @@ class RemnawaveHttpClient:
         await self._action(ref, "disable")
 
     async def delete_user(self, ref: PanelRef) -> None:
-        await self._request("DELETE", _PATHS["user"].format(uuid=self._v2_uuid(ref)))
+        if await self._is_v3():
+            path = _PATHS_V3["user"].format(id=await self._v3_id(ref))
+        else:
+            path = _PATHS["user"].format(uuid=self._v2_uuid(ref))
+        await self._request("DELETE", path)
 
     async def reset_traffic(self, ref: PanelRef) -> None:
         await self._action(ref, "reset-traffic")
 
     async def revoke_subscription(self, ref: PanelRef) -> PanelUser:
-        data = await self._request(
-            "POST", _PATHS["user_actions"].format(uuid=self._v2_uuid(ref), action="revoke")
-        )
+        data = await self._action(ref, "revoke")
         return _to_panel_user(dict(data))
 
     async def drop_connections(self, ref: PanelRef) -> None:
+        if await self._is_v3():
+            # Dedicated connections API in 3.0 (the per-user action was removed).
+            await self._request(
+                "POST",
+                _PATHS_V3["connections_drop"],
+                json={
+                    "dropBy": {"by": "userIds", "userIds": [await self._v3_id(ref)]},
+                    "targetNodes": {"target": "allNodes"},
+                },
+            )
+            return
         await self._action(ref, "drop-connections")
 
     async def get_devices(self, ref: PanelRef) -> list[PanelDevice]:
-        """HWID devices of one panel user (GET /api/hwid/devices/{uuid})."""
-        data = await self._request("GET", f"/api/hwid/devices/{self._v2_uuid(ref)}")
+        """HWID devices of one panel user (uuid path on 2.x, numeric id on 3.0)."""
+        if await self._is_v3():
+            data = await self._request(
+                "GET", _PATHS_V3["hwid_devices"].format(id=await self._v3_id(ref))
+            )
+        else:
+            data = await self._request("GET", f"/api/hwid/devices/{self._v2_uuid(ref)}")
         raw = data.get("devices") if isinstance(data, dict) else data
         devices: list[PanelDevice] = []
         for item in raw or []:
@@ -309,20 +462,32 @@ class RemnawaveHttpClient:
 
     async def delete_device(self, ref: PanelRef, hwid: str) -> None:
         """Unbind one HWID (POST /api/hwid/devices/delete — panel-verified route)."""
-        await self._request(
-            "POST",
-            "/api/hwid/devices/delete",
-            json={"userUuid": str(self._v2_uuid(ref)), "hwid": hwid},
-        )
+        if await self._is_v3():
+            body: dict[str, Any] = {"userId": await self._v3_id(ref), "hwid": hwid}
+        else:
+            body = {"userUuid": str(self._v2_uuid(ref)), "hwid": hwid}
+        await self._request("POST", "/api/hwid/devices/delete", json=body)
 
     async def start_users_ips_job(self, node_uuid: str) -> str:
-        """Kick the panel's online-IP collection for a node (ip-control API)."""
-        data = await self._request("POST", f"/api/ip-control/fetch-users-ips/{node_uuid}")
+        """Kick the panel's online-IP collection for a node.
+
+        2.x calls this ip-control; 3.0 renamed the module to connections. Same
+        job-then-poll flow on both.
+        """
+        if await self._is_v3():
+            path = _PATHS_V3["connections_by_node"].format(key=node_uuid)
+        else:
+            path = f"/api/ip-control/fetch-users-ips/{node_uuid}"
+        data = await self._request("POST", path)
         return str((data or {}).get("jobId") or "")
 
     async def get_users_ips_result(self, job_id: str) -> list[tuple[str, list[str]]] | None:
         """None while the job is running; [(userId, [ips])] when completed."""
-        data = await self._request("GET", f"/api/ip-control/fetch-users-ips/result/{job_id}")
+        if await self._is_v3():
+            path = _PATHS_V3["connections_by_node"].format(key=job_id)
+        else:
+            path = f"/api/ip-control/fetch-users-ips/result/{job_id}"
+        data = await self._request("GET", path)
         data = data or {}
         if not data.get("isCompleted"):
             return None
@@ -343,7 +508,10 @@ class RemnawaveHttpClient:
             PanelSquad(
                 uuid=uuid.UUID(str(s["uuid"])),
                 name=str(s.get("name") or ""),
-                members_count=int(s.get("membersCount") or 0),
+                # 2.x: top-level membersCount; 3.0 nests it under info.
+                members_count=int(
+                    s.get("membersCount") or (s.get("info") or {}).get("membersCount") or 0
+                ),
             )
             for s in (items or [])
         ]
