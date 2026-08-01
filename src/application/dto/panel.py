@@ -8,10 +8,35 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, slots=True)
+class PanelUserRef:
+    """Everything we may know locally to address one panel user.
+
+    Remnawave 2.x addresses users by ``uuid``; 3.x dropped the uuid entirely and uses a
+    numeric ``id``. A subscription created on 2.x has only the uuid, so when its panel
+    upgrades to 3.x the client re-resolves the numeric id from ``short_id`` (via the
+    username ``sub_<short_id>`` for bot-created users, or the panel shortUuid for
+    imported ones). Carry all the keys; the client picks what its panel understands.
+    """
+
+    uuid: uuid.UUID | None = None
+    panel_id: int | None = None
+    short_id: str | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        return self.uuid is None and self.panel_id is None and self.short_id is None
+
+
+# Accepted anywhere a panel user must be addressed: a bare 2.x uuid keeps every existing
+# call site and test valid; a PanelUserRef additionally carries the 3.x keys.
+PanelRef = uuid.UUID | PanelUserRef
+
+
+@dataclass(frozen=True, slots=True)
 class PanelUser:
     """A user as it exists on the Remnawave panel."""
 
-    uuid: uuid.UUID
+    uuid: uuid.UUID | None
     short_id: str
     username: str
     is_enabled: bool
@@ -24,6 +49,12 @@ class PanelUser:
     internal_squads: tuple[str, ...] = ()
     external_squad: str | None = None
     tag: str | None = None  # e.g. "IMPORTED" — ignore user.created for these (gotcha #19)
+    # Remnawave >=3.0 numeric user id (the uuid is gone there); None on 2.x panels.
+    panel_id: int | None = None
+
+    @property
+    def ref(self) -> PanelUserRef:
+        return PanelUserRef(uuid=self.uuid, panel_id=self.panel_id, short_id=self.short_id or None)
 
 
 @dataclass(frozen=True, slots=True)

@@ -21,6 +21,11 @@ REFERRAL_CODE_LENGTH: Final = 8
 MIN_REMNAWAVE_VERSION: Final = (2, 8, 0)
 PANEL_RETRY_ATTEMPTS: Final = 4
 PANEL_RETRY_BASE_DELAY: Final = 0.5  # seconds; jittered exponential backoff
+# Panel username template for bot-created users: sub_<short_id>. Shared by the
+# provisioning service AND the 3.x client (which resolves the numeric user id back
+# from this username) — one constant so the two can never drift apart.
+PANEL_USERNAME_PREFIX: Final = "sub_"
+PANEL_USERNAME_MAX: Final = 34
 
 # --- webhooks / auth -------------------------------------------------------
 INITDATA_MAX_AGE_SECONDS: Final = 600  # clock-skew tolerance for Telegram WebApp initData

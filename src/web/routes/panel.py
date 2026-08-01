@@ -57,6 +57,8 @@ async def _apply_user_event(
         panel_user = _to_panel_user(payload)
     except (KeyError, ValueError, TypeError):
         return False
+    if panel_user.uuid is None:
+        return False
     async with container.uow() as uow:
         sub = await uow.subscriptions.get_by_remnawave_uuid(panel_user.uuid)
         if sub is None:
