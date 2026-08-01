@@ -190,6 +190,7 @@ async def user_detail(
                 "is_trial": sub.is_trial,
                 "short_id": sub.short_id,
                 "remnawave_uuid": str(sub.remnawave_uuid) if sub.remnawave_uuid else None,
+                "remnawave_id": sub.remnawave_id,
                 "plan_snapshot": sub.plan_snapshot,
                 "expire_at": iso(sub.expire_at),
                 "traffic_used_bytes": sub.traffic_used_bytes,
@@ -337,7 +338,7 @@ async def grant_subscription(
             purchase_type=PurchaseType.NEW,
         )
         try:
-            if sub is None or sub.remnawave_uuid is None:
+            if sub is None or sub.panel_ref is None:
                 # mark_paid=False: подарок от админа — не помечаем юзера как платившего
                 # (иначе ломается сегментация промо «только новым» и конверсия в отчётах).
                 await container.subscriptions.grant(
@@ -460,7 +461,7 @@ async def sync_user(
             if user.current_subscription_id
             else None
         )
-        if sub is None or sub.remnawave_uuid is None:
+        if sub is None or sub.panel_ref is None:
             raise HTTPException(400, "у пользователя нет подписки на панели")  # noqa: RUF001
         try:
             await container.subscriptions.push_limits(uow, sub, telegram_id=user.telegram_id)
@@ -524,7 +525,8 @@ async def change_device_limit(
             raise HTTPException(400, "subscription missing")
         new_limit = max(1, (sub.device_limit or 1) + body.delta)
         sub.device_limit = new_limit
-        if sub.remnawave_uuid is not None and sub.expire_at is not None:
+        panel_ref = sub.panel_ref
+        if panel_ref is not None and sub.expire_at is not None:
             spec = container.remnawave.build_spec(
                 short_id=sub.short_id,
                 telegram_id=user.telegram_id,
@@ -535,7 +537,7 @@ async def change_device_limit(
                 external_squad=sub.external_squad,
             )
             try:
-                await container.remnawave.apply(sub.remnawave_uuid, spec)
+                await container.remnawave.apply(panel_ref, spec)
             except RemnawaveError as exc:
                 raise HTTPException(502, f"panel error: {exc}") from exc
         await audit(uow, identity, "user.hwid", f"user:{user_id}", new_limit=new_limit)
@@ -558,9 +560,10 @@ async def reset_traffic(
             raise HTTPException(400, "subscription missing")
         # Panel-first: reset on Remnawave, else a user.updated webhook re-mirrors the real usage
         # and the local zero is reverted — a traffic-LIMITED user would stay throttled (#3).
-        if sub.remnawave_uuid is not None:
+        panel_ref = sub.panel_ref
+        if panel_ref is not None:
             try:
-                await container.remnawave_client.reset_traffic(sub.remnawave_uuid)
+                await container.remnawave_client.reset_traffic(panel_ref)
             except RemnawaveError as exc:
                 raise HTTPException(502, f"panel error: {exc}") from exc
         sub.traffic_used_bytes = 0
@@ -581,13 +584,13 @@ async def reset_devices(
         if user is None or not user.current_subscription_id:
             raise HTTPException(400, "user has no subscription")
         sub = await uow.subscriptions.get(user.current_subscription_id)
-        uuid = sub.remnawave_uuid if sub else None
-    if uuid is None:
+        panel_ref = sub.panel_ref if sub else None
+    if panel_ref is None:
         raise HTTPException(400, "subscription is not on the panel")
     try:
-        devices = await container.remnawave_client.get_devices(uuid)
+        devices = await container.remnawave_client.get_devices(panel_ref)
         for d in devices:
-            await container.remnawave_client.delete_device(uuid, d.hwid)
+            await container.remnawave_client.delete_device(panel_ref, d.hwid)
     except RemnawaveError as exc:
         raise HTTPException(502, f"panel error: {exc}") from exc
     async with container.uow() as uow:
@@ -610,17 +613,15 @@ async def delete_user(
             raise HTTPException(404, "user not found")
         if user.role.is_staff:
             raise HTTPException(400, "cannot delete a staff account")
-        panel_uuids = [
-            s.remnawave_uuid
-            for s in (await uow.subscriptions.list(user_id=user_id))
-            if s.remnawave_uuid is not None
+        panel_refs = [
+            ref for s in (await uow.subscriptions.list(user_id=user_id)) if (ref := s.panel_ref)
         ]
         label = user.username or str(user.telegram_id or user_id)
         # Panel-first, best-effort: a refunded/deleted user must not keep connecting. A panel
         # blip shouldn't block the local delete — log and proceed (rare orphan cleanable by hand).
-        for uuid in panel_uuids:
+        for panel_ref in panel_refs:
             with contextlib.suppress(Exception):
-                await container.remnawave_client.delete_user(uuid)
+                await container.remnawave_client.delete_user(panel_ref)
         await audit(uow, identity, "user.delete", f"user:{label}")
         # Direct DELETE so the DB's ON DELETE CASCADE clears subscriptions/transactions/tickets/…
         # (session.delete would depend on relationship config and could hit a NOT NULL FK).

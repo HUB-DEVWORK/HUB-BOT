@@ -163,7 +163,7 @@ class PurchaseService:
         )
         if (
             sub is not None
-            and sub.remnawave_uuid is not None  # a real panel user we can extend/revive
+            and sub.panel_ref is not None  # a real panel user we can extend/revive
             and sub.status is not SubscriptionStatus.DELETED
         ):
             if sub.plan_id is not None and sub.plan_id != plan_id:

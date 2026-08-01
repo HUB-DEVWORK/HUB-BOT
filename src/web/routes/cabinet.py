@@ -782,12 +782,13 @@ async def reset_link(
             if user.current_subscription_id
             else None
         )
-    if sub is None or not sub.status.is_usable or sub.remnawave_uuid is None:
+    panel_ref = sub.panel_ref if sub is not None else None
+    if sub is None or not sub.status.is_usable or panel_ref is None:
         raise HTTPException(404, "no active subscription")
     if not await container.redis.set(f"resetlink:{user.id}", "1", nx=True, ex=600):
         raise HTTPException(429, "link was just reset — try again in a few minutes")
     try:
-        revoked = await container.remnawave_client.revoke_subscription(sub.remnawave_uuid)
+        revoked = await container.remnawave_client.revoke_subscription(panel_ref)
     except Exception as exc:
         # Release the throttle so a transient panel hiccup doesn't lock the user out of retrying
         # for 10 minutes while their leaked link is still live.
@@ -801,7 +802,7 @@ async def reset_link(
             fresh.crypto_link = None  # the old happ link is stale after rotation
             await uow.commit()
     with contextlib.suppress(Exception):  # best-effort: link is already rotated
-        await container.remnawave_client.drop_connections(sub.remnawave_uuid)
+        await container.remnawave_client.drop_connections(panel_ref)
     return {
         "ok": True,  # #7: reset-devices contract shape; the url is a useful superset
         "subscription_url": new_url,
@@ -876,10 +877,11 @@ async def list_devices(
             if user.current_subscription_id
             else None
         )
-    if sub is None or sub.remnawave_uuid is None:
+    panel_ref = sub.panel_ref if sub is not None else None
+    if sub is None or panel_ref is None:
         return {"items": [], "device_limit": None}
     try:
-        devices = await container.remnawave_client.get_devices(sub.remnawave_uuid)
+        devices = await container.remnawave_client.get_devices(panel_ref)
     except Exception as exc:
         raise HTTPException(502, "panel temporarily unavailable") from exc
     return {
@@ -908,10 +910,11 @@ async def delete_device(
             if user.current_subscription_id
             else None
         )
-    if sub is None or sub.remnawave_uuid is None:
+    panel_ref = sub.panel_ref if sub is not None else None
+    if sub is None or panel_ref is None:
         raise HTTPException(400, "no active subscription")
     try:
-        await container.remnawave_client.delete_device(sub.remnawave_uuid, hwid[:64])
+        await container.remnawave_client.delete_device(panel_ref, hwid[:64])
     except Exception as exc:
         raise HTTPException(502, "panel temporarily unavailable") from exc
     return {"ok": True}

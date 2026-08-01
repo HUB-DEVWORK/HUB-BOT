@@ -111,10 +111,12 @@ class DeviceGuardService:
 
     @staticmethod
     def _ips_for(sub: Subscription, usage: dict[str, set[str]]) -> set[str]:
-        """The panel reports userId as the username (sub_<short_id>) or the uuid."""
+        """The panel reports userId as the username (sub_<short_id>), the 2.x uuid
+        or the 3.0 numeric id."""
         for key in (
             RemnawaveService.username_for(sub.short_id),
             str(sub.remnawave_uuid),
+            str(sub.remnawave_id),  # Remnawave >=3.0 reports the numeric user id
             sub.short_id,
         ):
             if key in usage:
@@ -122,14 +124,15 @@ class DeviceGuardService:
         return set()
 
     async def _apply_action(self, sub: Subscription, action: str) -> str:
-        if sub.remnawave_uuid is None:
+        panel_ref = sub.panel_ref
+        if panel_ref is None:
             return "alert"
         try:
             if action == "drop":
-                await self._client.drop_connections(sub.remnawave_uuid)
+                await self._client.drop_connections(panel_ref)
                 return "drop"
             if action == "disable":
-                await self._client.disable_user(sub.remnawave_uuid)
+                await self._client.disable_user(panel_ref)
                 sub.status = SubscriptionStatus.DISABLED
                 return "disable"
         except Exception as exc:

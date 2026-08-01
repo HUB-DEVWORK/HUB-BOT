@@ -414,6 +414,7 @@ class ThreexuiImportService:
             sub = Subscription(
                 user_id=user.id,
                 remnawave_uuid=panel_user.uuid,
+                remnawave_id=panel_user.panel_id,
                 short_id=short_id,
                 status=status,
                 expire_at=expire_at,

@@ -53,14 +53,15 @@ class RemnawaveResyncService:
         subs = await uow.subscriptions.live_with_panel(limit)
         for sub in subs:
             report.checked += 1
-            assert sub.remnawave_uuid is not None
+            panel_ref = sub.panel_ref
+            assert panel_ref is not None  # live_with_panel guarantees a provisioned sub
             if sub.grace_until is not None:
                 # In a grace window: the panel's reduced traffic + short expiry are intentional.
                 # Re-applying the authoritative paid spec here would undo grace (full traffic, and
                 # the past paid expiry would instantly disable the user). The grace sweep owns it.
                 continue
             try:
-                panel = await self._client.get_user(sub.remnawave_uuid)
+                panel = await self._client.get_user(panel_ref)
             except Exception as exc:
                 log.warning("resync fetch failed", sub=sub.id, error=str(exc))
                 continue
@@ -90,7 +91,7 @@ class RemnawaveResyncService:
                     if needs_enable:
                         # push_limits PATCHes limits but never flips status; a DISABLED user
                         # needs the explicit enable action, else self-heal is a no-op (#2).
-                        await self._client.enable_user(sub.remnawave_uuid)
+                        await self._client.enable_user(panel_ref)
                     report.healed += 1
                     report.notes.append(
                         f"#{sub.id}: панель разошлась (enabled={panel.is_enabled}) → восстановлено"
@@ -117,11 +118,12 @@ class RemnawaveResyncService:
         fixed = 0
         subs = await uow.subscriptions.disabled_with_panel(limit)
         for sub in subs:
-            assert sub.remnawave_uuid is not None
+            panel_ref = sub.panel_ref
+            assert panel_ref is not None  # disabled_with_panel guarantees a provisioned sub
             try:
-                panel = await self._client.get_user(sub.remnawave_uuid)
+                panel = await self._client.get_user(panel_ref)
                 if panel is not None and panel.is_enabled:
-                    await self._client.disable_user(sub.remnawave_uuid)
+                    await self._client.disable_user(panel_ref)
                     fixed += 1
             except Exception as exc:
                 log.warning("reconcile_disabled failed", sub=sub.id, error=str(exc))

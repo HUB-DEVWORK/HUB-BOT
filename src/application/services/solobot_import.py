@@ -262,14 +262,17 @@ class SolobotImportService:
             await uow.session.flush()
         return by_tid
 
-    async def _resolve_uuid(self, telegram_id: int) -> uuid_mod.UUID | None:
+    async def _resolve_panel_ids(self, telegram_id: int) -> tuple[uuid_mod.UUID | None, int | None]:
+        """(uuid, numeric id) of the live panel user — 2.x gives the former, 3.0 the latter."""
         if self._panel is None:
-            return None
+            return None, None
         try:
             panel_user = await self._panel.get_user_by_telegram_id(telegram_id)
         except Exception:
-            return None
-        return getattr(panel_user, "uuid", None)
+            return None, None
+        if panel_user is None:
+            return None, None
+        return panel_user.uuid, panel_user.panel_id
 
     async def _import_keys(
         self,
@@ -289,19 +292,27 @@ class SolobotImportService:
             if expire is None and not link:
                 continue
             # Adopt the panel uuid from client_id (a real UUID on Remnawave); else resolve live.
-            panel_uuid = _as_uuid(row.get("client_id")) or await self._resolve_uuid(
-                user.telegram_id or 0
-            )
+            panel_uuid = _as_uuid(row.get("client_id"))
+            panel_id: int | None = None
+            if panel_uuid is None:
+                panel_uuid, panel_id = await self._resolve_panel_ids(user.telegram_id or 0)
             sub = (
                 await uow.subscriptions.find_one(remnawave_uuid=panel_uuid)
                 if panel_uuid is not None
                 else None
             )
+            if sub is None and panel_id is not None:
+                sub = await uow.subscriptions.find_one(remnawave_id=panel_id)
             if sub is None:
                 short = _short_id_from_url(link)
                 if short is None or await uow.subscriptions.find_one(short_id=short) is not None:
                     short = generate_short_id()
-                sub = Subscription(user_id=user.id, remnawave_uuid=panel_uuid, short_id=short)
+                sub = Subscription(
+                    user_id=user.id,
+                    remnawave_uuid=panel_uuid,
+                    remnawave_id=panel_id,
+                    short_id=short,
+                )
                 await uow.subscriptions.add(sub)
             sub.expire_at = expire
             sub.subscription_url = link[:512] or None

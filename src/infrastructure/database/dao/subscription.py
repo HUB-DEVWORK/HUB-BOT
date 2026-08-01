@@ -70,7 +70,10 @@ class SubscriptionDAO(BaseDAO[Subscription]):
             select(Subscription)
             .where(
                 Subscription.status == SubscriptionStatus.DISABLED,
-                Subscription.remnawave_uuid.is_not(None),
+                or_(
+                    Subscription.remnawave_uuid.is_not(None),
+                    Subscription.remnawave_id.is_not(None),
+                ),
             )
             .order_by(Subscription.id)
             .limit(limit)

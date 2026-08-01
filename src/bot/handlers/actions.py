@@ -740,11 +740,12 @@ async def act_devices(cb: CallbackQuery | Message, container: AppContainer, db_u
             if db_user.current_subscription_id
             else None
         )
-    if sub is None or not sub.status.is_usable or sub.remnawave_uuid is None:
+    panel_ref = sub.panel_ref if sub is not None else None
+    if sub is None or not sub.status.is_usable or panel_ref is None:
         await ack(cb, "Сначала оформи подписку", alert=True)
         return
     try:
-        devices = await container.remnawave_client.get_devices(sub.remnawave_uuid)
+        devices = await container.remnawave_client.get_devices(panel_ref)
     except Exception:
         await ack(cb, "Панель временно недоступна, попробуй позже", alert=True)
         return
@@ -776,15 +777,16 @@ async def devdel(cb: CallbackQuery, container: AppContainer, db_user: User) -> N
             if db_user.current_subscription_id
             else None
         )
-    if sub is None or sub.remnawave_uuid is None or idx < 0:
+    panel_ref = sub.panel_ref if sub is not None else None
+    if sub is None or panel_ref is None or idx < 0:
         await ack(cb, "Нет активной подписки", alert=True)
         return
     try:
-        devices = await container.remnawave_client.get_devices(sub.remnawave_uuid)
+        devices = await container.remnawave_client.get_devices(panel_ref)
         if idx >= len(devices):  # list changed since render
             await ack(cb, "Список изменился — открой заново", alert=True)
         else:
-            await container.remnawave_client.delete_device(sub.remnawave_uuid, devices[idx].hwid)
+            await container.remnawave_client.delete_device(panel_ref, devices[idx].hwid)
             await ack(cb, "Устройство отвязано ✅")
     except Exception:
         await ack(cb, "Не получилось — попробуй позже", alert=True)

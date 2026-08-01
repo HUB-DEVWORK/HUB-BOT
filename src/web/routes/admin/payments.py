@@ -474,9 +474,10 @@ async def refund_payment(
         if body.revoke_subscription and sub_id:
             sub = await uow.subscriptions.get(int(sub_id))
             if sub is not None and sub.status.is_usable:
-                if sub.remnawave_uuid is not None:
+                panel_ref = sub.panel_ref
+                if panel_ref is not None:
                     try:
-                        await container.remnawave_client.disable_user(sub.remnawave_uuid)
+                        await container.remnawave_client.disable_user(panel_ref)
                     except Exception:
                         # Panel down: we still flip the local status to DISABLED below, but the
                         # panel user stays enabled — without a retry the refunded user keeps VPN

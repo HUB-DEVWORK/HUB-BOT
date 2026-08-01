@@ -48,15 +48,14 @@ class TrafficService:
         same-or-newer (webhooks write it too), so the panel round-trip is skipped and the
         stored value stands. The caller owns the commit after a live refresh.
         """
-        if sub.remnawave_uuid is None:
+        panel_ref = sub.panel_ref
+        if panel_ref is None:
             return sub.traffic_used_bytes
         key = f"{_CACHE_PREFIX}{sub.id}"
         if await self._is_fresh(key):
             return sub.traffic_used_bytes
         try:
-            panel = await asyncio.wait_for(
-                self._client.get_user(sub.remnawave_uuid), timeout=self._timeout
-            )
+            panel = await asyncio.wait_for(self._client.get_user(panel_ref), timeout=self._timeout)
         except Exception as exc:
             log.warning("traffic_refresh_failed", sub_id=sub.id, error=str(exc)[:200])
             return sub.traffic_used_bytes

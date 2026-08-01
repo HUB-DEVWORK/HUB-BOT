@@ -101,6 +101,7 @@ class SubscriptionService:
         subscription = Subscription(
             user_id=user.id,
             remnawave_uuid=panel_user.uuid,
+            remnawave_id=panel_user.panel_id,
             short_id=short_id,
             plan_id=plan.id,
             plan_snapshot=snapshot,
@@ -139,7 +140,8 @@ class SubscriptionService:
         with the purchased plan so it stops looking like a "no plan" row — limits are left as
         they are (extension keeps the user's current setup; a plan switch is a CHANGE).
         """
-        if subscription.remnawave_uuid is None:
+        panel_ref = subscription.panel_ref
+        if panel_ref is None:
             raise PurchaseError("cannot renew a subscription with no panel user")
         if adopt_plan is not None and subscription.plan_id is None:
             subscription.plan_id = adopt_plan.id
@@ -157,7 +159,7 @@ class SubscriptionService:
             internal_squads=tuple(subscription.internal_squads or ()),
             external_squad=subscription.external_squad,
         )
-        await self._remnawave.apply(subscription.remnawave_uuid, spec)
+        await self._remnawave.apply(panel_ref, spec)
         return subscription
 
     async def set_expiry(
@@ -173,7 +175,8 @@ class SubscriptionService:
         Unlike :meth:`renew` (which only adds days), this lets an admin move the expiry to any
         target date — e.g. from a calendar. A date in the past marks the subscription expired.
         """
-        if subscription.remnawave_uuid is None:
+        panel_ref = subscription.panel_ref
+        if panel_ref is None:
             raise PurchaseError("cannot change a subscription with no panel user")
         subscription.expire_at = expire_at
         subscription.status = (
@@ -192,7 +195,7 @@ class SubscriptionService:
             internal_squads=tuple(subscription.internal_squads or ()),
             external_squad=subscription.external_squad,
         )
-        await self._remnawave.apply(subscription.remnawave_uuid, spec)
+        await self._remnawave.apply(panel_ref, spec)
         return subscription
 
     async def change(
@@ -213,7 +216,8 @@ class SubscriptionService:
         days of the new plan (PricingService.change_bonus_days), and a TRIAL remainder is carried
         over whole when ``carryover_trial`` is set. Panel-first like every other write.
         """
-        if subscription.remnawave_uuid is None:
+        panel_ref = subscription.panel_ref
+        if panel_ref is None:
             raise PurchaseError("cannot change a subscription with no panel user")
         bonus = bonus_days
         if carryover_trial and subscription.is_trial and subscription.expire_at is not None:
@@ -258,14 +262,15 @@ class SubscriptionService:
         # unlimited devices or has no external squad, the old panel value must be CLEARED, not
         # left in place. create/renew keep the omit-semantics — only CHANGE opts into the clear.
         spec = replace(spec, reset_device_limit=True, reset_external_squad=True)
-        await self._remnawave.apply(subscription.remnawave_uuid, spec)
+        await self._remnawave.apply(panel_ref, spec)
         return subscription
 
     async def push_limits(
         self, uow: UnitOfWork, subscription: Subscription, *, telegram_id: int | None = None
     ) -> Subscription:
         """Push the subscription's current limits to the panel without touching expiry."""
-        if subscription.remnawave_uuid is None:
+        panel_ref = subscription.panel_ref
+        if panel_ref is None:
             raise PurchaseError("subscription has no panel user")
         spec = self._remnawave.build_spec(
             short_id=subscription.short_id,
@@ -276,7 +281,7 @@ class SubscriptionService:
             internal_squads=tuple(subscription.internal_squads or ()),
             external_squad=subscription.external_squad,
         )
-        await self._remnawave.apply(subscription.remnawave_uuid, spec)
+        await self._remnawave.apply(panel_ref, spec)
         return subscription
 
     async def enter_grace(
@@ -296,7 +301,8 @@ class SubscriptionService:
         traffic/expiry for free. ``grace_until`` marks the window; ``grace_started_at`` gates the
         cooldown.
         """
-        if subscription.remnawave_uuid is None:
+        panel_ref = subscription.panel_ref
+        if panel_ref is None:
             raise PurchaseError("cannot grace a subscription with no panel user")
         now = dt.datetime.now(dt.UTC)
         grace_until = now + dt.timedelta(days=days)
@@ -309,9 +315,9 @@ class SubscriptionService:
             internal_squads=tuple(subscription.internal_squads or ()),
             external_squad=subscription.external_squad,
         )
-        await self._remnawave.apply(subscription.remnawave_uuid, spec)
-        await self._remnawave.reset_traffic(subscription.remnawave_uuid)
-        await self._remnawave.enable(subscription.remnawave_uuid)
+        await self._remnawave.apply(panel_ref, spec)
+        await self._remnawave.reset_traffic(panel_ref)
+        await self._remnawave.enable(panel_ref)
         subscription.status = SubscriptionStatus.LIMITED
         subscription.grace_until = grace_until
         subscription.grace_started_at = now
@@ -324,8 +330,9 @@ class SubscriptionService:
         """
         subscription.grace_until = None
         subscription.status = SubscriptionStatus.EXPIRED
-        if subscription.remnawave_uuid is not None:
-            await self._remnawave.disable(subscription.remnawave_uuid)
+        panel_ref = subscription.panel_ref
+        if panel_ref is not None:
+            await self._remnawave.disable(panel_ref)
         return subscription
 
     @staticmethod

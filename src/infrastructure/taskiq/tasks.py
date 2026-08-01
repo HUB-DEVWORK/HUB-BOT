@@ -600,15 +600,15 @@ async def panel_write_retry(subscription_id: int) -> None:
     container = get_container()
     async with container.uow() as uow:
         sub = await uow.subscriptions.get(subscription_id)
-        if sub is None or sub.remnawave_uuid is None:
+        panel_ref = sub.panel_ref if sub is not None else None
+        if sub is None or panel_ref is None:
             return  # gone / never provisioned — nothing to reconcile
-        panel_uuid = sub.remnawave_uuid
         should_be_enabled = sub.status.is_usable
     # Panel-first, outside the DB txn (#1). A raise here re-queues via retry_on_error.
     if should_be_enabled:
-        await container.remnawave_client.enable_user(panel_uuid)
+        await container.remnawave_client.enable_user(panel_ref)
     else:
-        await container.remnawave_client.disable_user(panel_uuid)
+        await container.remnawave_client.disable_user(panel_ref)
     log.info("panel_write_retry", subscription_id=subscription_id, enabled=should_be_enabled)
 
 

@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import contextlib
 import re
-import uuid as uuid_mod
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from src.application.dto.panel import PanelUserRef
 from src.core.enums import TicketAuthor, TicketStatus
 from src.core.logging import get_logger
 from src.infrastructure.database.models.ticket import TicketMessage
@@ -200,14 +200,14 @@ class AiSupportService:
 
     # ---- per-user context + tools -----------------------------------------
 
-    async def _sub_uuid(self, user: User) -> tuple[uuid_mod.UUID | None, Any]:
+    async def _sub_uuid(self, user: User) -> tuple[PanelUserRef | None, Any]:
         if not user.current_subscription_id:
             return None, None
         async with self._uow() as uow:
             sub = await uow.subscriptions.get(user.current_subscription_id)
-        if sub is None or sub.remnawave_uuid is None:
+        if sub is None:
             return None, sub
-        return sub.remnawave_uuid, sub
+        return sub.panel_ref, sub
 
     async def _context(self, user: User) -> str:
         uuid, sub = await self._sub_uuid(user)

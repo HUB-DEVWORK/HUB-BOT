@@ -176,15 +176,21 @@ class JolymmielsImportService:
         await rebuild_plans(uow, source="remnawave-telegram-shop", summary=summary)
         return summary
 
-    async def _resolve_uuid(self, telegram_id: int) -> Any:
-        """Best-effort: find the customer's existing panel user by telegram_id."""
+    async def _resolve_panel_ids(self, telegram_id: int) -> tuple[Any, Any]:
+        """Best-effort: find the customer's existing panel user by telegram_id.
+
+        Returns (uuid, numeric id) — a 2.x panel yields only the uuid, a 3.0 panel
+        only the numeric id; the subscription adopts whichever exists.
+        """
         if self._panel is None:
-            return None
+            return None, None
         try:
             panel_user = await self._panel.get_user_by_telegram_id(telegram_id)
         except Exception:
-            return None
-        return getattr(panel_user, "uuid", None)
+            return None, None
+        if panel_user is None:
+            return None, None
+        return panel_user.uuid, panel_user.panel_id
 
     async def _import_customers(
         self, uow: UnitOfWork, rows: list[dict[str, Any]], summary: dict[str, Any]
@@ -220,7 +226,7 @@ class JolymmielsImportService:
             link = str(row.get("subscription_link") or "")
             if expire is None and not link:
                 continue
-            panel_uuid = await self._resolve_uuid(tid)
+            panel_uuid, panel_id = await self._resolve_panel_ids(tid)
             # Этот источник держит одну подписку на клиента (срок лежит на customer). Без uuid
             # панели дедупить не по чему, кроме пользователя, иначе повторный импорт заводит
             # вторую подписку тому же человеку.
@@ -229,11 +235,18 @@ class JolymmielsImportService:
                 if panel_uuid is not None
                 else next(iter(await uow.subscriptions.list(user_id=user.id)), None)
             )
+            if sub is None and panel_id is not None:
+                sub = await uow.subscriptions.find_one(remnawave_id=panel_id)
             if sub is None:
                 short = _short_id_from_url(link)
                 if short is None or await uow.subscriptions.find_one(short_id=short) is not None:
                     short = generate_short_id()
-                sub = Subscription(user_id=user.id, remnawave_uuid=panel_uuid, short_id=short)
+                sub = Subscription(
+                    user_id=user.id,
+                    remnawave_uuid=panel_uuid,
+                    remnawave_id=panel_id,
+                    short_id=short,
+                )
                 await uow.subscriptions.add(sub)
             sub.expire_at = expire
             sub.subscription_url = link[:512] or None
