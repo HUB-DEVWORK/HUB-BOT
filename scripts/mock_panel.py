@@ -100,6 +100,12 @@ async def health() -> dict[str, Any]:
     return {"response": {"isHealthy": True, "version": VERSION}}
 
 
+@app.get("/api/system/metadata")
+async def metadata() -> dict[str, Any]:
+    # Where 2.8+/3.x panels report their version (3.0 health no longer carries it).
+    return {"response": {"version": VERSION}}
+
+
 @app.post("/api/users")
 async def create_user(request: Request) -> dict[str, Any]:
     body = await request.json()

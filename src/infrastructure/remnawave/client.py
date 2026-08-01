@@ -32,6 +32,7 @@ log = get_logger(__name__)
 
 _PATHS = {
     "health": "/api/system/health",
+    "metadata": "/api/system/metadata",
     "stats": "/api/system/stats",
     "users": "/api/users",
     "user": "/api/users/{uuid}",
@@ -182,10 +183,22 @@ class RemnawaveHttpClient:
 
     # --- protocol methods -------------------------------------------------
     async def get_version(self) -> PanelVersion:
-        data = await self._request("GET", _PATHS["health"])
+        # /api/system/metadata reports the version on every 2.8+ AND 3.x backend, while
+        # /health stopped carrying it (3.0 health is runtime metrics only). Probe metadata
+        # first; fall back to health for panels that predate the metadata route.
         raw = ""
-        if isinstance(data, dict):
-            raw = str(data.get("version") or data.get("appVersion") or "")
+        try:
+            data = await self._request("GET", _PATHS["metadata"])
+            if isinstance(data, dict):
+                raw = str(data.get("version") or "")
+        except RemnawaveAuthError:
+            raise  # bad credentials — never mask this as "no version"
+        except RemnawaveError:
+            pass
+        if not raw:
+            data = await self._request("GET", _PATHS["health"])
+            if isinstance(data, dict):
+                raw = str(data.get("version") or data.get("appVersion") or "")
         parts = [int(p) for p in raw.split(".")[:3] if p.isdigit()]
         known = bool(parts)  # did we actually read a version string?
         while len(parts) < 3:
@@ -198,6 +211,10 @@ class RemnawaveHttpClient:
         # which 2.x rejects). Unknown → assume modern.
         if known and (major, minor, patch) < MIN_REMNAWAVE_VERSION:
             caps.add("happ_encrypt")  # removed in 2.8.0
+        if major >= 3:
+            # 3.0 replaced the REST contract: numeric user ids instead of uuids,
+            # ip-control renamed to connections, by-telegram-id dropped, etc.
+            caps.add("v3_api")
         return PanelVersion(
             raw=raw or "0.0.0", major=major, minor=minor, patch=patch, capabilities=frozenset(caps)
         )

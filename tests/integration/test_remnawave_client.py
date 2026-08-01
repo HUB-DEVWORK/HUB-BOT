@@ -26,7 +26,39 @@ def _client() -> RemnawaveHttpClient:
 
 
 @respx.mock
-async def test_get_version_parses_and_unwraps() -> None:
+async def test_get_version_prefers_metadata_route() -> None:
+    # /api/system/metadata is the only version source that works on BOTH 2.8+ and 3.x
+    # (3.0 stripped the version from /health entirely).
+    respx.get(f"{BASE}/api/system/metadata").mock(
+        return_value=httpx.Response(200, json={"response": {"version": "2.8.3"}})
+    )
+    client = _client()
+    try:
+        version = await client.get_version()
+    finally:
+        await client.aclose()
+    assert version.tuple == (2, 8, 3)
+    assert "v3_api" not in version.capabilities
+
+
+@respx.mock
+async def test_get_version_detects_v3_api() -> None:
+    respx.get(f"{BASE}/api/system/metadata").mock(
+        return_value=httpx.Response(200, json={"response": {"version": "3.0.0"}})
+    )
+    client = _client()
+    try:
+        version = await client.get_version()
+    finally:
+        await client.aclose()
+    assert version.tuple == (3, 0, 0)
+    assert version.supports("v3_api")
+    assert "happ_encrypt" not in version.capabilities
+
+
+@respx.mock
+async def test_get_version_falls_back_to_health() -> None:
+    respx.get(f"{BASE}/api/system/metadata").mock(return_value=httpx.Response(404))
     respx.get(f"{BASE}/api/system/health").mock(
         return_value=httpx.Response(200, json={"response": {"version": "2.8.3"}})
     )
@@ -42,6 +74,7 @@ async def test_get_version_parses_and_unwraps() -> None:
 async def test_get_version_unknown_assumes_modern_no_legacy_caps() -> None:
     # Backend v2 doesn't expose a version at /health. An unreadable version must NOT
     # be treated as pre-2.8 (that would add the happ_encrypt cap 2.x rejects).
+    respx.get(f"{BASE}/api/system/metadata").mock(return_value=httpx.Response(404))
     respx.get(f"{BASE}/api/system/health").mock(
         return_value=httpx.Response(200, json={"response": {"uptime": 123}})
     )
@@ -94,6 +127,7 @@ async def test_create_user_sends_both_auth_headers_and_maps_dto() -> None:
 
 @respx.mock
 async def test_transient_5xx_is_retried_then_succeeds() -> None:
+    respx.get(f"{BASE}/api/system/metadata").mock(return_value=httpx.Response(404))
     route = respx.get(f"{BASE}/api/system/health").mock(
         side_effect=[
             httpx.Response(503),
