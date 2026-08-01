@@ -426,14 +426,21 @@ class RemnawaveHttpClient:
     async def drop_connections(self, ref: PanelRef) -> None:
         if await self._is_v3():
             # Dedicated connections API in 3.0 (the per-user action was removed).
-            await self._request(
-                "POST",
-                _PATHS_V3["connections_drop"],
-                json={
-                    "dropBy": {"by": "userIds", "userIds": [await self._v3_id(ref)]},
-                    "targetNodes": {"target": "allNodes"},
-                },
-            )
+            try:
+                await self._request(
+                    "POST",
+                    _PATHS_V3["connections_drop"],
+                    json={
+                        "dropBy": {"by": "userIds", "userIds": [await self._v3_id(ref)]},
+                        "targetNodes": {"target": "allNodes"},
+                    },
+                )
+            except RemnawaveError as exc:
+                # A panel with zero connected nodes 404s here ("Connected nodes not
+                # found", seen live on 3.0.0). Nothing to drop IS the desired end
+                # state — swallowing keeps link-reset/device-guard flows quiet.
+                if "connected nodes not found" not in str(exc).lower():
+                    raise
             return
         await self._action(ref, "drop-connections")
 

@@ -168,6 +168,23 @@ async def test_v3_devices_and_drop_use_numeric_user_id() -> None:
 
 
 @respx.mock
+async def test_v3_drop_tolerates_no_connected_nodes() -> None:
+    # Seen live on 3.0.0: /api/connections/drop 404s with "Connected nodes not found"
+    # when the panel has zero connected nodes. Nothing to drop is success, not an error.
+    _mock_v3()
+    respx.post(f"{BASE}/api/connections/drop").mock(
+        return_value=httpx.Response(
+            404, json={"message": "Connected nodes not found", "statusCode": 404}
+        )
+    )
+    client = _client()
+    try:
+        await client.drop_connections(PanelUserRef(panel_id=101))  # must not raise
+    finally:
+        await client.aclose()
+
+
+@respx.mock
 async def test_v3_connections_job_replaces_ip_control() -> None:
     _mock_v3()
     node = str(uuid.uuid4())
