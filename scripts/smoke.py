@@ -36,7 +36,7 @@ async def main() -> int:
         local=settings.remnawave.is_local,
     )
     client = RemnawaveHttpClient.from_profile(profile)
-    created_uuid = None
+    created_ref = None
     try:
         version = await client.get_version()
         log.info("panel_version", version=version.raw, tuple=version.tuple)
@@ -59,22 +59,28 @@ async def main() -> int:
             internal_squads=tuple(str(s.uuid) for s in squads[:1]),
         )
         panel_user = await client.create_user(spec)
-        created_uuid = panel_user.uuid
-        log.info("created_user", uuid=str(panel_user.uuid), sub_url=panel_user.subscription_url)
+        # 2.x identifies the user by uuid, 3.0 by a numeric id — the ref carries whichever came.
+        created_ref = panel_user.ref
+        log.info(
+            "created_user",
+            uuid=str(panel_user.uuid),
+            panel_id=panel_user.panel_id,
+            sub_url=panel_user.subscription_url,
+        )
 
-        fetched = await client.get_user_by_uuid(panel_user.uuid)
+        fetched = await client.get_user(created_ref)
         log.info("fetched_user", ok=fetched is not None)
     except Exception:
         log.error("smoke failed", exc_info=True)
         return 1
     finally:
-        if created_uuid is not None:
+        if created_ref is not None and not created_ref.is_empty:
             try:
-                await client.delete_user(created_uuid)
-                log.info("cleaned_up", uuid=str(created_uuid))
+                await client.delete_user(created_ref)
+                log.info("cleaned_up", ref=str(created_ref))
             except Exception:
                 log.warning(
-                    "cleanup failed — delete this panel user manually", uuid=str(created_uuid)
+                    "cleanup failed — delete this panel user manually", ref=str(created_ref)
                 )
         await client.aclose()
 
