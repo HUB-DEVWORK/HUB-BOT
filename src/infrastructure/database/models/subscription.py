@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import Boolean, Enum, ForeignKey, Index, String, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from src.application.dto.panel import PanelUserRef
 from src.core.enums import SubscriptionStatus
 from src.infrastructure.database.base import (
     AwareDateTime,
@@ -55,12 +56,23 @@ class Subscription(IntPk, TimestampMixin, Base):
             postgresql_where=text("remnawave_uuid IS NOT NULL"),
             sqlite_where=text("remnawave_uuid IS NOT NULL"),
         ),
+        # Same hot path for Remnawave >=3.0 panels: their webhooks carry a numeric user id
+        # instead of the uuid, so the 3.x resolution needs its own partial index.
+        Index(
+            "ix_subscriptions_remnawave_id",
+            "remnawave_id",
+            postgresql_where=text("remnawave_id IS NOT NULL"),
+            sqlite_where=text("remnawave_id IS NOT NULL"),
+        ),
     )
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
 
     # --- panel linkage -----------------------------------------------------
+    # 2.x panels key users by uuid; 3.x panels by a numeric id. A subscription carries
+    # whichever its panel issued (both after a 2.x -> 3.x panel upgrade is observed).
     remnawave_uuid: Mapped[uuid.UUID | None] = mapped_column(Uuid())
+    remnawave_id: Mapped[int | None] = mapped_column(BigInt)
     short_id: Mapped[str] = mapped_column(String(16), unique=True)
 
     # --- plan + frozen snapshot -------------------------------------------
@@ -115,3 +127,17 @@ class Subscription(IntPk, TimestampMixin, Base):
     @property
     def is_usable(self) -> bool:
         return self.status.is_usable
+
+    @property
+    def panel_ref(self) -> PanelUserRef | None:
+        """Address of this subscription's panel user, or None when never provisioned.
+
+        Carries uuid (2.x), numeric id (3.x) and short_id so the client can talk to
+        whichever panel version it probed — including re-resolving the id right after
+        a 2.x -> 3.x panel upgrade, before any webhook backfilled ``remnawave_id``.
+        """
+        if self.remnawave_uuid is None and self.remnawave_id is None:
+            return None
+        return PanelUserRef(
+            uuid=self.remnawave_uuid, panel_id=self.remnawave_id, short_id=self.short_id
+        )

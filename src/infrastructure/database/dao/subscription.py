@@ -32,6 +32,10 @@ class SubscriptionDAO(BaseDAO[Subscription]):
     async def get_by_remnawave_uuid(self, remnawave_uuid: uuid.UUID) -> Subscription | None:
         return await self.find_one(remnawave_uuid=remnawave_uuid)
 
+    async def get_by_remnawave_id(self, remnawave_id: int) -> Subscription | None:
+        """Resolve by the numeric user id Remnawave >=3.0 panels use instead of the uuid."""
+        return await self.find_one(remnawave_id=remnawave_id)
+
     async def active_for_user(self, user_id: int) -> Sequence[Subscription]:
         stmt = select(Subscription).where(
             Subscription.user_id == user_id,
@@ -41,13 +45,16 @@ class SubscriptionDAO(BaseDAO[Subscription]):
 
     async def live_with_panel(self, limit: int) -> Sequence[Subscription]:
         """Usable subs that are provisioned on the panel — the resync / device-guard working set.
-        Filter is pushed to SQL (hits ix_subscriptions_remnawave_uuid) instead of loading the whole
+        Filter is pushed to SQL (hits the partial remnawave indexes) instead of loading the whole
         table and filtering in Python, which is O(all subs) and unbounded at scale."""
         stmt = (
             select(Subscription)
             .where(
                 Subscription.status.in_(_USABLE),
-                Subscription.remnawave_uuid.is_not(None),
+                or_(
+                    Subscription.remnawave_uuid.is_not(None),
+                    Subscription.remnawave_id.is_not(None),
+                ),
             )
             .order_by(Subscription.id)
             .limit(limit)
