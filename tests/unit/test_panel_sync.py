@@ -93,6 +93,53 @@ async def test_vanished_squad_is_deleted(uow: UnitOfWork) -> None:
 
 
 @pytest.mark.asyncio
+async def test_panel_rename_follows_when_name_not_overridden(uow: UnitOfWork) -> None:
+    """Squad renamed on the panel must rename in the bot too (unless locally overridden).
+
+    display_name is seeded from the panel name at first sync; while the owner hasn't
+    changed it, it must keep following panel renames — otherwise the bot shows the old
+    name forever.
+    """
+    sq = uuid.uuid4()
+    client = _FakeClient([], [PanelSquad(uuid=sq, name="Germany")])
+    async with uow:
+        await PanelSyncService(client).sync_squads(uow)  # type: ignore[arg-type]
+        await uow.commit()
+
+    client = _FakeClient([], [PanelSquad(uuid=sq, name="Germany-Frankfurt")])
+    async with uow:
+        await PanelSyncService(client).sync_squads(uow)  # type: ignore[arg-type]
+        await uow.commit()
+    async with uow:
+        row = (await uow.server_squads.list())[0]
+    assert row.original_name == "Germany-Frankfurt"
+    assert row.display_name == "Germany-Frankfurt"  # followed the panel rename
+
+
+@pytest.mark.asyncio
+async def test_panel_rename_keeps_local_override(uow: UnitOfWork) -> None:
+    """An owner-customized display_name survives panel renames."""
+    sq = uuid.uuid4()
+    client = _FakeClient([], [PanelSquad(uuid=sq, name="Germany")])
+    async with uow:
+        await PanelSyncService(client).sync_squads(uow)  # type: ignore[arg-type]
+        await uow.commit()
+    async with uow:
+        row = (await uow.server_squads.list())[0]
+        row.display_name = "🇩🇪 Германия"  # локальный оверрайд владельца
+        await uow.commit()
+
+    client = _FakeClient([], [PanelSquad(uuid=sq, name="Germany-Frankfurt")])
+    async with uow:
+        await PanelSyncService(client).sync_squads(uow)  # type: ignore[arg-type]
+        await uow.commit()
+    async with uow:
+        row = (await uow.server_squads.list())[0]
+    assert row.original_name == "Germany-Frankfurt"
+    assert row.display_name == "🇩🇪 Германия"  # override untouched
+
+
+@pytest.mark.asyncio
 async def test_empty_squad_response_does_not_wipe_squads(uow: UnitOfWork) -> None:
     """A panel hiccup returning 0 squads must not wipe them (that would break provisioning)."""
     await _seed_squads(uow)

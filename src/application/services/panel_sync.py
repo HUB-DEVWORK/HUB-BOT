@@ -75,9 +75,13 @@ class PanelSyncService:
                 row = ServerSquad(squad_uuid=ps.uuid, display_name=ps.name, original_name=ps.name)
                 await uow.server_squads.add(row)
             else:
-                row.original_name = ps.name
-                if not row.display_name:
+                # display_name is seeded from the panel name at first sync. While the owner
+                # hasn't customized it (it still equals the PREVIOUS panel name), keep
+                # following panel renames; otherwise the bot shows the old name forever.
+                # A customized name (differs from original_name) is left alone.
+                if not row.display_name or row.display_name == row.original_name:
                     row.display_name = ps.name
+                row.original_name = ps.name
             row.current_users = ps.members_count
 
         # Vanished from the panel -> DELETE, same as nodes above. Without this a squad the owner
