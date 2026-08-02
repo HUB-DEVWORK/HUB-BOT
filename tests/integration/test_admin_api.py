@@ -818,6 +818,36 @@ async def test_servers_sync_mirrors_nodes(
     assert res.json()["items"][0]["is_for_sale"] is False
 
 
+async def test_squad_rename_and_reset(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    """Своё название сквада: сохраняется, панельное видно рядом, пустая строка сбрасывает."""
+    http, _ = client
+    auth = await _login(http)
+    await http.post("/api/admin/servers/sync", headers=auth)  # mirrors the fake squad
+    squads = (await http.get("/api/admin/servers", headers=auth)).json()["squads"]
+    assert squads and squads[0]["name"] == "test-squad"
+    sq_id = squads[0]["id"]
+
+    res = await http.patch(
+        f"/api/admin/servers/squads/{sq_id}", headers=auth, json={"display_name": "🇩🇪 Германия"}
+    )
+    assert res.status_code == 200
+    assert res.json()["squad"]["name"] == "🇩🇪 Германия"
+    assert res.json()["squad"]["original_name"] == "test-squad"
+
+    # пустая строка -> назад к панельному имени
+    res = await http.patch(
+        f"/api/admin/servers/squads/{sq_id}", headers=auth, json={"display_name": "  "}
+    )
+    assert res.json()["squad"]["name"] == "test-squad"
+
+    res = await http.patch(
+        "/api/admin/servers/squads/999999", headers=auth, json={"display_name": "x"}
+    )
+    assert res.status_code == 404
+
+
 # --- promocodes ------------------------------------------------------------------------------
 
 

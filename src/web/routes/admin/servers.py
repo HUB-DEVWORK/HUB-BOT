@@ -42,7 +42,13 @@ async def list_nodes(container: AppContainer = Depends(get_container)) -> dict[s
         "panel_url": container.settings.remnawave.base_url,
         "items": [_row(n) for n in nodes],
         "squads": [
-            {"id": sq.id, "name": sq.display_name, "uuid": str(sq.squad_uuid)} for sq in squads
+            {
+                "id": sq.id,
+                "name": sq.display_name,
+                "original_name": sq.original_name,
+                "uuid": str(sq.squad_uuid),
+            }
+            for sq in squads
         ],
     }
 
@@ -62,6 +68,35 @@ async def sync_nodes(
         await uow.commit()
         nodes = await uow.server_nodes.list()
     return {"ok": True, "synced": synced, "items": [_row(n) for n in nodes]}
+
+
+class SquadPatch(BaseModel):
+    display_name: str  # "" -> reset to the panel name (follows panel renames again)
+
+
+@router.patch("/squads/{squad_id}")
+async def patch_squad(
+    squad_id: int,
+    body: SquadPatch,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, Any]:
+    """Buyer-facing squad name. An empty string resets back to the panel name."""
+    async with container.uow() as uow:
+        squad = await uow.server_squads.get(squad_id)
+        if squad is None:
+            raise HTTPException(404, "squad not found")
+        name = body.display_name.strip()[:128]
+        squad.display_name = name or (squad.original_name or "")
+        await audit(uow, identity, "servers.squad_rename", f"squad:{squad.squad_uuid}", name=name)
+        await uow.commit()
+        result = {
+            "id": squad.id,
+            "name": squad.display_name,
+            "original_name": squad.original_name,
+            "uuid": str(squad.squad_uuid),
+        }
+    return {"ok": True, "squad": result}
 
 
 class NodePatch(BaseModel):

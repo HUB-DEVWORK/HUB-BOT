@@ -21,7 +21,8 @@ type Node = {
   is_for_sale: boolean;
   last_sync_at: string | null;
 };
-type Resp = { panel_url: string; items: Node[]; squads: { id: number; name: string }[] };
+type Squad = { id: number; name: string; original_name: string | null; uuid: string };
+type Resp = { panel_url: string; items: Node[]; squads: Squad[] };
 
 export default function Servers() {
   const { t, toast } = useApp();
@@ -50,6 +51,20 @@ export default function Servers() {
     await api.patch(`/api/admin/servers/${n.id}`, { is_for_sale: on });
     void qc.invalidateQueries({ queryKey: ["servers"] });
     toast(`${n.name}: ${on ? t.on : t.off}`);
+  }
+
+  async function renameSquad(sq: Squad, value: string) {
+    const name = value.trim();
+    if (name === sq.name) return;
+    try {
+      const r = await api.patch<{ squad: Squad }>(`/api/admin/servers/squads/${sq.id}`, {
+        display_name: name,
+      });
+      void qc.invalidateQueries({ queryKey: ["servers"] });
+      toast(`✓ ${r.squad.name}`);
+    } catch (e) {
+      toast((e as Error).message);
+    }
   }
 
   const d = data.data;
@@ -138,6 +153,38 @@ export default function Servers() {
           <div className="tr dim">— · {t.syncBtn} →</div>
         )}
       </div>
+
+      {d && d.squads.length > 0 && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="caps" style={{ marginBottom: 4 }}>{t.squadsTitle}</div>
+          <div className="dim" style={{ fontSize: 11.5, marginBottom: 10 }}>
+            {t.squadNameHint}
+          </div>
+          {d.squads.map((sq) => (
+            <div
+              key={sq.id}
+              className="row"
+              style={{ gap: 12, alignItems: "baseline", padding: "5px 0" }}
+            >
+              <input
+                className="input"
+                style={{ maxWidth: 320 }}
+                defaultValue={sq.name}
+                placeholder={sq.original_name ?? ""}
+                onBlur={(e) => void renameSquad(sq, e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+              />
+              {sq.original_name && sq.original_name !== sq.name && (
+                <span className="dim mono" style={{ fontSize: 11.5 }}>
+                  {t.squadPanelName}: {sq.original_name}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }
