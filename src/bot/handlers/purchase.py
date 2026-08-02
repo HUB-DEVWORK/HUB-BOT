@@ -21,7 +21,7 @@ from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
 from src.application.dto.pricing import PurchaseRequest
 from src.bot.banners import render_screen
 from src.bot.gate import ensure_channel
-from src.bot.keyboards import copy_button, simple_keyboard
+from src.bot.keyboards import simple_keyboard
 from src.bot.screen import ack
 from src.core.enums import Currency, PurchaseType, TransactionStatus, TransactionType
 from src.core.exceptions import (
@@ -583,19 +583,15 @@ async def _show_activated(cb: CallbackQuery, container: AppContainer, user_id: i
             else None
         )
         url = sub.subscription_url if sub else None
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
     text = "<b>✅ Подписка активирована!</b>"
-    rows: list[list[InlineKeyboardButton]] = []
     if url:
         text += f"\n\n🔌 Ссылка подписки:\n<code>{url}</code>"
-        btn = copy_button("📋 Скопировать ссылку", url)
-        if btn is not None:
-            rows.append([btn])
-    rows.append([InlineKeyboardButton(text="👤 Моя подписка", callback_data="act:subscription:0")])
-    rows.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
     await render_screen(
-        cb, container, "subscription", text, InlineKeyboardMarkup(inline_keyboard=rows)
+        cb,
+        container,
+        "subscription",
+        text,
+        simple_keyboard([("👤 Моя подписка", "act:subscription:0"), ("‹ Меню", "nav:root")]),
     )
     await cb.answer("Готово!")
 

@@ -168,25 +168,6 @@ def webapp_button(text: str, url: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=url))
 
 
-# Telegram caps a copy_text payload at 256 chars; a longer value would make sendMessage 400.
-_COPY_TEXT_MAX = 256
-
-
-def copy_button(text: str, payload: str) -> InlineKeyboardButton | None:
-    """A native tap-to-copy button (Bot API 8.0). None if the payload can't be a copy button.
-
-    Unlike a <code> block (which many users don't realise is tappable and mistake for a
-    broken/error string), this is an unmistakable button that copies to the clipboard.
-    Returns None when the payload is empty or exceeds Telegram's 256-char limit, so the
-    caller keeps the <code> line as the fallback instead of crashing the send.
-    """
-    from aiogram.types import CopyTextButton
-
-    if not payload or len(payload) > _COPY_TEXT_MAX:
-        return None
-    return InlineKeyboardButton(text=text, copy_text=CopyTextButton(text=payload))
-
-
 def reply_menu_markup(
     nodes: Sequence[MenuNode],
     *,

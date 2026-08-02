@@ -20,7 +20,7 @@ from src.application.dto.pricing import PurchaseRequest
 from src.application.services.connection import connection_apps, parse_enabled_apps
 from src.bot.banners import render_screen
 from src.bot.gate import ensure_channel
-from src.bot.keyboards import copy_button, menu_keyboard, simple_keyboard, webapp_button
+from src.bot.keyboards import menu_keyboard, simple_keyboard, webapp_button
 from src.bot.media import answer_media
 from src.bot.menu_render import send_main_menu
 from src.bot.screen import ack, safe_answer, show_screen
@@ -141,10 +141,8 @@ async def act_subscription(
         text = f"<b>📶 Твоя подписка</b>\n\n🏷 Тариф: <b>{plan_name}</b>{days_left}"
         if show_traffic:  # SHOW_TRAFFIC_USAGE toggle now actually hides the line (SHOWTRAF-1)
             text += f"\n📈 Трафик: <b>{traffic}</b>"
-        copy_link_btn = None
         if not hide_link and sub.subscription_url:
             text += f"\n──────────\nСсылка подписки:\n<code>{sub.subscription_url}</code>"
-            copy_link_btn = copy_button("📋 Скопировать ссылку", sub.subscription_url)
         kb: list[list[InlineKeyboardButton]] = [
             [InlineKeyboardButton(text="🔌 Подключить", callback_data="act:connect:0")],
             [
@@ -175,8 +173,6 @@ async def act_subscription(
                         )
                     ]
                 )
-        if copy_link_btn is not None:
-            kb.insert(1, [copy_link_btn])  # right under «Подключить», before the plan actions
         if miniapp_url.startswith("https://"):
             kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
         kb.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
@@ -424,11 +420,6 @@ async def act_connect(cb: CallbackQuery | Message, container: AppContainer, db_u
         f"Ссылки-импорт:\n{apps}"
     )
     kb: list[list[InlineKeyboardButton]] = []
-    copy_link_btn = (
-        None if hide_link else copy_button("📋 Скопировать ссылку", sub.subscription_url)
-    )
-    if copy_link_btn is not None:
-        kb.append([copy_link_btn])
     if miniapp_url.startswith("https://"):
         kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
     kb.append([InlineKeyboardButton(text="👤 Моя подписка", callback_data="act:subscription:0")])
@@ -646,15 +637,15 @@ async def act_trial(cb: CallbackQuery | Message, container: AppContainer, db_use
         "<b>⭐ Пробный период активирован</b>\n\n"
         f"Доступ открыт на <b>{days} дн.</b> Подключайся и тестируй без ограничений."
     )
-    rows: list[list[InlineKeyboardButton]] = []
     if url:
         text += f"\n\n🔌 Ссылка подписки:\n<code>{url}</code>"
-        btn = copy_button("📋 Скопировать ссылку", url)
-        if btn is not None:
-            rows.append([btn])
-    rows.append([InlineKeyboardButton(text="👤 Моя подписка", callback_data="act:subscription:0")])
-    rows.append([InlineKeyboardButton(text="‹ Меню", callback_data="nav:root")])
-    await render_screen(cb, container, "trial", text, InlineKeyboardMarkup(inline_keyboard=rows))
+    await render_screen(
+        cb,
+        container,
+        "trial",
+        text,
+        simple_keyboard([("👤 Моя подписка", "act:subscription:0"), ("‹ Меню", "nav:root")]),
+    )
     await ack(cb, "Готово!")
 
 
