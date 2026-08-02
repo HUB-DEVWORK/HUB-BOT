@@ -131,7 +131,7 @@ SCREEN_TEXT_DEFAULTS: dict[str, str] = {
     "connect": (
         "<b>🔌 Подключение</b>\n"
         "\n"
-        "1) Поставь приложение: Happ, v2RayTun, Hiddify или Streisand.\n"
+        "1) Поставь приложение для VPN.\n"
         "2) Открой мини-приложение (импорт в один тап + QR)"
     ),
     "history": (

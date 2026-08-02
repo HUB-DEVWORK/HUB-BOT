@@ -89,3 +89,15 @@ def test_incy_store_links() -> None:
     incy = store_links("incy")
     assert incy["ios"].endswith("id6756943388")
     assert "llc.itdev.incy" in incy["android"]
+
+
+def test_connect_screen_trims_to_two_apps() -> None:
+    """Owner sets CONNECTION_APPS='happ,incy' -> the Connect screen offers exactly those
+    two, in order, and nothing else. This is what the bot handler renders (names + links),
+    so the wall-of-nine-apps that scared users is gone."""
+    enabled = parse_enabled_apps("happ,incy")
+    apps = connection_apps(_URL, "happ://crypto-token", enabled)
+    assert [a["key"] for a in apps] == ["happ", "incy"]
+    assert ", ".join(a["label"] for a in apps) == "Happ, INCY"
+    assert apps[0]["deep_link"] == "happ://crypto-token"  # panel crypto link wins for Happ
+    assert apps[1]["deep_link"] == f"incy://add/{_URL}"

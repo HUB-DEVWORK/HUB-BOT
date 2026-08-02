@@ -17,7 +17,7 @@ from aiogram.types import (
 )
 
 from src.application.dto.pricing import PurchaseRequest
-from src.application.services.connection import CLIENT_LABELS, build_deep_links
+from src.application.services.connection import connection_apps, parse_enabled_apps
 from src.bot.banners import render_screen
 from src.bot.gate import ensure_channel
 from src.bot.keyboards import menu_keyboard, simple_keyboard, webapp_button
@@ -399,18 +399,23 @@ async def act_connect(cb: CallbackQuery | Message, container: AppContainer, db_u
         )
         miniapp_url = str(await container.bot_config.value(uow, "SUBSCRIPTION_MINI_APP_URL") or "")
         hide_link = bool(await container.bot_config.value(uow, "HIDE_SUBSCRIPTION_LINK"))
+        # Show only the clients the owner enabled (CONNECTION_APPS), same as the mini-app —
+        # otherwise this screen dumped all nine import links as a wall of text and named
+        # apps the owner never offered, which is what scared users on the Connect screen.
+        enabled = parse_enabled_apps(str(await container.bot_config.value(uow, "CONNECTION_APPS")))
     if sub is None or not sub.status.is_usable or not sub.subscription_url:
         await ack(cb, "Сначала оформи подписку", alert=True)
         return
-    links = build_deep_links(sub.subscription_url, sub.crypto_link)
-    apps = "\n".join(f"• {CLIENT_LABELS[k]}: <code>{v}</code>" for k, v in links.items())
+    chosen = connection_apps(sub.subscription_url, sub.crypto_link, enabled)
+    names = ", ".join(a["label"] for a in chosen)
+    apps = "\n".join(f"• {a['label']}: <code>{a['deep_link']}</code>" for a in chosen)
     # Honor HIDE_SUBSCRIPTION_LINK here too (#5): drop the raw copyable URL, keep import links.
     step2 = "2) Открой мини-приложение (импорт в один тап + QR)"
     if not hide_link:
         step2 += f" или вставь ссылку подписки вручную:\n\n<code>{sub.subscription_url}</code>"
     text = (
         "<b>🔌 Подключение</b>\n\n"
-        "1) Поставь приложение: Happ, v2RayTun, Hiddify или Streisand.\n"
+        f"1) Поставь приложение: {names}.\n"
         f"{step2}\n\n"
         f"Ссылки-импорт:\n{apps}"
     )
