@@ -813,13 +813,15 @@ REGISTRY: tuple[ParamSpec, ...] = (
         "CONNECTION_APPS",
         C.INTERFACE,
         STR,
-        "happ,incy,v2raytun,hiddify,streisand",
+        "happ,incy",
         "Приложения на вкладке «Подключение»",
         "Apps on the Connect tab",
-        "Список через запятую: happ, incy, v2raytun, hiddify, streisand, shadowrocket, "
-        "v2box, clash, singbox. Порядок = порядок показа, первый = основной в мастере",
-        "Comma-separated: happ, incy, v2raytun, hiddify, streisand, shadowrocket, v2box, "
-        "clash, singbox. Order = display order, first = the wizard's primary app",
+        "Список через запятую. По умолчанию два — happ, incy — чтобы не пугать простынёй. "
+        "Доступны: happ, incy, v2raytun, hiddify, streisand, shadowrocket, v2box, clash, "
+        "singbox. Порядок = порядок показа, первый = основной в мастере",
+        "Comma-separated. Defaults to two — happ, incy — to avoid overwhelming users. "
+        "Available: happ, incy, v2raytun, hiddify, streisand, shadowrocket, v2box, clash, "
+        "singbox. Order = display order, first = the wizard's primary app",
     ),
     _p(
         "CABINET_BUTTONS",
