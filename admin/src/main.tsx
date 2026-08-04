@@ -28,6 +28,7 @@ import Sales from "./screens/Sales";
 import Servers from "./screens/Servers";
 import Settings from "./screens/Settings";
 import Smart from "./screens/Smart";
+import StatsScreen from "./screens/Stats";
 import Tariffs from "./screens/Tariffs";
 import Tickets from "./screens/Tickets";
 import Users from "./screens/Users";
@@ -48,6 +49,7 @@ const router = createHashRouter([
     ),
     children: [
       { index: true, element: <Dashboard /> },
+      { path: "stats", element: <StatsScreen /> },
       { path: "users", element: <Users /> },
       { path: "tariffs", element: <Tariffs /> },
       { path: "promos", element: <Promos /> },

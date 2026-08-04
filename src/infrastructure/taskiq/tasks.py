@@ -1691,6 +1691,7 @@ async def send_broadcast(broadcast_id: int) -> None:
             await bot.send_message(chat_id, text, reply_markup=markup, parse_mode="HTML")
 
     sent = failed = 0
+    blocked_chat_ids: set[int] = set()  # 403 -> user stopped the bot; mark them after the run
     bot = Bot(token=container.settings.bot.token)
     try:
         for i, chat_id in enumerate(chat_ids, start=1):
@@ -1702,10 +1703,14 @@ async def send_broadcast(broadcast_id: int) -> None:
                 try:
                     await deliver(chat_id)
                     sent += 1
+                except TelegramForbiddenError:
+                    failed += 1
+                    blocked_chat_ids.add(chat_id)
                 except Exception:
                     failed += 1
             except TelegramForbiddenError:
                 failed += 1
+                blocked_chat_ids.add(chat_id)
             except Exception:
                 failed += 1
             # ~28 msg/s ceiling keeps us under Telegram's 30/s global limit.
@@ -1719,6 +1724,21 @@ async def send_broadcast(broadcast_id: int) -> None:
                     await uow.commit()
     finally:
         await bot.session.close()
+
+    if blocked_chat_ids:
+        # Record who blocked the bot so the stats screen can count them and future runs can
+        # skip dead chats. Cleared automatically on the user's next interaction (middleware).
+        from sqlalchemy import update
+
+        from src.infrastructure.database.models.user import User
+
+        async with container.uow() as uow:
+            await uow.session.execute(
+                update(User)
+                .where(User.telegram_id.in_(blocked_chat_ids))
+                .values(bot_blocked_at=dt.datetime.now(dt.UTC))
+            )
+            await uow.commit()
 
     async with container.uow() as uow:
         b = await uow.broadcasts.get(broadcast_id)

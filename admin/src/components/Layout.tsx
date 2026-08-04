@@ -124,7 +124,8 @@ export default function Layout() {
     badge?: number;
   }[] = [
     { icon: "📊", path: "/", label: t.dashboard },
-    { group: t.gProduct, icon: "👥", path: "/users", label: t.users, badge: counters.data?.all },
+    { group: t.gProduct, icon: "📈", path: "/stats", label: t.statsTitle },
+    { icon: "👥", path: "/users", label: t.users, badge: counters.data?.all },
     { icon: "💳", path: "/tariffs", label: t.tariffs },
     { icon: "🏷️", path: "/promos", label: t.promos },
     { group: t.gConstructor, icon: "🧱", path: "/bot-buttons", label: t.botButtons },

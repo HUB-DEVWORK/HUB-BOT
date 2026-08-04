@@ -101,6 +101,10 @@ class ContextMiddleware(BaseMiddleware):
                 user.username = tg.username
                 user.first_name = tg.first_name
                 user.last_name = tg.last_name
+                # They're interacting again -> they haven't blocked the bot; clear the flag a
+                # failed broadcast set, so the "blocked the bot" stat stays truthful.
+                if user.bot_blocked_at is not None:
+                    user.bot_blocked_at = None
 
             cfg = self.container.bot_config
             maintenance = bool(await cfg.value(uow, "MAINTENANCE_MODE"))

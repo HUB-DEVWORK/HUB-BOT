@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Boolean, Enum, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.enums import AuthType, Currency, Locale, Role, UserStatus
-from src.infrastructure.database.base import Base, BigInt, IntPk, JsonB, TimestampMixin
+from src.infrastructure.database.base import (
+    AwareDateTime,
+    Base,
+    BigInt,
+    IntPk,
+    JsonB,
+    TimestampMixin,
+)
 
 if TYPE_CHECKING:
     from src.infrastructure.database.models.subscription import Subscription
@@ -70,6 +78,10 @@ class User(IntPk, TimestampMixin, Base):
     has_had_paid_subscription: Mapped[bool] = mapped_column(Boolean, default=False)
     has_made_first_topup: Mapped[bool] = mapped_column(Boolean, default=False)
     is_rules_accepted: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Set when Telegram rejects a send with 403 (user blocked/stopped the bot); cleared the
+    # next time the user interacts. Powers the "blocked the bot" stat and lets broadcasts skip
+    # known-dead chats. Not the same as status=BLOCKED (that is an admin ban).
+    bot_blocked_at: Mapped[dt.datetime | None] = mapped_column(AwareDateTime)
 
     # App-level pointer to the "current" subscription (no DB FK to avoid a users<->subs
     # circular constraint; integrity is maintained by SubscriptionService).

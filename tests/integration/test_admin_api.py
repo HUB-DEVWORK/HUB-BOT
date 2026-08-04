@@ -187,6 +187,49 @@ async def test_login_and_me(client: tuple[httpx.AsyncClient, ApiTestContainer]) 
     assert res.json()["role"] == "OWNER"
 
 
+async def test_stats_user_and_subscription_breakdowns(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    """/stats counts users (blocked, bot-blocked, with-sub) and subs (active, unlimited)."""
+    from src.application.services.ids import generate_referral_code, generate_short_id
+    from src.core.enums import SubscriptionStatus, UserStatus
+    from src.infrastructure.database.models.subscription import Subscription
+
+    http, container = client
+    auth = await _login(http)
+    async with container.uow() as uow:
+        subbed = User(referral_code=generate_referral_code())
+        await uow.users.add(subbed)
+        await uow.session.flush()
+        sub = Subscription(
+            user_id=subbed.id,
+            short_id=generate_short_id(),
+            status=SubscriptionStatus.ACTIVE,
+            traffic_limit_bytes=0,  # unlimited
+        )
+        await uow.subscriptions.add(sub)
+        await uow.session.flush()
+        subbed.current_subscription_id = sub.id
+        await uow.users.add(
+            User(
+                referral_code=generate_referral_code(),
+                status=UserStatus.BLOCKED,
+                bot_blocked_at=dt.datetime.now(dt.UTC),
+            )
+        )
+        await uow.commit()
+
+    res = await http.get("/api/admin/stats", headers=auth)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["users"]["with_sub"] >= 1
+    assert body["users"]["blocked"] >= 1
+    assert body["users"]["bot_blocked"] >= 1
+    assert len(body["users"]["chart"]) == 14
+    assert body["subs"]["active"] >= 1
+    assert body["subs"]["unlimited_traffic"] >= 1
+
+
 async def test_delete_user_cascades_and_protects_staff(
     client: tuple[httpx.AsyncClient, ApiTestContainer],
 ) -> None:
