@@ -22,6 +22,7 @@ from src.infrastructure.database.dao.admin import (
     BlacklistDAO,
     BotConfigValueDAO,
     BroadcastDAO,
+    BroadcastTemplateDAO,
     CabinetRefreshTokenDAO,
     CampaignDAO,
     ConstructorPeriodDAO,
@@ -87,6 +88,7 @@ class UnitOfWork:
         self.menu_nodes = MenuNodeDAO(session)
         self.miniapp = MiniappConfigDAO(session)
         self.broadcasts = BroadcastDAO(session)
+        self.broadcast_templates = BroadcastTemplateDAO(session)
         self.smart_reminder = SmartReminderDAO(session)
         self.reminders = ReminderStepDAO(session)
         self.notifications = NotificationTemplateDAO(session)

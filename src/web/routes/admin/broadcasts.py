@@ -21,6 +21,7 @@ from src.core.enums import (
     UserStatus,
 )
 from src.infrastructure.database.models.broadcast import Broadcast
+from src.infrastructure.database.models.broadcast_template import BroadcastTemplate
 from src.infrastructure.database.models.subscription import Subscription
 from src.infrastructure.database.models.user import User
 from src.infrastructure.di import AppContainer
@@ -90,6 +91,61 @@ async def list_broadcasts(container: AppContainer = Depends(get_container)) -> d
     async with container.uow() as uow:
         items = [_row(b) for b in await uow.broadcasts.recent(30)]
     return {"items": items}
+
+
+# --- saved composer templates ---------------------------------------------------------------
+# Declared BEFORE the "/{broadcast_id}" route so "templates" isn't captured as an int id.
+
+
+class TemplateIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    text: str = Field("", max_length=4096)
+    extras: dict[str, Any] = Field(default_factory=dict)
+
+
+def _tpl(t: BroadcastTemplate) -> dict[str, Any]:
+    return {"id": t.id, "name": t.name, "text": t.text, "extras": t.extras or {}}
+
+
+@router.get("/templates")
+async def list_templates(container: AppContainer = Depends(get_container)) -> dict[str, Any]:
+    async with container.uow() as uow:
+        return {"items": [_tpl(t) for t in await uow.broadcast_templates.all_sorted()]}
+
+
+@router.post("/templates")
+async def save_template(
+    body: TemplateIn,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, Any]:
+    """Create or overwrite (by name) a reusable composer preset."""
+    async with container.uow() as uow:
+        tpl = await uow.broadcast_templates.find_one(name=body.name)
+        if tpl is None:
+            tpl = BroadcastTemplate(name=body.name, text=body.text, extras=body.extras)
+            await uow.broadcast_templates.add(tpl)
+        else:
+            tpl.text, tpl.extras = body.text, body.extras
+        await audit(uow, identity, "broadcast.template_save", f"template:{body.name}")
+        await uow.commit()
+        return {"ok": True, "template": _tpl(tpl)}
+
+
+@router.delete("/templates/{template_id}")
+async def delete_template(
+    template_id: int,
+    identity: AdminIdentity = Depends(require_admin),
+    container: AppContainer = Depends(get_container),
+) -> dict[str, Any]:
+    async with container.uow() as uow:
+        tpl = await uow.broadcast_templates.get(template_id)
+        if tpl is None:
+            raise HTTPException(404, "template not found")
+        await audit(uow, identity, "broadcast.template_delete", f"template:{tpl.name}")
+        await uow.broadcast_templates.delete(tpl)
+        await uow.commit()
+    return {"ok": True}
 
 
 @router.get("/{broadcast_id}")

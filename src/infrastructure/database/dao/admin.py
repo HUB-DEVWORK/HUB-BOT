@@ -13,6 +13,7 @@ from src.infrastructure.database.models.audit_log import AuditLog
 from src.infrastructure.database.models.blacklist import BlacklistEntry
 from src.infrastructure.database.models.bot_config import BotConfigValue
 from src.infrastructure.database.models.broadcast import Broadcast
+from src.infrastructure.database.models.broadcast_template import BroadcastTemplate
 from src.infrastructure.database.models.cabinet_token import CabinetRefreshToken
 from src.infrastructure.database.models.campaign import Campaign
 from src.infrastructure.database.models.constructor import ConstructorPeriod, TrafficPack
@@ -103,6 +104,16 @@ class BroadcastDAO(BaseDAO[Broadcast]):
     async def recent(self, limit: int = 20) -> Sequence[Broadcast]:
         result = await self.session.scalars(
             select(Broadcast).order_by(Broadcast.id.desc()).limit(limit)
+        )
+        return result.all()
+
+
+class BroadcastTemplateDAO(BaseDAO[BroadcastTemplate]):
+    model = BroadcastTemplate
+
+    async def all_sorted(self) -> Sequence[BroadcastTemplate]:
+        result = await self.session.scalars(
+            select(BroadcastTemplate).order_by(BroadcastTemplate.name)
         )
         return result.all()
 

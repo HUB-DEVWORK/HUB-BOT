@@ -848,6 +848,41 @@ async def test_squad_rename_and_reset(
     assert res.status_code == 404
 
 
+async def test_broadcast_templates_crud(
+    client: tuple[httpx.AsyncClient, ApiTestContainer],
+) -> None:
+    """Save a composer preset, see it listed, overwrite by name, then delete it."""
+    http, _ = client
+    auth = await _login(http)
+    payload = {
+        "name": "Скидка 20%",
+        "text": "🔥 <b>Скидка!</b>",
+        "extras": {"btnOn": True, "btnText": "Купить", "btnAction": "buy"},
+    }
+    res = await http.post("/api/admin/broadcasts/templates", headers=auth, json=payload)
+    assert res.status_code == 200
+    tpl_id = res.json()["template"]["id"]
+
+    items = (await http.get("/api/admin/broadcasts/templates", headers=auth)).json()["items"]
+    assert any(t["id"] == tpl_id and t["extras"]["btnText"] == "Купить" for t in items)
+
+    # same name overwrites, not duplicates
+    payload["text"] = "updated"
+    res = await http.post("/api/admin/broadcasts/templates", headers=auth, json=payload)
+    assert res.json()["template"]["text"] == "updated"
+    items = (await http.get("/api/admin/broadcasts/templates", headers=auth)).json()["items"]
+    assert sum(1 for t in items if t["name"] == "Скидка 20%") == 1
+
+    # "templates" is not swallowed by the /{broadcast_id} int route
+    assert (await http.get("/api/admin/broadcasts/templates", headers=auth)).status_code == 200
+
+    assert (
+        await http.request("DELETE", f"/api/admin/broadcasts/templates/{tpl_id}", headers=auth)
+    ).status_code == 200
+    items = (await http.get("/api/admin/broadcasts/templates", headers=auth)).json()["items"]
+    assert all(t["id"] != tpl_id for t in items)
+
+
 # --- promocodes ------------------------------------------------------------------------------
 
 

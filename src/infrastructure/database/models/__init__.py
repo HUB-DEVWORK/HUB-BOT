@@ -9,6 +9,7 @@ from src.infrastructure.database.models.audit_log import AuditLog
 from src.infrastructure.database.models.blacklist import BlacklistEntry
 from src.infrastructure.database.models.bot_config import BotConfigValue
 from src.infrastructure.database.models.broadcast import Broadcast
+from src.infrastructure.database.models.broadcast_template import BroadcastTemplate
 from src.infrastructure.database.models.cabinet_token import CabinetRefreshToken
 from src.infrastructure.database.models.campaign import Campaign
 from src.infrastructure.database.models.constructor import ConstructorPeriod, TrafficPack
@@ -44,6 +45,7 @@ __all__ = [
     "BlacklistEntry",
     "BotConfigValue",
     "Broadcast",
+    "BroadcastTemplate",
     "CabinetRefreshToken",
     "Campaign",
     "ConstructorPeriod",

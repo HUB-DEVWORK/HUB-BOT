@@ -25,6 +25,26 @@ type Broadcast = {
 type MediaKind = "text" | "photo" | "video" | "gif";
 type BtnStyle = "" | "#2E63E7" | "#31A24C" | "#E53935";
 
+type TemplateExtras = {
+  btnOn?: boolean;
+  btnText?: string;
+  btnKind?: "url" | "action";
+  btnUrl?: string;
+  btnAction?: string;
+  btnColor?: BtnStyle;
+  emojiId?: string;
+};
+type Template = { id: number; name: string; text: string; extras: TemplateExtras };
+
+const pillBtn: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  color: "inherit",
+  cursor: "pointer",
+  font: "inherit",
+  padding: 0,
+};
+
 const TG_BTN_COLORS: { id: BtnStyle; label: string; bg: string }[] = [
   { id: "", label: "Обычная", bg: "#2b3b4d" },
   { id: "#2E63E7", label: "Primary", bg: "#2E63E7" },
@@ -85,6 +105,51 @@ export default function Broadcasts() {
         ? 1500
         : false,
   });
+  const templates = useQuery({
+    queryKey: ["broadcast-templates"],
+    queryFn: () => api.get<{ items: Template[] }>("/api/admin/broadcasts/templates"),
+  });
+
+  function applyTemplate(tpl: Template) {
+    setMedia("text");
+    setMediaPath(null);
+    setMediaUrl(null);
+    setText(tpl.text);
+    const e = tpl.extras || {};
+    setBtnOn(!!e.btnOn);
+    setBtnText(e.btnText ?? "");
+    setBtnKind(e.btnKind ?? "action");
+    setBtnUrl(e.btnUrl ?? "");
+    setBtnAction(e.btnAction ?? "buy");
+    setBtnColor(e.btnColor ?? "#31A24C");
+    setEmojiId(e.emojiId ?? "");
+  }
+
+  async function saveTemplate() {
+    const name = window.prompt(t.templateName)?.trim();
+    if (!name) return;
+    try {
+      await api.post("/api/admin/broadcasts/templates", {
+        name,
+        text,
+        extras: { btnOn, btnText, btnKind, btnUrl, btnAction, btnColor, emojiId },
+      });
+      void qc.invalidateQueries({ queryKey: ["broadcast-templates"] });
+      toast("✓ " + t.templateSaved);
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  }
+
+  async function removeTemplate(tpl: Template) {
+    if (!(await confirm(`${t.deleteTemplate} «${tpl.name}»`))) return;
+    try {
+      await api.del(`/api/admin/broadcasts/templates/${tpl.id}`);
+      void qc.invalidateQueries({ queryKey: ["broadcast-templates"] });
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  }
 
   const a = audiences.data;
   const targetCount = a?.[audience] ?? 0;
@@ -369,9 +434,47 @@ export default function Broadcasts() {
               </div>
             )}
 
-            <button className="btn primary" disabled={!text.trim()} onClick={send}>
-              {t.send} → {targetCount.toLocaleString("ru-RU")}
-            </button>
+            <div className="row" style={{ gap: 8 }}>
+              <button
+                className="btn secondary"
+                disabled={!text.trim()}
+                onClick={() => void saveTemplate()}
+              >
+                💾 {t.saveTemplate}
+              </button>
+              <button
+                className="btn primary"
+                style={{ flex: 1 }}
+                disabled={!text.trim()}
+                onClick={send}
+              >
+                {t.send} → {targetCount.toLocaleString("ru-RU")}
+              </button>
+            </div>
+
+            {(templates.data?.items.length ?? 0) > 0 && (
+              <div className="row" style={{ flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                <span className="caps">{t.templates}</span>
+                {(templates.data?.items ?? []).map((tpl) => (
+                  <span key={tpl.id} className="cap-pill" style={{ display: "inline-flex", gap: 6 }}>
+                    <button
+                      style={pillBtn}
+                      title={tpl.text.slice(0, 120)}
+                      onClick={() => applyTemplate(tpl)}
+                    >
+                      {tpl.name}
+                    </button>
+                    <button
+                      style={{ ...pillBtn, opacity: 0.5 }}
+                      title={t.deleteTemplate}
+                      onClick={() => void removeTemplate(tpl)}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
