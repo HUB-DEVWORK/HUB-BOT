@@ -32,10 +32,32 @@ const TG_BTN_COLORS: { id: BtnStyle; label: string; bg: string }[] = [
   { id: "#E53935", label: "Danger", bg: "#E53935" },
 ];
 
+// Telegram renders both a light and a dark chat theme; mirror whichever the cabinet is in
+// so a light-theme owner doesn't get a glaring dark preview panel.
+const TG_THEMES = {
+  dark: {
+    chatBg: "#0e1621",
+    dot: "rgba(255,255,255,0.03)",
+    bubble: "#182533",
+    text: "#f1f5f9",
+    meta: "#5b6b7d",
+    mediaStripe: "repeating-linear-gradient(45deg,#20303f,#20303f 8px,#182533 8px,#182533 16px)",
+  },
+  light: {
+    chatBg: "#dbe7f3",
+    dot: "rgba(0,0,0,0.04)",
+    bubble: "#ffffff",
+    text: "#0f172a",
+    meta: "#8aa0b6",
+    mediaStripe: "repeating-linear-gradient(45deg,#cfddec,#cfddec 8px,#ffffff 8px,#ffffff 16px)",
+  },
+} as const;
+
 export default function Broadcasts() {
-  const { t, toast, confirm } = useApp();
+  const { t, toast, confirm, theme } = useApp();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
+  const tg = TG_THEMES[theme];
 
   const [audience, setAudience] = useState<"all" | "active" | "trial" | "expired">("all");
   const [media, setMedia] = useState<MediaKind>("text");
@@ -357,25 +379,25 @@ export default function Broadcasts() {
         <div className="side-col" style={{ maxWidth: 420 }}>
           <div
             style={{
-              background: "#0e1621",
+              background: tg.chatBg,
               borderRadius: 10,
               padding: "18px 12px",
               minHeight: 220,
-              backgroundImage:
-                "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.03) 0 2px, transparent 2px)",
+              backgroundImage: `radial-gradient(circle at 20% 20%, ${tg.dot} 0 2px, transparent 2px)`,
               backgroundSize: "26px 26px",
             }}
           >
-            <div className="caps" style={{ color: "#5b6b7d", marginBottom: 10 }}>
+            <div className="caps" style={{ color: tg.meta, marginBottom: 10 }}>
               {t.preview} · TELEGRAM
             </div>
             <div style={{ maxWidth: 320 }}>
               <div
                 style={{
-                  background: "#182533",
+                  background: tg.bubble,
                   borderRadius: "4px 14px 14px 14px",
                   overflow: "hidden",
-                  color: "#f1f5f9",
+                  color: tg.text,
+                  boxShadow: theme === "light" ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
                 }}
               >
                 {media !== "text" &&
@@ -389,11 +411,10 @@ export default function Broadcasts() {
                     <div
                       style={{
                         height: 140,
-                        background:
-                          "repeating-linear-gradient(45deg,#20303f,#20303f 8px,#182533 8px,#182533 16px)",
+                        background: tg.mediaStripe,
                         display: "grid",
                         placeItems: "center",
-                        color: "#5b6b7d",
+                        color: tg.meta,
                         fontFamily: "JetBrains Mono, monospace",
                         fontSize: 11,
                       }}
@@ -403,8 +424,8 @@ export default function Broadcasts() {
                   ))}
                 <div style={{ padding: "8px 12px 6px", fontSize: 13.5, lineHeight: 1.45 }}>
                   {emojiId && <span title={`custom emoji ${emojiId}`}>⭐ </span>}
-                  <span dangerouslySetInnerHTML={{ __html: tgHtml(text) || "<span style='color:#5b6b7d'>…</span>" }} />
-                  <div style={{ textAlign: "right", fontSize: 10.5, color: "#5b6b7d", marginTop: 3 }}>
+                  <span dangerouslySetInnerHTML={{ __html: tgHtml(text) || `<span style='color:${tg.meta}'>…</span>` }} />
+                  <div style={{ textAlign: "right", fontSize: 10.5, color: tg.meta, marginTop: 3 }}>
                     {new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
                   </div>
                 </div>
