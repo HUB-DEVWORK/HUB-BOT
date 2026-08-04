@@ -408,17 +408,24 @@ async def act_connect(cb: CallbackQuery | Message, container: AppContainer, db_u
         return
     chosen = connection_apps(sub.subscription_url, sub.crypto_link, enabled)
     names = ", ".join(a["label"] for a in chosen)
-    apps = "\n".join(f"• {a['label']}: <code>{a['deep_link']}</code>" for a in chosen)
-    # Honor HIDE_SUBSCRIPTION_LINK here too (#5): drop the raw copyable URL, keep import links.
-    step2 = "2) Открой мини-приложение (импорт в один тап + QR)"
-    if not hide_link:
-        step2 += f" или вставь ссылку подписки вручную:\n\n<code>{sub.subscription_url}</code>"
-    text = (
-        "<b>🔌 Подключение</b>\n\n"
-        f"1) Поставь приложение: {names}.\n"
-        f"{step2}\n\n"
-        f"Ссылки-импорт:\n{apps}"
-    )
+    has_miniapp = miniapp_url.startswith("https://")
+    # The raw happ://add/… / incy://add/… deep-link dump was removed: shown as <code> it only
+    # confused people — tapping copies the whole scheme-prefixed string, which does NOT work
+    # when pasted into an app's "add subscription" field. The plain subscription URL below is
+    # what every client accepts. One-tap import lives in the mini-app. Honors HIDE_SUB_LINK (#5).
+    url_line = "" if hide_link else f"\n\n<code>{sub.subscription_url}</code>"
+    if has_miniapp:
+        step2 = "2) Открой мини-приложение — импорт в один тап и QR-код."
+        if not hide_link:
+            step2 += (
+                "\n\nИли вручную: скопируй ссылку ниже и вставь её в приложении в "
+                f"«Добавить подписку»:{url_line}"
+            )
+    elif not hide_link:
+        step2 = f"2) Скопируй ссылку и вставь её в приложении в «Добавить подписку»:{url_line}"
+    else:
+        step2 = "2) Нажми «Моя подписка», чтобы получить ссылку для подключения."
+    text = f"<b>🔌 Подключение</b>\n\n1) Поставь приложение: {names}.\n{step2}"
     kb: list[list[InlineKeyboardButton]] = []
     if miniapp_url.startswith("https://"):
         kb.append([webapp_button("📱 Открыть приложение", miniapp_url)])
