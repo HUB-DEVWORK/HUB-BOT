@@ -196,7 +196,15 @@ export default function Maintenance() {
       }>(probeUrl, { file_id: j.file_id });
       if (!applyProbe(probe)) setSbFileId(null);
     } catch (e) {
-      setSbResult(`✕ ${(e as Error).message}`);
+      // A raw "Failed to fetch" (fetch TypeError) on an upload almost always means the
+      // reverse proxy cut the request body — nginx defaults to a 1 MB client_max_body_size,
+      // and dumps are bigger. Turn the cryptic browser error into an actionable hint.
+      const msg = (e as Error).message;
+      setSbResult(
+        /failed to fetch|networkerror|load failed/i.test(msg)
+          ? `✕ ${t.migUploadCut}`
+          : `✕ ${msg}`,
+      );
       setSbFileId(null);
     } finally {
       setSbBusy(false);

@@ -20,6 +20,9 @@
 - systemd: `vpnshop-web` (uvicorn :8000), `vpnshop-bot`, `vpnshop-worker`,
   `vpnshop-scheduler`, `vpnshop-mockpanel` (:3010) — все с `MemoryMax` под размер RAM
 - nginx: 443 (LE-серт, авто-обновление certbot) → `/` → :8000, `/sub/` → :3010
+  - **важно:** в server-блоке нужен `client_max_body_size 200m;` — иначе загрузка
+    дампов на экране «Миграция» (.sql/.db) упирается в дефолтный лимит nginx 1 МБ и
+    падает с «Failed to fetch». Приложение принимает до 200 МБ.
 
 ## Деплой обновлений
 

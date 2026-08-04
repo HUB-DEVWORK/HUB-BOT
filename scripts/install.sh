@@ -351,6 +351,7 @@ if [ "$CADDY_ACTIVE" = 0 ]; then
   printf "\n"
   printf "     server {\n"
   printf "       server_name %s;\n" "${ENV_DOMAIN:-твой-домен}"
+  printf "       client_max_body_size 200m;  # миграция грузит .sql/.db дампы (nginx по умолчанию режет на 1 МБ)\n"
   printf "       location / {\n"
   printf "         proxy_pass http://127.0.0.1:%s;\n" "$WEB_PORT_OUT"
   printf "         proxy_set_header Host \$host;\n"
